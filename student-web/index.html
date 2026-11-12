@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Speaking Practice Room</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Supabase JS Client Local -->
+  <script src="js/supabase.js"></script>
+  <script src="env.js" onerror="console.info('env.js no encontrado, usando configuración por defecto.')"></script>
+</head>
+<body>
+  <div class="app-container">
+    
+    <!-- PANTALLA 1: INGRESO A LA SALA -->
+    <main id="join-screen" class="card active">
+      <header class="header">
+        <div class="logo-mark">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="23"/>
+            <line x1="8" y1="23" x2="16" y2="23"/>
+          </svg>
+        </div>
+        <h1>Speaking Session</h1>
+        <p class="subtitle">Ingresa tus datos para conectarte con tu profesor</p>
+      </header>
+
+      <form id="join-form" class="form">
+        <div class="field">
+          <label for="session-code">Código de Sesión</label>
+          <input
+            type="text"
+            id="session-code"
+            name="sessionCode"
+            placeholder="Ej. EFL-123"
+            maxlength="8"
+            required
+            autocomplete="off"
+            spellcheck="false"
+          />
+        </div>
+
+        <div class="field">
+          <label for="student-name">Tu Nombre</label>
+          <input
+            type="text"
+            id="student-name"
+            name="studentName"
+            placeholder="Nombre y Apellido"
+            maxlength="60"
+            required
+            autocomplete="name"
+          />
+        </div>
+
+        <button type="submit" id="btn-join" class="btn btn-primary">
+          <span>Unirse a la Sesión</span>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M5 12h14M12 5l7 7-7 7"/>
+          </svg>
+        </button>
+
+        <p id="join-error" class="error-msg" aria-live="polite"></p>
+      </form>
+    </main>
+
+    <!-- PANTALLA 2: SESIÓN ACTIVA (INTERFAZ MINIMALISTA) -->
+    <main id="session-screen" class="card session-card">
+      <header class="session-header">
+        <div class="room-pill">
+          <span class="dot"></span>
+          <span id="display-room-code">SALA: ---</span>
+        </div>
+        <span id="session-status-badge" class="badge badge-waiting">En Espera del Profesor</span>
+      </header>
+
+      <!-- INDICADOR CENTRAL DE GRABACIÓN / AUDIO ACTIVO -->
+      <section class="indicator-section">
+        <div class="visualizer-container" id="visualizer-container">
+          <div class="pulse-ring pulse-1"></div>
+          <div class="pulse-ring pulse-2"></div>
+          <div class="pulse-ring pulse-3"></div>
+          <div class="mic-circle" id="mic-status-circle">
+            <svg id="icon-mic-on" width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+              <line x1="12" y1="19" x2="12" y2="23"/>
+              <line x1="8" y1="23" x2="16" y2="23"/>
+            </svg>
+            <svg id="icon-mic-off" class="hidden" width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="1" y1="1" x2="23" y2="23"/>
+              <path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V5a3 3 0 0 0-5.68-1.33"/>
+              <path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"/>
+              <line x1="12" y1="19" x2="12" y2="23"/>
+              <line x1="8" y1="23" x2="16" y2="23"/>
+            </svg>
+          </div>
+        </div>
+
+        <h2 id="mic-status-label" class="status-label">Micrófono Activo</h2>
+        <p id="mic-status-sub" class="status-sub">Habla con naturalidad. Tu audio se transmite a tu profesor.</p>
+      </section>
+
+      <!-- CONTROLES BÁSICOS DE HARDWARE -->
+      <footer class="session-controls">
+        <button id="btn-toggle-mute" class="btn btn-control" title="Silenciar / Activar Micrófono">
+          <span class="control-icon" id="mute-button-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+              <line x1="12" y1="19" x2="12" y2="23"/>
+              <line x1="8" y1="23" x2="16" y2="23"/>
+            </svg>
+          </span>
+          <span id="mute-button-text">Silenciar</span>
+        </button>
+
+        <button id="btn-leave-session" class="btn btn-secondary" title="Abandonar Sesión">
+          <span>Salir</span>
+        </button>
+      </footer>
+    </main>
+
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

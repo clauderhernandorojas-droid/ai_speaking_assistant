@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IA Speaking Assistant - Panel del Docente</title>
+  <link rel="stylesheet" href="css/layout.css" />
+  <link rel="stylesheet" href="css/tabs.css" />
+  <link rel="stylesheet" href="css/cards.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-shell">
+
+    <!-- BARRA SUPERIOR: PERFIL, TIEMPO Y CONTROL DE SESIÓN -->
+    <header class="top-bar">
+      <div class="brand">
+        <div class="brand-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            <line x1="12" y1="19" x2="12" y2="23"/>
+            <line x1="8" y1="23" x2="16" y2="23"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>EFL Speaking Coach</h1>
+          <span class="brand-badge">IELTS Rubric Engine</span>
+        </div>
+      </div>
+
+      <!-- SELECTOR DE PERFIL DE ALUMNO -->
+      <div class="student-selector-group">
+        <label for="student-select">Alumno:</label>
+        <div class="select-wrapper">
+          <select id="student-select" class="form-select">
+            <option value="" disabled selected>Cargando alumnos...</option>
+          </select>
+        </div>
+        <select id="student-level-select" class="level-select badge-b1" title="Cambiar nivel CEFR del alumno">
+          <option value="A1">A1</option>
+          <option value="A2">A2</option>
+          <option value="B1" selected>B1</option>
+          <option value="B2">B2</option>
+          <option value="C1">C1</option>
+          <option value="C2">C2</option>
+        </select>
+        <button id="btn-edit-student" class="btn-icon" title="Editar perfil del alumno">✎</button>
+        <button id="btn-new-student" class="btn-icon" title="Registrar nuevo alumno">+</button>
+      </div>
+
+      <!-- SELECTOR DE TIEMPO (5, 10, 15 MIN) -->
+      <div class="duration-selector-group">
+        <label>Tiempo:</label>
+        <div class="duration-pill-group">
+          <button class="duration-btn" data-minutes="5">5 min</button>
+          <button class="duration-btn active" data-minutes="10">10 min</button>
+          <button class="duration-btn" data-minutes="15">15 min</button>
+        </div>
+      </div>
+
+      <!-- CONTROLES DE SALA Y TEMPORIZADOR -->
+      <div class="session-action-group">
+        <div class="room-tag">
+          <span class="room-label">SALA:</span>
+          <span id="room-code-display" class="room-code">EFL-842</span>
+          <button id="btn-copy-code" class="btn-copy-code" title="Copiar código de sala" aria-label="Copiar código de sala">
+            <svg class="icon-copy" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+            <span id="copy-tooltip-text" class="copy-badge hidden">Copiado</span>
+          </button>
+        </div>
+        <span id="student-connection-pill" class="connection-pill disconnected">Estudiante Desconectado</span>
+        <div id="session-timer" class="timer-display">10:00</div>
+        <button id="btn-toggle-session" class="btn btn-start">
+          <span class="btn-indicator"></span>
+          <span id="session-btn-text">Iniciar Sesión</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- CUERPO PRINCIPAL: SPLIT VIEW -->
+    <main class="split-container">
+
+      <!-- PANEL IZQUIERDO: TRANSCRIPCIÓN CORRIDA DE LA CONVERSACIÓN -->
+      <section class="panel panel-left" aria-label="Transcripción de la Conversación">
+        <header class="panel-header">
+          <div class="panel-title-area">
+            <h2>Transcripción Corrida</h2>
+            <span class="panel-subtitle">Transcripción Verbatim &bull; Flujo Conversacional Literal</span>
+          </div>
+          <div class="panel-tools">
+            <span id="recording-pulse" class="live-dot hidden"></span>
+            <span id="transcript-status" class="status-pill">En Espera</span>
+          </div>
+        </header>
+
+        <div id="transcript-feed" class="transcript-feed">
+          <!-- Mensaje placeholder cuando no hay conversación activa -->
+          <div id="transcript-empty-state" class="empty-state">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
+            <p>La transcripción verbatim de la conversación aparecerá aquí cuando finalice o se procese el audio de la sesión.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- PANEL DERECHO: PANEL DE RETROALIMENTACIÓN (5 PESTAÑAS MAESTRAS) -->
+      <section class="panel panel-right" aria-label="Retroalimentación Pedagógica">
+        <header class="panel-header">
+          <div class="panel-title-area">
+            <h2>Retroalimentación Quirúrgica</h2>
+            <span class="panel-subtitle">Alineado a Descriptores de Desempeño IELTS</span>
+          </div>
+          <div class="panel-tools">
+            <span class="target-level-info">Nivel Evaluado: <strong id="eval-level-label">B1</strong></span>
+            <button id="btn-export-report" class="btn-export-report" disabled title="Guardar reporte HTML de la sesión">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+              </svg>
+              <span id="export-btn-label">Guardar Reporte</span>
+            </button>
+          </div>
+        </header>
+
+        <!-- 5 PESTAÑAS MAESTRAS -->
+        <nav class="master-tabs-nav" role="tablist">
+          <button class="tab-btn active" data-tab="grammar" role="tab" aria-selected="true">
+            <span class="tab-name">Gramática</span>
+            <span class="tab-counter" id="counter-grammar">0</span>
+          </button>
+          <button class="tab-btn" data-tab="vocabulary" role="tab" aria-selected="false">
+            <span class="tab-name">Vocabulario</span>
+            <span class="tab-counter" id="counter-vocabulary">0</span>
+          </button>
+          <button class="tab-btn" data-tab="pronunciation" role="tab" aria-selected="false">
+            <span class="tab-name">Pronunciación</span>
+            <span class="tab-counter" id="counter-pronunciation">0</span>
+          </button>
+          <button class="tab-btn" data-tab="upgrade_c1" role="tab" aria-selected="false">
+            <span class="tab-name">Upgrade C1</span>
+            <span class="tab-counter" id="counter-upgrade_c1">0</span>
+          </button>
+          <button class="tab-btn" data-tab="fluency" role="tab" aria-selected="false">
+            <span class="tab-name">Fluidez</span>
+            <span class="tab-counter" id="counter-fluency">0</span>
+          </button>
+        </nav>
+
+        <!-- CONTENEDORES DE CONTENIDO DE CADA PESTAÑA -->
+        <div class="tab-content-area">
+          <div id="tab-pane-grammar" class="tab-pane active" data-tab="grammar"></div>
+          <div id="tab-pane-vocabulary" class="tab-pane" data-tab="vocabulary"></div>
+          <div id="tab-pane-pronunciation" class="tab-pane" data-tab="pronunciation"></div>
+          <div id="tab-pane-upgrade_c1" class="tab-pane" data-tab="upgrade_c1"></div>
+          <div id="tab-pane-fluency" class="tab-pane" data-tab="fluency"></div>
+        </div>
+
+        <!-- OBSERVACIONES DEL DOCENTE PARA EL REPORTE -->
+        <footer class="panel-observations-footer">
+          <div class="observations-header">
+            <label for="teacher-observations">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+              </svg>
+              <span>Observaciones del Docente para el Reporte</span>
+            </label>
+          </div>
+          <textarea id="teacher-observations" class="observations-textarea" rows="2" placeholder="Agrega comentarios pedagógicos, fortalezas o tareas recomendadas para el alumno..."></textarea>
+        </footer>
+      </section>
+
+    </main>
+
+    <!-- MODAL: REGISTRAR NUEVO ALUMNO -->
+    <div id="modal-new-student" class="modal-backdrop hidden">
+      <div class="modal-card">
+        <header class="modal-header">
+          <h3 id="modal-student-title">Registrar Perfil de Alumno</h3>
+          <button id="modal-close" class="btn-close">&times;</button>
+        </header>
+        <form id="form-new-student" class="modal-form">
+          <div class="form-group">
+            <label for="new-student-name">Nombre y Apellido</label>
+            <input type="text" id="new-student-name" required placeholder="Ej. Valentina Ríos" />
+          </div>
+          <div class="form-group">
+            <label for="new-student-level">Nivel Predeterminado (MCER / IELTS)</label>
+            <select id="new-student-level" class="form-select">
+              <option value="A1">A1 - Beginner</option>
+              <option value="A2">A2 - Elementary</option>
+              <option value="B1" selected>B1 - Intermediate (IELTS ~4.0 - 5.0)</option>
+              <option value="B2">B2 - Upper Intermediate (IELTS ~5.5 - 6.5)</option>
+              <option value="C1">C1 - Advanced (IELTS ~7.0 - 8.0)</option>
+              <option value="C2">C2 - Proficiency (IELTS 8.5+)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="new-student-notes">Notas Pedagógicas</label>
+            <textarea id="new-student-notes" rows="3" placeholder="Objetivos específicos, puntos débiles detectados..."></textarea>
+          </div>
+          <div class="modal-actions">
+            <button type="button" id="btn-cancel-student" class="btn btn-secondary">Cancelar</button>
+            <button type="submit" id="btn-save-student" class="btn btn-primary">Guardar Alumno</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- MODAL: ADVERTENCIA DE NUEVA SESIÓN Y EXPORTACIÓN PREVIA -->
+    <div id="modal-session-confirm" class="modal-backdrop hidden">
+      <div class="modal-card modal-card-confirm">
+        <header class="modal-header">
+          <div class="modal-title-with-icon">
+            <span class="warning-icon">&#9888;</span>
+            <h3>Sesión Existente en Pantalla</h3>
+          </div>
+          <button id="modal-confirm-close" class="btn-close">&times;</button>
+        </header>
+        <div class="modal-confirm-body">
+          <p>Actualmente hay una transcripción y tarjetas de evaluación en pantalla. Iniciar una nueva sesión limpiará estos datos para dar lugar a la nueva grabación.</p>
+          <p class="modal-subtext">¿Deseas descargar un reporte HTML completo de la sesión actual antes de comenzar?</p>
+        </div>
+        <div class="modal-actions-confirm">
+          <button type="button" id="btn-save-and-start" class="btn btn-primary btn-block">
+            <span>&#128190;</span> Guardar Reporte y Continuar
+          </button>
+          <div class="secondary-actions-group">
+            <button type="button" id="btn-discard-and-start" class="btn btn-danger-subtle">Descartar e Iniciar Nueva</button>
+            <button type="button" id="btn-cancel-start" class="btn btn-secondary">Cancelar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="js/renderer.js"></script>
+</body>
+</html>
+

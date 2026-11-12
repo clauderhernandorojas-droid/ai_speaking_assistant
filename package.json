@@ -1,0 +1,21 @@
+{
+  "name": "ia-speaking-assistant",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Asistente de evaluación oral en inglés (EFL) con vista web para estudiantes y escritorio Electron para docentes",
+  "scripts": {
+    "start:student": "npx serve student-web -p 3000",
+    "start:teacher": "npm run start --prefix teacher-app",
+    "setup": "npm install --prefix teacher-app"
+  },
+  "keywords": [
+    "efl",
+    "ielts",
+    "speech-assessment",
+    "electron",
+    "supabase"
+  ],
+  "author": "",
+  "license": "MIT"
+}
+

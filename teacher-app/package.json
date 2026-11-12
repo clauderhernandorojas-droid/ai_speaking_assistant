@@ -1,0 +1,21 @@
+{
+  "name": "teacher-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Aplicación de escritorio para el docente con evaluación oral asistida por IA",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron ."
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@supabase/supabase-js": "^2.45.0",
+    "better-sqlite3": "^11.8.1",
+    "dotenv": "^16.4.5",
+    "ws": "^8.22.2"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0"
+  }
+}
