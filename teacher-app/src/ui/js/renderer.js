@@ -7,6 +7,7 @@
 // ESTADO GLOBAL DE LA SESIÓN DOCENTE
 const state = {
   currentStudent: null,
+  selectedStudentId: null,
   targetLevel: 'B1',
   editingStudentId: null,
   durationMinutes: 10,
@@ -85,7 +86,7 @@ function generateRoomCode() {
 // ==============================================================================
 // 2. GESTIÓN DE ALUMNOS (SQLITE LOCAL VÍA IPC)
 // ==============================================================================
-async function loadStudentsFromDb() {
+async function loadStudentsFromDb(selectTarget = null) {
   try {
     let students = [];
     if (window.electronAPI && typeof window.electronAPI.getStudents === 'function') {
@@ -100,27 +101,45 @@ async function loadStudentsFromDb() {
     }
 
     studentSelect.innerHTML = '';
-    students.forEach((s) => {
+    const target = selectTarget !== null && selectTarget !== undefined ? selectTarget : state.selectedStudentId;
+    let targetIndex = -1;
+
+    students.forEach((s, idx) => {
       const opt = document.createElement('option');
-      opt.value = s.id;
+      opt.value = String(s.id);
       opt.textContent = `${s.name} (${s.default_level})`;
       opt.dataset.level = s.default_level;
       opt.dataset.name = s.name;
       opt.dataset.notes = s.notes || '';
       studentSelect.appendChild(opt);
+
+      if (target !== null && target !== undefined) {
+        if (String(s.id) === String(target) || s.name.trim().toLowerCase() === String(target).trim().toLowerCase()) {
+          targetIndex = idx;
+        }
+      }
     });
 
-    if (students.length > 0) {
+    if (targetIndex !== -1) {
+      studentSelect.selectedIndex = targetIndex;
+      studentSelect.value = String(students[targetIndex].id);
+      updateSelectedStudent(students[targetIndex]);
+    } else if (students.length > 0) {
+      studentSelect.selectedIndex = 0;
+      studentSelect.value = String(students[0].id);
       updateSelectedStudent(students[0]);
     }
+    return students;
   } catch (err) {
     console.error('Error al cargar alumnos de SQLite:', err);
+    return [];
   }
 }
 
 function updateSelectedStudent(student) {
   state.currentStudent = student;
-  const level = student.default_level || 'B1';
+  state.selectedStudentId = student ? student.id : null;
+  const level = (student && student.default_level) || 'B1';
   state.targetLevel = level;
   
   // Actualizar selector de nivel en la barra superior y badge visual
@@ -159,16 +178,17 @@ async function syncStudentFromSession(rawName) {
     // Ya existe en la lista: seleccionarlo y aplicar su nivel
     studentSelect.selectedIndex = foundIndex;
     const opt = studentSelect.options[foundIndex];
+    studentSelect.value = String(opt.value);
     updateSelectedStudent({
       id: opt.value,
       name: opt.dataset.name,
       default_level: opt.dataset.level || 'B1',
       notes: opt.dataset.notes || ''
     });
-    console.log(`[UI] Estudiante existente seleccionado en dropdown: "${opt.dataset.name}" (${opt.dataset.level})`);
+    console.log(`[UI] Estudiante existente seleccionado en dropdown: "${opt.dataset.name}" (ID: ${opt.value}, Nivel: ${opt.dataset.level})`);
   } else {
     // No existe: crearlo en SQLite local con B1 por defecto
-    console.log(`[UI] Estudiante "${targetName}" no registrado localmente. Creando automáticamente con B1...`);
+    console.log(`[UI] Estudiante "${targetName}" no registrado localmente. Creando en SQLite con B1...`);
     let createdStudent = null;
     if (window.electronAPI && typeof window.electronAPI.createStudent === 'function') {
       try {
@@ -182,23 +202,10 @@ async function syncStudentFromSession(rawName) {
       }
     }
 
-    if (!createdStudent || !createdStudent.id) {
-      createdStudent = { id: Date.now(), name: targetName, default_level: 'B1', notes: '' };
-    }
-
-    // Agregar la nueva opción al dropdown
-    const opt = document.createElement('option');
-    opt.value = createdStudent.id;
-    opt.textContent = `${createdStudent.name} (${createdStudent.default_level})`;
-    opt.dataset.level = createdStudent.default_level;
-    opt.dataset.name = createdStudent.name;
-    opt.dataset.notes = createdStudent.notes || '';
-    studentSelect.appendChild(opt);
-
-    // Dejarlo seleccionado inmediatamente
-    studentSelect.selectedIndex = studentSelect.options.length - 1;
-    updateSelectedStudent(createdStudent);
-    console.log(`[UI] Nuevo estudiante creado y seleccionado en dropdown: "${createdStudent.name}" (${createdStudent.default_level})`);
+    const selectTarget = (createdStudent && createdStudent.id) ? createdStudent.id : targetName;
+    // Recargar la lista oficial completa desde la base de datos y dejar seleccionado al alumno
+    await loadStudentsFromDb(selectTarget);
+    console.log(`[UI] Alumno "${targetName}" sincronizado y seleccionado desde SQLite con ID: ${state.selectedStudentId}`);
   }
 }
 
@@ -224,7 +231,7 @@ if (studentLevelSelect) {
       evalLevelLabel.textContent = newLevel;
     }
 
-    if (state.currentStudent) {
+    if (state.currentStudent && state.currentStudent.id) {
       state.currentStudent.default_level = newLevel;
       const selectedOpt = studentSelect.options[studentSelect.selectedIndex];
       if (selectedOpt) {
@@ -259,7 +266,10 @@ if (btnNewStudent) {
 
 if (btnEditStudent) {
   btnEditStudent.addEventListener('click', () => {
-    if (!state.currentStudent) return;
+    if (!state.currentStudent || !state.currentStudent.id) {
+      console.warn('[UI] No hay un estudiante válido seleccionado para editar.');
+      return;
+    }
     state.editingStudentId = state.currentStudent.id;
     if (modalStudentTitle) modalStudentTitle.textContent = 'Editar Perfil de Alumno';
     if (btnSaveStudent) btnSaveStudent.textContent = 'Actualizar Alumno';
@@ -298,42 +308,29 @@ formNewStudent.addEventListener('submit', async (e) => {
 
   if (state.editingStudentId) {
     // Modo Edición
+    const targetId = state.editingStudentId;
+    console.log(`[UI] Guardando cambios de alumno ID ${targetId}: "${name}" (${defaultLevel})...`);
     if (window.electronAPI && typeof window.electronAPI.updateStudent === 'function') {
       try {
-        await window.electronAPI.updateStudent(state.editingStudentId, { name, defaultLevel, notes });
+        await window.electronAPI.updateStudent(targetId, { name, defaultLevel, notes });
       } catch (err) {
         console.error('[UI] Error al actualizar alumno:', err);
       }
     }
-    const editedId = state.editingStudentId;
-    await loadStudentsFromDb();
-    // Seleccionar el alumno editado
-    for (let i = 0; i < studentSelect.options.length; i++) {
-      if (String(studentSelect.options[i].value) === String(editedId)) {
-        studentSelect.selectedIndex = i;
-        studentSelect.dispatchEvent(new Event('change'));
-        break;
-      }
-    }
+    await loadStudentsFromDb(targetId);
   } else {
     // Modo Creación
+    console.log(`[UI] Registrando nuevo alumno: "${name}" (${defaultLevel})...`);
+    let created = null;
     if (window.electronAPI && typeof window.electronAPI.createStudent === 'function') {
       try {
-        await window.electronAPI.createStudent({ name, defaultLevel, notes });
+        created = await window.electronAPI.createStudent({ name, defaultLevel, notes });
       } catch (err) {
         console.error('[UI] Error al crear alumno:', err);
       }
     }
-
-    await loadStudentsFromDb();
-    // Seleccionar el alumno recién creado
-    for (let i = 0; i < studentSelect.options.length; i++) {
-      if (studentSelect.options[i].dataset.name === name) {
-        studentSelect.selectedIndex = i;
-        studentSelect.dispatchEvent(new Event('change'));
-        break;
-      }
-    }
+    const selectTarget = (created && created.id) ? created.id : name;
+    await loadStudentsFromDb(selectTarget);
   }
 
   closeModal();

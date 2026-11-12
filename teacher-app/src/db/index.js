@@ -104,10 +104,12 @@ function getStudents() {
 }
 
 function createStudent(name, defaultLevel = 'B1', notes = '') {
+  if (!db) return null;
   if (typeof db.prepare === 'function') {
     const stmt = db.prepare('INSERT INTO students (name, default_level, notes) VALUES (?, ?, ?)');
     const info = stmt.run(name, defaultLevel, notes);
-    return { id: info.lastInsertRowid, name, default_level: defaultLevel, notes };
+    const newId = Number(info.lastInsertRowid);
+    return { id: newId, name, default_level: defaultLevel, notes };
   } else {
     const student = { id: Date.now(), name, default_level: defaultLevel, notes };
     db._students = db._students || [];
@@ -119,20 +121,44 @@ function createStudent(name, defaultLevel = 'B1', notes = '') {
 function updateStudent(studentId, updates = {}) {
   const { name, defaultLevel, notes } = updates;
   if (!db) return null;
+  const idNum = Number(studentId);
+  if (!idNum) {
+    console.warn('[DB updateStudent] studentId inválido:', studentId);
+    return null;
+  }
+
   if (typeof db.prepare === 'function') {
-    const stmt = db.prepare(`
-      UPDATE students 
-      SET name = COALESCE(?, name),
-          default_level = COALESCE(?, default_level),
-          notes = CASE WHEN ? IS NOT NULL THEN ? ELSE notes END,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `);
-    stmt.run(name || null, defaultLevel || null, notes !== undefined ? 1 : null, notes || '', studentId);
-    return db.prepare('SELECT * FROM students WHERE id = ?').get(studentId);
+    try {
+      const stmt = db.prepare(`
+        UPDATE students 
+        SET name = COALESCE(?, name),
+            default_level = COALESCE(?, default_level),
+            notes = CASE WHEN ? IS NOT NULL THEN ? ELSE notes END,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `);
+      stmt.run(name || null, defaultLevel || null, notes !== undefined ? 1 : null, notes || '', idNum);
+      return db.prepare('SELECT * FROM students WHERE id = ?').get(idNum);
+    } catch (err) {
+      if (err.message && err.message.includes('CHECK constraint failed')) {
+        console.warn('[DB updateStudent] Fallo de restricción CHECK, migrando tabla students y reintentando...');
+        migrateStudentsTableIfNeeded();
+        const stmt = db.prepare(`
+          UPDATE students 
+          SET name = COALESCE(?, name),
+              default_level = COALESCE(?, default_level),
+              notes = CASE WHEN ? IS NOT NULL THEN ? ELSE notes END,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `);
+        stmt.run(name || null, defaultLevel || null, notes !== undefined ? 1 : null, notes || '', idNum);
+        return db.prepare('SELECT * FROM students WHERE id = ?').get(idNum);
+      }
+      throw err;
+    }
   } else {
     const list = db._students || [];
-    const idx = list.findIndex(s => s.id == studentId);
+    const idx = list.findIndex(s => Number(s.id) === idNum);
     if (idx !== -1) {
       if (name) list[idx].name = name;
       if (defaultLevel) list[idx].default_level = defaultLevel;
@@ -205,11 +231,14 @@ function getFeedbackBySession(sessionId) {
  */
 function createFallbackDb(dbPath) {
   return {
-    _students: [],
+    _students: [
+      { id: 1, name: 'Mariana Torres', default_level: 'B1', notes: 'Intermedio' },
+      { id: 2, name: 'Alejandro Ruiz', default_level: 'B2', notes: 'Upper-Intermediate' },
+      { id: 3, name: 'Sofía Gómez', default_level: 'C1', notes: 'Avanzado' }
+    ],
     _sessions: [],
     _feedback: [],
-    exec: () => {},
-    prepare: () => ({ all: () => [], run: () => ({ lastInsertRowid: Date.now() }) })
+    exec: () => {}
   };
 }
 

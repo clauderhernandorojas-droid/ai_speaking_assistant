@@ -70,12 +70,22 @@ ipcMain.handle('db:getStudents', async () => {
 });
 
 ipcMain.handle('db:createStudent', async (event, studentData) => {
-  const { name, defaultLevel, notes } = studentData;
-  return dbService.createStudent(name, defaultLevel, notes);
+  try {
+    const { name, defaultLevel, notes } = studentData || {};
+    return await dbService.createStudent(name, defaultLevel, notes);
+  } catch (err) {
+    console.error('[MAIN db:createStudent ERROR]', err);
+    throw err;
+  }
 });
 
 ipcMain.handle('db:updateStudent', async (event, studentId, studentData) => {
-  return dbService.updateStudent(studentId, studentData);
+  try {
+    return await dbService.updateStudent(studentId, studentData);
+  } catch (err) {
+    console.error('[MAIN db:updateStudent ERROR]', err);
+    throw err;
+  }
 });
 
 ipcMain.handle('db:createSession', async (event, sessionData) => {
