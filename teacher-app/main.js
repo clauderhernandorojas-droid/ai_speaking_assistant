@@ -88,6 +88,16 @@ ipcMain.handle('db:updateStudent', async (event, studentId, studentData) => {
   }
 });
 
+ipcMain.handle('db:deleteStudent', async (event, studentId) => {
+  try {
+    const id = Number(studentId);
+    return await dbService.deleteStudent(id);
+  } catch (err) {
+    console.error('[MAIN db:deleteStudent ERROR]', err);
+    throw err;
+  }
+});
+
 ipcMain.handle('db:createSession', async (event, sessionData) => {
   const { studentId, sessionCode, durationMinutes } = sessionData;
   return dbService.createSession(studentId, sessionCode, durationMinutes);

@@ -169,6 +169,93 @@ function updateStudent(studentId, updates = {}) {
   }
 }
 
+function deleteStudent(studentId) {
+  if (!db) return false;
+  const idNum = Number(studentId);
+  if (!idNum) {
+    console.warn('[DB deleteStudent] studentId inválido:', studentId);
+    throw new Error(`ID de alumno inválido para eliminar: "${studentId}"`);
+  }
+
+  if (typeof db.prepare === 'function') {
+    const runDelete = (id) => {
+      // 1. Obtener todas las sesiones vinculadas al estudiante
+      let sessionIds = [];
+      try {
+        const sessionRows = db.prepare('SELECT id FROM sessions WHERE student_id = ?').all(id);
+        sessionIds = sessionRows.map(s => s.id);
+      } catch (err) {
+        console.warn('[DB deleteStudent] Error al leer sesiones:', err.message);
+      }
+
+      // 2. Eliminar registros hijos en cascada (feedback_items, transcript_turns, turns)
+      if (sessionIds.length > 0) {
+        // feedback_items
+        try {
+          const delFeedbackStmt = db.prepare('DELETE FROM feedback_items WHERE session_id = ?');
+          for (const sId of sessionIds) {
+            delFeedbackStmt.run(sId);
+          }
+        } catch (err) {
+          console.warn('[DB deleteStudent] Aviso al eliminar feedback_items:', err.message);
+        }
+
+        // transcript_turns (si existe en la base de datos)
+        try {
+          const hasTranscriptTurns = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='transcript_turns'").get();
+          if (hasTranscriptTurns) {
+            const delTurns = db.prepare('DELETE FROM transcript_turns WHERE session_id = ?');
+            for (const sId of sessionIds) {
+              delTurns.run(sId);
+            }
+          }
+        } catch (_) {}
+
+        // turns (si existe en la base de datos)
+        try {
+          const hasTurns = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='turns'").get();
+          if (hasTurns) {
+            const delTurns = db.prepare('DELETE FROM turns WHERE session_id = ?');
+            for (const sId of sessionIds) {
+              delTurns.run(sId);
+            }
+          }
+        } catch (_) {}
+
+        // 3. Eliminar las sesiones del estudiante
+        try {
+          db.prepare('DELETE FROM sessions WHERE student_id = ?').run(id);
+        } catch (err) {
+          console.warn('[DB deleteStudent] Error al eliminar sesiones:', err.message);
+        }
+      }
+
+      // Desvincular cualquier sesión residual que pudiera tener student_id
+      try {
+        db.prepare('DELETE FROM sessions WHERE student_id = ?').run(id);
+      } catch (_) {}
+
+      // 4. Eliminar el registro del alumno
+      const res = db.prepare('DELETE FROM students WHERE id = ?').run(id);
+      return res.changes > 0;
+    };
+
+    if (typeof db.transaction === 'function') {
+      const deleteTx = db.transaction(runDelete);
+      return deleteTx(idNum);
+    } else {
+      return runDelete(idNum);
+    }
+  } else {
+    // Modo fallback en memoria
+    db._students = (db._students || []).filter(s => Number(s.id) !== idNum);
+    const sessionIdsToDelete = (db._sessions || []).filter(s => Number(s.student_id) === idNum).map(s => s.id);
+    db._sessions = (db._sessions || []).filter(s => Number(s.student_id) !== idNum);
+    db._feedback = (db._feedback || []).filter(f => !sessionIdsToDelete.includes(f.session_id));
+    return true;
+  }
+}
+
 function createSession(studentId, sessionCode, durationMinutes) {
   if (typeof db.prepare === 'function') {
     const stmt = db.prepare('INSERT INTO sessions (student_id, session_code, duration_minutes, started_at, status) VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?)');
@@ -247,6 +334,7 @@ module.exports = {
   getStudents,
   createStudent,
   updateStudent,
+  deleteStudent,
   createSession,
   updateSession,
   addFeedbackItem,

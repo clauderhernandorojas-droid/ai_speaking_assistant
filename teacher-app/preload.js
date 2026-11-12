@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getStudents: () => ipcRenderer.invoke('db:getStudents'),
   createStudent: (studentData) => ipcRenderer.invoke('db:createStudent', studentData),
   updateStudent: (studentId, studentData) => ipcRenderer.invoke('db:updateStudent', studentId, studentData),
+  deleteStudent: (studentId) => ipcRenderer.invoke('db:deleteStudent', studentId),
   createSession: (sessionData) => ipcRenderer.invoke('db:createSession', sessionData),
   updateSession: (sessionId, updates) => ipcRenderer.invoke('db:updateSession', sessionId, updates),
   addFeedbackItem: (feedbackData) => ipcRenderer.invoke('db:addFeedbackItem', feedbackData),

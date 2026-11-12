@@ -37,6 +37,7 @@ const btnNewStudent = document.getElementById('btn-new-student');
 const modalNewStudent = document.getElementById('modal-new-student');
 const modalStudentTitle = document.getElementById('modal-student-title');
 const btnSaveStudent = document.getElementById('btn-save-student');
+const btnDeleteStudent = document.getElementById('btn-delete-student');
 const modalClose = document.getElementById('modal-close');
 const btnCancelStudent = document.getElementById('btn-cancel-student');
 const formNewStudent = document.getElementById('form-new-student');
@@ -128,6 +129,8 @@ async function loadStudentsFromDb(selectTarget = null) {
       studentSelect.selectedIndex = 0;
       studentSelect.value = String(students[0].id);
       updateSelectedStudent(students[0]);
+    } else {
+      updateSelectedStudent(null);
     }
     return students;
   } catch (err) {
@@ -257,6 +260,7 @@ if (btnNewStudent) {
     state.editingStudentId = null;
     if (modalStudentTitle) modalStudentTitle.textContent = 'Registrar Perfil de Alumno';
     if (btnSaveStudent) btnSaveStudent.textContent = 'Guardar Alumno';
+    if (btnDeleteStudent) btnDeleteStudent.classList.add('hidden');
     formNewStudent.reset();
     modalNewStudent.classList.remove('hidden');
     const nameInput = document.getElementById('new-student-name');
@@ -273,6 +277,7 @@ if (btnEditStudent) {
     state.editingStudentId = state.currentStudent.id;
     if (modalStudentTitle) modalStudentTitle.textContent = 'Editar Perfil de Alumno';
     if (btnSaveStudent) btnSaveStudent.textContent = 'Actualizar Alumno';
+    if (btnDeleteStudent) btnDeleteStudent.classList.remove('hidden');
 
     const nameInput = document.getElementById('new-student-name');
     const levelSelect = document.getElementById('new-student-level');
@@ -291,12 +296,50 @@ function closeModal() {
   modalNewStudent.classList.add('hidden');
   formNewStudent.reset();
   state.editingStudentId = null;
+  if (btnDeleteStudent) btnDeleteStudent.classList.add('hidden');
   if (modalStudentTitle) modalStudentTitle.textContent = 'Registrar Perfil de Alumno';
   if (btnSaveStudent) btnSaveStudent.textContent = 'Guardar Alumno';
 }
 
 modalClose.addEventListener('click', closeModal);
 btnCancelStudent.addEventListener('click', closeModal);
+
+if (btnDeleteStudent) {
+  btnDeleteStudent.addEventListener('click', async () => {
+    const rawId = state.editingStudentId || state.selectedStudentId || (state.currentStudent && state.currentStudent.id);
+    const studentIdToDelete = Number(rawId);
+    if (!studentIdToDelete || isNaN(studentIdToDelete)) {
+      alert('No se pudo determinar el ID del alumno a eliminar.');
+      return;
+    }
+
+    const studentName = (state.currentStudent && state.currentStudent.name) || 'este alumno';
+    const confirmed = window.confirm(`¿Estás seguro de eliminar a ${studentName}? Esta acción no se puede deshacer.`);
+    if (!confirmed) return;
+
+    console.log(`[UI] Eliminando estudiante ID ${studentIdToDelete}: "${studentName}"...`);
+    if (window.electronAPI && typeof window.electronAPI.deleteStudent === 'function') {
+      try {
+        await window.electronAPI.deleteStudent(studentIdToDelete);
+        console.log(`[UI] Estudiante "${studentName}" eliminado de SQLite.`);
+      } catch (err) {
+        console.error('[UI] Error al eliminar estudiante de SQLite:', err);
+        const errMsg = err && err.message ? err.message : String(err);
+        const cleanMsg = errMsg.replace(/^Error invoking remote method '[^']+':\s*(Error:\s*)?/, '');
+        alert(`Ocurrió un error al eliminar el alumno: ${cleanMsg}`);
+        return;
+      }
+    } else {
+      alert('Ocurrió un error al eliminar el alumno: Función deleteStudent no disponible en el proceso principal.');
+      return;
+    }
+
+    closeModal();
+    // Limpiar id seleccionado para que loadStudentsFromDb seleccione el primero restante
+    state.selectedStudentId = null;
+    await loadStudentsFromDb();
+  });
+}
 
 formNewStudent.addEventListener('submit', async (e) => {
   e.preventDefault();
