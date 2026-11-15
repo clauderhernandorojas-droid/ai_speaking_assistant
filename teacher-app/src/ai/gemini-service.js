@@ -244,63 +244,101 @@ Analyze according to the 5 tabs and output ONLY the valid JSON array starting wi
   /**
    * Genera un micro-ejercicio interactivo con IA calibrado según el nivel CEFR y tipo seleccionado
    */
-  async generateMicroExercise({ category = 'grammar', studentQuote = '', surgicalCorrection = '', explanation = '', targetLevel = 'B1', preferredType = null, seed = null }) {
+  async generateMicroExercise({ category = 'grammar', studentQuote = '', surgicalCorrection = '', explanation = '', targetLevel = 'B1', preferredType = null, seed = null } = {}) {
     const exerciseId = `ex_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
     const randomNonce = seed || `${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
 
-    // Calibración automática del tipo de ejercicio si no se especificó preferredType
-    let selectedType = (preferredType || '').toLowerCase().trim();
-    const validTypes = ['multiple_choice', 'spot_the_error', 'key_word_transformation'];
-    if (!validTypes.includes(selectedType)) {
+    // 1. Resolución explícita del tipo de ejercicio antes de llamar a Gemini
+    const requested = (preferredType || '').toLowerCase().trim();
+    let resolvedType = 'multiple_choice';
+
+    if (['spot_the_error', 'key_word_transformation', 'multiple_choice'].includes(requested)) {
+      resolvedType = requested;
+    } else {
+      // Auto o no especificado: calibración según nivel CEFR y categoría
       const normLevel = (targetLevel || 'B1').toUpperCase().trim();
       const isHighLevel = ['B2', 'C1', 'C2'].includes(normLevel);
       const isUpgrade = (category || '').toLowerCase().includes('upgrade') || (category || '').toLowerCase() === 'c1';
 
-      if (isUpgrade || (isHighLevel && Math.random() > 0.45)) {
-        selectedType = 'key_word_transformation';
-      } else if (isHighLevel || Math.random() > 0.5) {
-        selectedType = 'spot_the_error';
+      if (isUpgrade || isHighLevel) {
+        resolvedType = Math.random() < 0.5 ? 'key_word_transformation' : 'spot_the_error';
       } else {
-        selectedType = 'multiple_choice';
+        resolvedType = Math.random() < 0.5 ? 'spot_the_error' : 'multiple_choice';
       }
     }
 
-    let typePromptInstructions = '';
-    if (selectedType === 'multiple_choice') {
-      typePromptInstructions = `
-TYPE: "multiple_choice"
+    console.log(`[GEMINI generateMicroExercise] resolvedType: "${resolvedType}" (preferredType: "${preferredType}", targetLevel: "${targetLevel}", category: "${category}")`);
+
+    // 2. Construcción de instrucciones y esquema JSON exclusivo para el resolvedType
+    let typeInstructions = '';
+    let jsonSchemaExample = '';
+
+    if (resolvedType === 'spot_the_error') {
+      typeInstructions = `TASK: SPOT THE ERROR (Grammar/Vocabulary diagnostic)
+Create a single coherent English sentence divided into EXACTLY 4 sequential segments.
+- EXACTLY ONE segment MUST contain a subtle error of the same diagnosed linguistic rule/pattern (syntax, preposition, collocation, subject-verb agreement, false cognate).
+- The other 3 segments MUST be grammatically and semantically flawless.
+- "segments": Array of EXACTLY 4 strings. When concatenated in order (0 -> 1 -> 2 -> 3), they form the complete sentence.
+- "errorSegmentIndex": Integer (0, 1, 2, or 3) indicating which segment contains the error.
+- "correctedSegment": The exact replacement string showing how that error segment should be written correctly.
+- "promptSentence": The full sentence as a single coherent string.
+- "instruction": "Encuentra y pulsa el segmento que contiene el error:"`;
+
+      jsonSchemaExample = `{
+  "exerciseId": "${exerciseId}",
+  "type": "spot_the_error",
+  "category": "${category}",
+  "instruction": "Encuentra y pulsa el segmento que contiene el error:",
+  "promptSentence": "Although the team worked very hardly all week, they failed to meet the deadline.",
+  "segments": ["Although the team worked", "very hardly all week,", "they failed to meet", "the deadline."],
+  "errorSegmentIndex": 1,
+  "correctedSegment": "very hard all week,",
+  "feedbackExplanation": "Concise pedagogical explanation in Spanish (max 20 words)"
+}`;
+    } else if (resolvedType === 'key_word_transformation') {
+      typeInstructions = `TASK: KEY WORD TRANSFORMATION (Cambridge C1 / B2 Style)
+Create a Key Word Transformation task based on the linguistic upgrade diagnosed.
+- "baseSentence": A complete, natural sentence presenting the original idea.
+- "keyWord": A single word or short term in CAPITAL letters that must be used without alteration.
+- "targetSentenceTemplate": A second sentence with the exact same meaning, containing a blank "___" where the transformed words fit.
+- "idealAnswer": The model phrase that fills "___" (including the keyWord, typically 3 to 6 words).
+- "acceptableVariants": Array of 1 to 3 valid variant phrases accepted as correct.
+- "instruction": "Completa la segunda frase usando la palabra en mayúsculas para que signifique lo mismo que la primera:"`;
+
+      jsonSchemaExample = `{
+  "exerciseId": "${exerciseId}",
+  "type": "key_word_transformation",
+  "category": "${category}",
+  "instruction": "Completa la segunda frase usando la palabra en mayúsculas para que signifique lo mismo que la primera:",
+  "baseSentence": "The task was so demanding that we needed external assistance.",
+  "keyWord": "SUCH",
+  "targetSentenceTemplate": "It was ___ that we needed external assistance.",
+  "idealAnswer": "such a demanding task",
+  "acceptableVariants": ["such a demanding assignment"],
+  "feedbackExplanation": "Concise pedagogical explanation in Spanish (max 20 words)"
+}`;
+    } else { // multiple_choice
+      typeInstructions = `TASK: MULTIPLE CHOICE (4 Options)
 Create a brand new sentence with a blank formatted as "___".
 - "promptSentence": The new sentence containing "___" (do NOT use identical wording from the student quote).
-- "options": EXACTLY 4 realistic options. 1 is correct, and 3 are subtle distractors representing common Spanish L1 interference or false grammatical analogies.
+- "options": Array of EXACTLY 4 realistic options. Exactly 1 is correct, and 3 are subtle, plausible distractors reflecting common Spanish L1 interference or grammatical confusion.
 - "correctIndex": Integer (0, 1, 2, or 3) indicating the correct answer in "options".
-- "instruction": "Elige la opción más adecuada para completar la frase:"
-`;
-    } else if (selectedType === 'spot_the_error') {
-      typePromptInstructions = `
-TYPE: "spot_the_error"
-Create a single coherent English sentence divided into EXACTLY 4 sequential segments.
-- EXACTLY ONE segment MUST contain a subtle error of the same rule (syntax, preposition, collocation, false cognate). The other 3 segments MUST be grammatically flawless.
-- "segments": Array of exactly 4 strings. When read in order (0 -> 1 -> 2 -> 3), they form the full sentence.
-- "errorSegmentIndex": Integer (0, 1, 2, or 3) indicating which segment contains the error.
-- "correctedSegment": The exact string showing that segment corrected.
-- "promptSentence": The full sentence as a single string.
-- "instruction": "Encuentra y pulsa el segmento que contiene el error:"
-`;
-    } else { // key_word_transformation
-      typePromptInstructions = `
-TYPE: "key_word_transformation"
-Create a Cambridge C1/B2 style Key Word Transformation exercise.
-- "baseSentence": A complete, natural sentence presenting the idea.
-- "keyWord": A single word or short phrase in CAPITAL letters that must be used without alteration.
-- "targetSentenceTemplate": A second sentence with the exact same meaning, containing a blank "___" where the transformed words fit.
-- "idealAnswer": The model phrase that fills "___" (including the keyWord).
-- "acceptableVariants": Array of 1 to 3 valid variant phrases (e.g. minor synonym or valid syntactic variation).
-- "instruction": "Completa la segunda frase usando la palabra en mayúsculas para que signifique lo mismo que la primera:"
-`;
+- "instruction": "Elige la opción más adecuada para completar la frase:"`;
+
+      jsonSchemaExample = `{
+  "exerciseId": "${exerciseId}",
+  "type": "multiple_choice",
+  "category": "${category}",
+  "instruction": "Elige la opción más adecuada para completar la frase:",
+  "promptSentence": "Despite the tight deadline, the engineering team ___ to finish the prototype.",
+  "options": ["managed", "achieved", "succeeded", "could"],
+  "correctIndex": 0,
+  "feedbackExplanation": "Concise pedagogical explanation in Spanish (max 20 words)"
+}`;
     }
 
     const systemInstruction = `You are a Senior Cambridge English / IELTS Examiner designing an interactive micro-exercise for an English learner at CEFR ${targetLevel} level.
-Nonce/Variation Seed: ${randomNonce}
+Variation Nonce: ${randomNonce}
 
 DIAGNOSED LEARNER NEED:
 - Category: ${category}
@@ -308,35 +346,13 @@ DIAGNOSED LEARNER NEED:
 - Teacher's surgical correction: "${surgicalCorrection}"
 - Pedagogical explanation: "${explanation}"
 
-${typePromptInstructions}
+${typeInstructions}
 
-UNIVERSAL REQUIREMENTS:
-1. The exercise MUST target the EXACT SAME linguistic point or upgrade, but using a COMPLETELY FRESH sentence/context.
-2. "feedbackExplanation": A concise pedagogical explanation in Spanish (max 20 words) explaining why the correct choice or transformation is right.
-3. Return ONLY a valid JSON object matching the schema below without markdown backticks.
-
-SCHEMA BY TYPE:
-{
-  "exerciseId": "${exerciseId}",
-  "type": "${selectedType}",
-  "category": "${category}",
-  "instruction": "...",
-  "feedbackExplanation": "...",
-  // If multiple_choice:
-  "promptSentence": "... ___ ...",
-  "options": ["A", "B", "C", "D"],
-  "correctIndex": 0,
-  // If spot_the_error:
-  "segments": ["Part 1", "Part 2 with error", "Part 3", "Part 4"],
-  "errorSegmentIndex": 1,
-  "correctedSegment": "Part 2 corrected",
-  // If key_word_transformation:
-  "baseSentence": "...",
-  "keyWord": "WORD",
-  "targetSentenceTemplate": "... ___ ...",
-  "idealAnswer": "...",
-  "acceptableVariants": ["..."]
-}`;
+MANDATORY RULES:
+1. Target the EXACT SAME linguistic rule, pattern, or upgrade, but with a COMPLETELY NEW context/sentence (do NOT repeat the student's quote word-for-word).
+2. "feedbackExplanation": Concise pedagogical explanation in Spanish (max 20 words) explaining why the correct answer is right.
+3. Return ONLY a valid JSON object matching this schema without markdown or comments:
+${jsonSchemaExample}`;
 
     const payload = {
       contents: [
@@ -362,63 +378,82 @@ SCHEMA BY TYPE:
 
       const baseResult = {
         exerciseId: parsed.exerciseId || exerciseId,
-        type: parsed.type || selectedType,
+        type: resolvedType, // Siempre forzar el resolvedType
         category: parsed.category || category,
-        instruction: parsed.instruction || 'Elige la opción correcta:',
+        instruction: parsed.instruction || (
+          resolvedType === 'spot_the_error' ? 'Encuentra y pulsa el segmento que contiene el error:' :
+          resolvedType === 'key_word_transformation' ? 'Completa la segunda frase usando la palabra en mayúsculas para que signifique lo mismo que la primera:' :
+          'Elige la opción más adecuada para completar la frase:'
+        ),
         feedbackExplanation: parsed.feedbackExplanation || explanation || 'Opción correcta acorde a la regla evaluada.'
       };
 
-      if (baseResult.type === 'spot_the_error') {
-        const segs = Array.isArray(parsed.segments) && parsed.segments.length === 4 ? parsed.segments : ['In many cases,', 'the staff worked hardly', 'to meet the expectations', 'of their clients.'];
-        const errIdx = typeof parsed.errorSegmentIndex === 'number' && parsed.errorSegmentIndex >= 0 && parsed.errorSegmentIndex < 4 ? parsed.errorSegmentIndex : 1;
+      if (resolvedType === 'spot_the_error') {
+        const segs = Array.isArray(parsed.segments) && parsed.segments.length === 4
+          ? parsed.segments
+          : ['Although the team worked', 'very hardly all week,', 'they failed to meet', 'the deadline.'];
+        const errIdx = typeof parsed.errorSegmentIndex === 'number' && parsed.errorSegmentIndex >= 0 && parsed.errorSegmentIndex < 4
+          ? parsed.errorSegmentIndex
+          : 1;
         return {
           ...baseResult,
           segments: segs,
           errorSegmentIndex: errIdx,
-          correctedSegment: parsed.correctedSegment || 'the staff worked hard',
+          correctedSegment: parsed.correctedSegment || (segs[errIdx] || 'corrected phrase'),
           promptSentence: parsed.promptSentence || segs.join(' ')
         };
-      } else if (baseResult.type === 'key_word_transformation') {
+      } else if (resolvedType === 'key_word_transformation') {
+        const baseSentence = parsed.baseSentence || 'The task was so demanding that we needed external assistance.';
+        const keyWord = (parsed.keyWord || 'SUCH').toUpperCase().trim();
+        const targetSentenceTemplate = parsed.targetSentenceTemplate || 'It was ___ that we needed external assistance.';
+        const idealAnswer = (parsed.idealAnswer || 'such a demanding task').trim();
         return {
           ...baseResult,
-          baseSentence: parsed.baseSentence || 'The challenge was so demanding that we needed external assistance.',
-          keyWord: (parsed.keyWord || 'SUCH').toUpperCase().trim(),
-          targetSentenceTemplate: parsed.targetSentenceTemplate || 'It was ___ that we needed external assistance.',
-          idealAnswer: (parsed.idealAnswer || 'such a demanding challenge').trim(),
+          baseSentence,
+          keyWord,
+          targetSentenceTemplate,
+          idealAnswer,
           acceptableVariants: Array.isArray(parsed.acceptableVariants) ? parsed.acceptableVariants : []
         };
       } else { // multiple_choice
-        const opts = Array.isArray(parsed.options) && parsed.options.length >= 4 ? parsed.options.slice(0, 4) : ['option A', 'option B', 'option C', 'option D'];
-        const corrIdx = typeof parsed.correctIndex === 'number' && parsed.correctIndex >= 0 && parsed.correctIndex < opts.length ? parsed.correctIndex : 0;
+        const opts = Array.isArray(parsed.options) && parsed.options.length >= 4
+          ? parsed.options.slice(0, 4)
+          : ['managed', 'achieved', 'succeeded', 'could'];
+        const corrIdx = typeof parsed.correctIndex === 'number' && parsed.correctIndex >= 0 && parsed.correctIndex < opts.length
+          ? parsed.correctIndex
+          : 0;
+        let promptSentence = parsed.promptSentence || 'Despite the tight deadline, the engineering team ___ to finish the prototype.';
+        if (!promptSentence.includes('___')) {
+          promptSentence = promptSentence.trim() + ' ___';
+        }
         return {
           ...baseResult,
-          type: 'multiple_choice',
-          promptSentence: parsed.promptSentence || (surgicalCorrection ? `In professional settings, they usually ___ this process.` : `She ___ to the office every morning.`),
+          promptSentence,
           options: opts,
           correctIndex: corrIdx
         };
       }
     } catch (err) {
-      console.error('[GEMINI Micro-Exercise Error]:', err.message);
-      // Fallback seguro según el tipo solicitado
-      if (selectedType === 'spot_the_error') {
+      console.error(`[GEMINI Micro-Exercise Error para ${resolvedType}]:`, err && err.message ? err.message : err);
+      // Fallback seguro según el resolvedType solicitado
+      if (resolvedType === 'spot_the_error') {
         return {
           exerciseId,
           type: 'spot_the_error',
           category,
           instruction: 'Encuentra y pulsa el segmento que contiene el error:',
-          promptSentence: 'Although he worked / very hardly all week, / he failed to meet / the project deadline.',
+          promptSentence: 'Although he worked very hardly all week, he failed to meet the project deadline.',
           segments: ['Although he worked', 'very hardly all week,', 'he failed to meet', 'the project deadline.'],
           errorSegmentIndex: 1,
           correctedSegment: 'very hard all week,',
           feedbackExplanation: '"Hardly" significa "apenas". Para denotar esfuerzo o intensidad se emplea el adverbio "hard".'
         };
-      } else if (selectedType === 'key_word_transformation') {
+      } else if (resolvedType === 'key_word_transformation') {
         return {
           exerciseId,
           type: 'key_word_transformation',
           category,
-          instruction: 'Completa la segunda frase usando la palabra en mayúsculas para que signifique lo mismo:',
+          instruction: 'Completa la segunda frase usando la palabra en mayúsculas para que signifique lo mismo que la primera:',
           baseSentence: 'The task was so demanding that none of the delegates could finish it.',
           keyWord: 'SUCH',
           targetSentenceTemplate: 'It was ___ that none of the delegates could finish it.',

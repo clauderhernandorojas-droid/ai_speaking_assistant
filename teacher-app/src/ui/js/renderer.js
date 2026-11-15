@@ -1135,6 +1135,7 @@ function addSurgicalCard(item) {
   });
 
   btnExercise.addEventListener('click', async () => {
+    const selectedType = typeSelect && typeSelect.value !== 'auto' ? typeSelect.value : null;
     await handleToggleExerciseCard({
       card,
       cardId,
@@ -1142,12 +1143,13 @@ function addSurgicalCard(item) {
       studentQuote: studentResponse,
       surgicalCorrection,
       explanation,
-      preferredType: typeSelect.value !== 'auto' ? typeSelect.value : null,
+      preferredType: selectedType,
       isRefresh: false
     });
   });
 
   btnRefresh.addEventListener('click', async () => {
+    const selectedType = typeSelect && typeSelect.value !== 'auto' ? typeSelect.value : null;
     await handleToggleExerciseCard({
       card,
       cardId,
@@ -1155,10 +1157,29 @@ function addSurgicalCard(item) {
       studentQuote: studentResponse,
       surgicalCorrection,
       explanation,
-      preferredType: typeSelect.value !== 'auto' ? typeSelect.value : null,
+      preferredType: selectedType,
       isRefresh: true
     });
   });
+
+  if (typeSelect) {
+    typeSelect.addEventListener('change', async () => {
+      // Si la tarjeta ya tiene el ejercicio activo abierto, regenerar y emitir de inmediato con el nuevo tipo
+      if (state.activeExerciseCardId === cardId) {
+        const selectedType = typeSelect.value !== 'auto' ? typeSelect.value : null;
+        await handleToggleExerciseCard({
+          card,
+          cardId,
+          category,
+          studentQuote: studentResponse,
+          surgicalCorrection,
+          explanation,
+          preferredType: selectedType,
+          isRefresh: true
+        });
+      }
+    });
+  }
 
   targetPane.appendChild(card);
 

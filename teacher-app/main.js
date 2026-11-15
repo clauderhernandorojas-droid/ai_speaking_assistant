@@ -133,9 +133,10 @@ ipcMain.handle('ai:evaluateUtterance', async (event, options) => {
   return ieltsEngine.evaluateUtterance(options);
 });
 
-ipcMain.handle('ai:generateMicroExercise', async (event, params) => {
+ipcMain.handle('ai:generateMicroExercise', async (_event, params) => {
   try {
-    return await geminiService.generateMicroExercise(params);
+    console.log('[MAIN ai:generateMicroExercise] Solicitando ejercicio con params:', params);
+    return await geminiService.generateMicroExercise(params || {});
   } catch (err) {
     console.error('[MAIN ai:generateMicroExercise ERROR]', err);
     throw new Error(err && err.message ? err.message : String(err));
