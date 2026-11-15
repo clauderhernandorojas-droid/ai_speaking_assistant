@@ -10,13 +10,13 @@ jobs:
   ping-supabase:
     runs-on: ubuntu-latest
     steps:
-      - name: Hacer ping a la API REST de Supabase
+      - name: Hacer ping a Supabase
         run: |
           STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
             -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
-            "${{ secrets.SUPABASE_URL }}/rest/v1/")
+            "${{ secrets.SUPABASE_URL }}/auth/v1/health")
           echo "Respuesta de Supabase HTTP: $STATUS_CODE"
-          if [ "$STATUS_CODE" -ge 500 ] || [ "$STATUS_CODE" -eq 401 ]; then
+          if [ "$STATUS_CODE" -ne 200 ]; then
             echo "Error de conexión o autenticación en Supabase"
             exit 1
           fi
