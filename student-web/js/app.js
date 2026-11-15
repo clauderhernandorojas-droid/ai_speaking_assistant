@@ -22,6 +22,24 @@ const btnToggleMute = document.getElementById('btn-toggle-mute');
 const muteButtonText = document.getElementById('mute-button-text');
 const btnLeaveSession = document.getElementById('btn-leave-session');
 
+// Elementos de Autocorrección Guiada
+const guidedModal = document.getElementById('guided-modal');
+const guidedCategoryBadge = document.getElementById('guided-category-badge');
+const guidedContextContainer = document.getElementById('guided-context-container');
+const guidedContextText = document.getElementById('guided-context-text');
+const guidedStudentQuote = document.getElementById('guided-student-quote');
+const guidedSolutionContainer = document.getElementById('guided-solution-container');
+const guidedSolutionText = document.getElementById('guided-solution-text');
+const guidedExplanationText = document.getElementById('guided-explanation-text');
+
+const CATEGORY_NAMES = {
+  grammar: 'Gramática',
+  vocabulary: 'Vocabulario',
+  pronunciation: 'Pronunciación',
+  upgrade_c1: 'Upgrade C1',
+  fluency: 'Fluidez'
+};
+
 // Instancias de servicios
 const supabaseService = new StudentSupabaseService();
 let audioService = null;
@@ -144,6 +162,60 @@ function handleTeacherEvent(eventType, payload) {
       audioService.stop();
     }
     visualizerContainer.classList.remove('recording');
+  } else if (eventType === 'guided_correction') {
+    handleGuidedCorrectionEvent(payload);
+  }
+}
+
+// 5.1 Manejador de Autocorrección Guiada en tiempo real
+function handleGuidedCorrectionEvent(payload) {
+  if (!payload || !payload.action) return;
+
+  if (payload.action === 'show_prompt') {
+    // 1. Badge de Categoría
+    const cat = (payload.category || 'grammar').toLowerCase();
+    guidedCategoryBadge.textContent = CATEGORY_NAMES[cat] || payload.category || 'Atención';
+    guidedCategoryBadge.className = `guided-badge cat-${cat}`;
+
+    // 2. Contexto o pregunta docente: solo mostrar si hay texto real del profesor
+    const ctx = (payload.teacherContext || '').trim();
+    if (!ctx || ctx === 'Pregunta o contexto oral' || ctx.toLowerCase().includes('tell me about your experience') || ctx === 'Speaking turn') {
+      guidedContextText.textContent = '';
+      guidedContextContainer.style.display = 'none';
+      guidedContextContainer.classList.add('hidden');
+    } else {
+      guidedContextText.textContent = ctx;
+      guidedContextContainer.style.display = '';
+      guidedContextContainer.classList.remove('hidden');
+    }
+
+    // 3. Frase del alumno (con formato de error resaltado si viene con HTML)
+    guidedStudentQuote.innerHTML = payload.studentQuote || '';
+
+    // 4. Ocultar y reiniciar solución
+    guidedSolutionContainer.classList.add('hidden');
+    guidedSolutionText.innerHTML = '';
+    guidedExplanationText.innerHTML = '';
+
+    // 5. Mostrar modal
+    guidedModal.classList.remove('hidden');
+  } else if (payload.action === 'reveal_answer') {
+    // Revelar la respuesta modelo y explicación
+    if (payload.surgicalCorrection) {
+      guidedSolutionText.innerHTML = payload.surgicalCorrection;
+    }
+    if (payload.explanation) {
+      guidedExplanationText.innerHTML = payload.explanation;
+      guidedExplanationText.style.display = 'block';
+    } else {
+      guidedExplanationText.innerHTML = '';
+      guidedExplanationText.style.display = 'none';
+    }
+    guidedSolutionContainer.classList.remove('hidden');
+    guidedModal.classList.remove('hidden');
+  } else if (payload.action === 'hide') {
+    guidedModal.classList.add('hidden');
+    guidedSolutionContainer.classList.add('hidden');
   }
 }
 
@@ -163,6 +235,10 @@ async function cleanupSession() {
   }
   if (supabaseService) {
     await supabaseService.leave();
+  }
+  if (guidedModal) {
+    guidedModal.classList.add('hidden');
+    guidedSolutionContainer.classList.add('hidden');
   }
   sessionScreen.classList.remove('active');
   joinScreen.classList.add('active');

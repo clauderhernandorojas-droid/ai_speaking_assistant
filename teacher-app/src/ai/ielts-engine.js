@@ -101,7 +101,7 @@ class IELTSEngine {
         cards.push({
           category: 'grammar',
           severity: 'basic_error',
-          teacherContext: teacherContext || 'Speaking turn',
+          teacherContext: teacherContext || '',
           studentResponse: text.replace(thirdPersonMatch[0], `<span class="highlight-error">${thirdPersonMatch[0]}</span>`),
           surgicalCorrection: text.replace(thirdPersonMatch[0], `<span class="highlight-fix">${subject} ${verb}s</span>`),
           explanation: `Concordancia sujeto-verbo en presente simple: tras la tercera persona del singular (${subject}) el verbo requiere la desinencia '-s' (${verb}s).`,
@@ -119,7 +119,7 @@ class IELTSEngine {
         cards.push({
           category: 'grammar',
           severity: 'basic_error',
-          teacherContext: teacherContext || 'Speaking turn',
+          teacherContext: teacherContext || '',
           studentResponse: text.replace(pastNarrativeMatch[0], `<span class="highlight-error">${pastNarrativeMatch[0]}</span>`),
           surgicalCorrection: text.replace(pastNarrativeMatch[0], `<span class="highlight-fix">${subj} ${correctedV}</span>`),
           explanation: `Inconsistencia temporal en relato de hechos pasados: se debe emplear la forma irregular en pasado ("${correctedV}"), no el presente o forma base ("${v}").`,
@@ -133,7 +133,7 @@ class IELTSEngine {
         cards.push({
           category: 'grammar',
           severity: 'basic_error',
-          teacherContext: teacherContext || 'Speaking turn',
+          teacherContext: teacherContext || '',
           studentResponse: text.replace(didPastMatch[0], `<span class="highlight-error">${didPastMatch[0]}</span>`),
           surgicalCorrection: text.replace(didPastMatch[0], `<span class="highlight-fix">${didPastMatch[1]} [infinitive]</span>`),
           explanation: `El auxiliar en pasado ("${didPastMatch[1]}") ya porta la carga temporal. El verbo léxico posterior debe ir obligatoriamente en infinitivo sin 'to'.`,
@@ -149,7 +149,7 @@ class IELTSEngine {
         cards.push({
           category: 'vocabulary',
           severity: 'refinement',
-          teacherContext: teacherContext || 'Speaking turn',
+          teacherContext: teacherContext || '',
           studentResponse: text.replace(/all the days/i, '<span class="highlight-error">all the days</span>'),
           surgicalCorrection: text.replace(/all the days/i, '<span class="highlight-fix">on a daily basis / every day</span>'),
           explanation: 'Calco directo del español ("todos los días"). En inglés natural se utiliza "every day" o la locución formal "on a daily basis".',
@@ -162,7 +162,7 @@ class IELTSEngine {
         cards.push({
           category: 'vocabulary',
           severity: 'refinement',
-          teacherContext: teacherContext || 'Speaking turn',
+          teacherContext: teacherContext || '',
           studentResponse: text.replace(/make a question|made a question/i, (m) => `<span class="highlight-error">${m}</span>`),
           surgicalCorrection: text.replace(/make a question/i, '<span class="highlight-fix">ask a question</span>').replace(/made a question/i, '<span class="highlight-fix">asked a question</span>'),
           explanation: 'Colocación errónea: en inglés las preguntas no se "hacen" (make), sino que se formulan mediante el verbo "ask" (ask a question).',
@@ -179,7 +179,7 @@ class IELTSEngine {
         cards.push({
           category: 'pronunciation',
           severity: 'basic_error',
-          teacherContext: teacherContext || 'Speaking turn',
+          teacherContext: teacherContext || '',
           studentResponse: `Pronunciación del pasado regular en <span class="highlight-error">"${edOverpronunciation[0]}"</span>.`,
           surgicalCorrection: `Pronunciar con sonido consonántico final sin sílaba extra: <span class="highlight-fix">/${edOverpronunciation[0].toLowerCase() === 'watched' ? 'wɒtʃt' : 'pleɪd'}/</span>.`,
           explanation: 'Evitar añadir una sílaba adicional /ɪd/. Solo los verbos terminados en /t/ o /d/ (ej. "needed", "started") añaden una sílaba extra.',
@@ -195,7 +195,7 @@ class IELTSEngine {
         cards.push({
           category: 'upgrade_c1',
           severity: 'upgrade',
-          teacherContext: teacherContext || 'Speaking turn',
+          teacherContext: teacherContext || '',
           studentResponse: text.replace(/very difficult|very hard/i, (m) => `<span class="highlight-error">${m}</span>`),
           surgicalCorrection: text.replace(/very difficult|very hard/i, '<span class="highlight-fix">a formidable challenge / exceedingly demanding</span>'),
           explanation: 'Sustituye el intensificador plano "very" por colocaciones avanzadas de nivel C1 que transmiten precisión ejecutiva.',
@@ -205,7 +205,7 @@ class IELTSEngine {
         cards.push({
           category: 'upgrade_c1',
           severity: 'upgrade',
-          teacherContext: teacherContext || 'Speaking turn',
+          teacherContext: teacherContext || '',
           studentResponse: text.replace(/i think that|i think/i, (m) => `<span class="highlight-error">${m}</span>`),
           surgicalCorrection: text.replace(/i think that|i think/i, '<span class="highlight-fix">From my perspective, / I am strongly inclined to believe that</span>'),
           explanation: 'Parafrasea la apertura estándar B1 hacia un registro discursivo maduro y formal con mayor peso argumentativo.',
@@ -221,7 +221,7 @@ class IELTSEngine {
         cards.push({
           category: 'fluency',
           severity: 'refinement',
-          teacherContext: teacherContext || 'Speaking turn',
+          teacherContext: teacherContext || '',
           studentResponse: text.replace(/and then|and so|and the/i, (m) => `<span class="highlight-error">${m}</span>`),
           surgicalCorrection: text.replace(/and then|and so|and the/i, '<span class="highlight-fix">Consequently / What is more, the</span>'),
           explanation: 'Sustituye la coordinación secuencial básica por un marcador discursivo subordinado que otorga fluidez lógica.',
@@ -236,7 +236,7 @@ class IELTSEngine {
       cards.push({
         category: 'upgrade_c1',
         severity: 'upgrade',
-        teacherContext: teacherContext || 'Speaking turn',
+        teacherContext: teacherContext || '',
         studentResponse: `Discurso en registro estándar: "<span class="highlight-error">${text.slice(0, 60)}...</span>"`,
         surgicalCorrection: `Elevar a registro C1: <span class="highlight-fix">"In retrospect, looking back at the circumstances..."</span>`,
         explanation: 'Incorporar cláusulas de participio y estructuras complejas para demostrar sofisticación sintáctica.',
@@ -248,7 +248,7 @@ class IELTSEngine {
       cards.push({
         category: 'pronunciation',
         severity: 'basic_error',
-        teacherContext: teacherContext || 'Speaking turn',
+        teacherContext: teacherContext || '',
         studentResponse: `Articulación de acentos léxicos en oraciones compuestas.`,
         surgicalCorrection: `Enfatizar palabras de contenido y debilitar artículos/preposiciones con <span class="highlight-fix">schwa /ə/</span>.`,
         explanation: 'El ritmo del inglés se basa en el acento (stress-timed). Reducir palabras funcionales mejora la inteligibilidad.',
@@ -263,10 +263,15 @@ class IELTSEngine {
    * Conector para evaluación pedagógica concisa y rápida con Gemini
    */
   async callLLMEvaluation({ teacherContext, studentUtterance, studentLevel, categories }) {
+    const cleanTeacherContext = (teacherContext || '').trim();
     const systemPrompt = `You are an IELTS Speaking Examiner evaluating a CEFR ${studentLevel} student.
 The student utterance is a 100% verbatim transcription containing authentic pauses, repetitions, and spoken fillers (e.g., 'um', 'uh', 'you know').
 - For 'fluency': Leverage these genuine hesitations, reformulations, and linking devices to assess Fluency and Coherence.
 - For 'grammar' and 'vocabulary': Focus on systemic grammatical errors and unnatural collocations in the message, ignoring acoustic filler noise.
+
+TEACHER CONTEXT RULE:
+- The 'teacherContext' field in every feedback card MUST contain ONLY the literal question or comment made by the teacher prior to the student's turn.
+- If the teacher said nothing prior to that intervention or no teacher prompt was provided, 'teacherContext' MUST be returned as an empty string "" (NEVER fabricate or invent generic questions such as "Tell me about your experience...").
 
 EXHAUSTIVE & UNLIMITED FEEDBACK MANDATE:
 - Detect and report ALL systemic errors, lexical opportunities, unnatural collocations, C1 upgrades, acoustic phonological issues, and fluency cohesion details present throughout the entire utterance.
@@ -285,7 +290,7 @@ Return a valid JSON array of objects. Category MUST be strictly lowercase: 'gram
   {
     "category": "grammar" | "vocabulary" | "pronunciation" | "upgrade_c1" | "fluency",
     "severity": "basic_error" | "upgrade" | "refinement",
-    "teacherContext": "${teacherContext}",
+    "teacherContext": "${cleanTeacherContext}",
     "studentResponse": "Sentence with <span class=\\"highlight-error\\">error</span>",
     "surgicalCorrection": "Sentence with <span class=\\"highlight-fix\\">correction</span>",
     "explanation": "Brief explanation in Spanish (max 15 words)",
@@ -294,19 +299,24 @@ Return a valid JSON array of objects. Category MUST be strictly lowercase: 'gram
 ]`;
 
     const rawCards = await geminiService.evaluateTranscript({
-      teacherContext,
+      teacherContext: cleanTeacherContext,
       studentUtterance,
       studentLevel,
       systemPrompt
     });
 
-    // Normalizar categorías para garantizar mapeo exacto en las 5 pestañas de la UI
+    // Normalizar categorías y contexto docente para garantizar mapeo exacto en la UI
     return (rawCards || []).map(card => {
       let cat = (card.category || '').toLowerCase().trim();
       if (cat === 'upgrade' || cat === 'upgradec1' || cat === 'c1') cat = 'upgrade_c1';
+      let ctx = (card.teacherContext || cleanTeacherContext || '').trim();
+      if (ctx.toLowerCase().includes('tell me about your experience') || ctx === 'Speaking turn' || ctx === 'Pregunta o contexto oral') {
+        ctx = '';
+      }
       return {
         ...card,
-        category: cat
+        category: cat,
+        teacherContext: ctx
       };
     });
   }

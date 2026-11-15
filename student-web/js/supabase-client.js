@@ -80,6 +80,9 @@ export class StudentSupabaseService {
       .on('broadcast', { event: 'teacher:session_end' }, (payload) => {
         if (onTeacherEvent) onTeacherEvent('session_end', payload.payload);
       })
+      .on('broadcast', { event: 'guided_correction' }, (payload) => {
+        if (onTeacherEvent) onTeacherEvent('guided_correction', payload.payload);
+      })
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           // Notificar al docente que el alumno se unió

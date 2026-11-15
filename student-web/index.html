@@ -126,6 +126,50 @@
       </footer>
     </main>
 
+    <!-- MODAL / TARJETA DE AUTOCORRECCIÓN GUIADA -->
+    <div id="guided-modal" class="guided-modal hidden">
+      <div class="guided-card">
+        <header class="guided-top-bar">
+          <div class="guided-badge-group">
+            <span class="guided-pulse-dot"></span>
+            <span id="guided-category-badge" class="guided-badge">Gramática</span>
+          </div>
+          <span class="guided-tag">Autocorrección Guiada</span>
+        </header>
+
+        <div class="guided-content">
+          <div id="guided-context-container" class="guided-section hidden">
+            <span class="guided-section-title">Contexto / Pregunta:</span>
+            <p id="guided-context-text" class="guided-context-text"></p>
+          </div>
+
+          <div class="guided-section">
+            <span class="guided-section-title">Tu frase:</span>
+            <div id="guided-student-quote" class="guided-student-quote"></div>
+          </div>
+
+          <div class="guided-prompt-banner">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+              <line x1="12" y1="19" x2="12" y2="23"/>
+              <line x1="8" y1="23" x2="16" y2="23"/>
+            </svg>
+            <span>Intenta corregir o mejorar esta frase en voz alta</span>
+          </div>
+
+          <!-- CONTENEDOR DE RESPUESTA REVELADA POR EL DOCENTE -->
+          <div id="guided-solution-container" class="guided-solution-container hidden">
+            <div class="guided-solution-card">
+              <span class="guided-solution-label">Corrección Sugerida:</span>
+              <div id="guided-solution-text" class="guided-solution-text"></div>
+              <div id="guided-explanation-text" class="guided-explanation-text"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <script type="module" src="js/app.js"></script>

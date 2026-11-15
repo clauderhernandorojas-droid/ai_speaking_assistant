@@ -205,17 +205,8 @@ class TeacherSessionService {
     await new Promise((resolve) => setTimeout(resolve, 1400));
     console.log(`[Audio Pipeline] Vaciado completado. Total de chunks recibidos en sesión: ${this.audioChunks.length}`);
 
-    // Cerrar canal de Realtime una vez recibido el flush
-    if (this.channel) {
-      try {
-        if (this.client) {
-          await this.client.removeChannel(this.channel);
-        }
-      } catch (err) {
-        console.warn('[Supabase Realtime] Error al cerrar canal:', err.message);
-      }
-      this.channel = null;
-    }
+    // Mantener el canal de Realtime abierto para permitir la Autocorrección Guiada post-sesión
+    console.log('[Supabase Realtime] Canal activo conservado para interacción de Autocorrección Guiada.');
 
     // 3. Actualizar estado en la tabla 'sessions' de Supabase
     if (this.client) {
@@ -286,20 +277,22 @@ class TeacherSessionService {
     console.log('[Audio Pipeline] Transcripción Verbatim para Panel y Evaluación:', verbatimStudentSpeech);
 
     // Diálogo completo literal para el panel izquierdo
-    const cleanDialogueTurns = [
-      {
+    const teacherContext = (this.currentSession?.teacherContext || '').trim();
+    const cleanDialogueTurns = [];
+    if (teacherContext) {
+      cleanDialogueTurns.push({
         speaker: 'Profesor',
-        text: 'Tell me about your experience or the topic discussed during this speaking session.'
-      },
-      {
-        speaker: 'Estudiante',
-        text: verbatimStudentSpeech
-      }
-    ];
+        text: teacherContext
+      });
+    }
+    cleanDialogueTurns.push({
+      speaker: 'Estudiante',
+      text: verbatimStudentSpeech
+    });
 
     // 3. Evaluación contra rúbricas IELTS para las 5 pestañas maestras (directo con texto verbatim)
     const feedbackCards = await ieltsEngine.evaluateUtterance({
-      teacherContext: 'Tell me about your experience or the topic discussed during this speaking session.',
+      teacherContext,
       studentUtterance: verbatimStudentSpeech,
       studentLevel
     });
@@ -311,6 +304,54 @@ class TeacherSessionService {
       cleanDialogueTurns,
       feedbackCards
     };
+  }
+
+  /**
+   * Envía un evento broadcast 'guided_correction' al canal activo de la sala
+   * para la función de Autocorrección Guiada en student-web.
+   */
+  async broadcastGuidedCorrection(payload = {}) {
+    const sessionCode = (payload.sessionCode || this.currentSession?.sessionCode || '').toUpperCase().trim();
+    if (!sessionCode) {
+      console.warn('[Supabase Realtime] No hay sessionCode para broadcastGuidedCorrection');
+      return { success: false, error: 'No active session code' };
+    }
+
+    if (!this.client) {
+      this.initClient();
+    }
+
+    // Si el canal no está inicializado o fue cerrado, reconectar a la sala
+    if (!this.channel && this.client) {
+      const channelName = `session:${sessionCode}`;
+      console.log(`[Supabase Realtime] Suscribiendo al canal ${channelName} para broadcastGuidedCorrection...`);
+      this.channel = this.client.channel(channelName, {
+        config: { broadcast: { self: false } }
+      });
+      await new Promise((resolve) => {
+        this.channel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') resolve();
+        });
+        setTimeout(resolve, 1500);
+      });
+    }
+
+    if (!this.channel) {
+      return { success: false, error: 'No channel available' };
+    }
+
+    try {
+      console.log('[Supabase Realtime] Emitiendo guided_correction:', payload.action, payload.cardId);
+      await this.channel.send({
+        type: 'broadcast',
+        event: 'guided_correction',
+        payload
+      });
+      return { success: true };
+    } catch (err) {
+      console.error('[Supabase Realtime] Error emitiendo guided_correction:', err.message);
+      return { success: false, error: err.message };
+    }
   }
 }
 

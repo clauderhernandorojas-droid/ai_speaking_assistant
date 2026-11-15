@@ -19,6 +19,8 @@ const state = {
   timerInterval: null,
   activeTab: 'grammar',
   sessionCode: generateRoomCode(),
+  activeGuidedCardId: null,
+  revealedGuidedCardId: null,
   feedbackCounts: {
     grammar: 0,
     vocabulary: 0,
@@ -642,6 +644,8 @@ function handleSessionCompleted(summary) {
 
   // 2. Limpiar tarjetas anteriores y reiniciar contadores
   tabPanes.forEach(pane => (pane.innerHTML = ''));
+  state.activeGuidedCardId = null;
+  state.revealedGuidedCardId = null;
   Object.keys(state.feedbackCounts).forEach(cat => {
     state.feedbackCounts[cat] = 0;
     updateBadgeCounter(cat);
@@ -1002,14 +1006,21 @@ function addSurgicalCard(item) {
   const targetPane = document.getElementById(`tab-pane-${category}`);
   if (!targetPane) return;
 
+  const cardId = item.id ? String(item.id) : `card_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+  const cleanContext = (teacherContext || '').trim();
+  const hasTeacherContext = Boolean(cleanContext && cleanContext !== 'Pregunta o contexto oral' && !cleanContext.toLowerCase().includes('tell me about your experience') && cleanContext !== 'Speaking turn');
+
   const card = document.createElement('article');
   card.className = 'surgical-card';
+  card.dataset.cardId = cardId;
 
   card.innerHTML = `
+    ${hasTeacherContext ? `
     <header class="card-context-header">
       <span class="context-tag">Contexto Docente</span>
-      <span class="card-context-text">"${teacherContext}"</span>
+      <span class="card-context-text">"${cleanContext}"</span>
     </header>
+    ` : ''}
 
     <div class="card-body">
       <div class="comparison-row">
@@ -1034,13 +1045,168 @@ function addSurgicalCard(item) {
         ${severity === 'basic_error' ? 'Tolerancia Cero' : (severity === 'upgrade' ? 'C1 Parafraseo' : 'Refinamiento')}
       </span>
     </footer>
+
+    <div class="card-guided-actions">
+      <button type="button" class="btn-guided btn-guided-broadcast" title="Proyectar esta frase en la pantalla del alumno para autocorrección">
+        <span class="guided-dot"></span>
+        <span class="btn-text">Mostrar al Alumno</span>
+      </button>
+      <button type="button" class="btn-guided btn-guided-reveal" disabled title="Revelar la solución al alumno en su pantalla">
+        <span class="btn-text">Revelar Respuesta</span>
+      </button>
+    </div>
   `;
+
+  // Controladores de eventos para Autocorrección Guiada
+  const btnBroadcast = card.querySelector('.btn-guided-broadcast');
+  const btnReveal = card.querySelector('.btn-guided-reveal');
+
+  btnBroadcast.addEventListener('click', async () => {
+    await handleToggleBroadcastCard({
+      card,
+      cardId,
+      category,
+      teacherContext: hasTeacherContext ? cleanContext : '',
+      studentQuote: studentResponse
+    });
+  });
+
+  btnReveal.addEventListener('click', async () => {
+    await handleRevealAnswerCard({
+      card,
+      cardId,
+      surgicalCorrection,
+      explanation
+    });
+  });
 
   targetPane.appendChild(card);
 
   // Incrementar contador
   state.feedbackCounts[category] = (state.feedbackCounts[category] || 0) + 1;
   updateBadgeCounter(category);
+}
+
+/**
+ * Proyecta u oculta la frase del estudiante en la pantalla de student-web
+ */
+async function handleToggleBroadcastCard({ card, cardId, category, teacherContext, studentQuote }) {
+  const isCurrentlyProjected = state.activeGuidedCardId === cardId;
+
+  if (isCurrentlyProjected) {
+    // Caso 1: La tarjeta ya estaba proyectada -> Ahora se oculta
+    console.log(`[Autocorrección] Ocultando tarjeta proyectada ${cardId}`);
+    state.activeGuidedCardId = null;
+    state.revealedGuidedCardId = null;
+
+    card.classList.remove('card-projected');
+    const btnBroadcast = card.querySelector('.btn-guided-broadcast');
+    const btnReveal = card.querySelector('.btn-guided-reveal');
+    if (btnBroadcast) {
+      btnBroadcast.classList.remove('active');
+      btnBroadcast.querySelector('.btn-text').textContent = 'Mostrar al Alumno';
+    }
+    if (btnReveal) {
+      btnReveal.disabled = true;
+      btnReveal.classList.remove('revealed');
+      btnReveal.querySelector('.btn-text').textContent = 'Revelar Respuesta';
+    }
+
+    if (window.electronAPI && typeof window.electronAPI.broadcastGuidedCorrection === 'function') {
+      try {
+        await window.electronAPI.broadcastGuidedCorrection({
+          action: 'hide',
+          sessionCode: state.sessionCode,
+          cardId
+        });
+      } catch (err) {
+        console.warn('[Autocorrección] Error al emitir hide:', err.message);
+      }
+    }
+  } else {
+    // Caso 2: Proyectar esta tarjeta (desactivando cualquier otra proyectada previamente)
+    if (state.activeGuidedCardId) {
+      const prevCard = document.querySelector(`.surgical-card[data-card-id="${state.activeGuidedCardId}"]`);
+      if (prevCard) {
+        prevCard.classList.remove('card-projected');
+        const prevBroadcast = prevCard.querySelector('.btn-guided-broadcast');
+        const prevReveal = prevCard.querySelector('.btn-guided-reveal');
+        if (prevBroadcast) {
+          prevBroadcast.classList.remove('active');
+          prevBroadcast.querySelector('.btn-text').textContent = 'Mostrar al Alumno';
+        }
+        if (prevReveal) {
+          prevReveal.disabled = true;
+          prevReveal.classList.remove('revealed');
+          prevReveal.querySelector('.btn-text').textContent = 'Revelar Respuesta';
+        }
+      }
+    }
+
+    state.activeGuidedCardId = cardId;
+    state.revealedGuidedCardId = null;
+
+    // Actualizar visualmente la nueva tarjeta proyectada
+    card.classList.add('card-projected');
+    const btnBroadcast = card.querySelector('.btn-guided-broadcast');
+    const btnReveal = card.querySelector('.btn-guided-reveal');
+    if (btnBroadcast) {
+      btnBroadcast.classList.add('active');
+      btnBroadcast.querySelector('.btn-text').textContent = 'Ocultar';
+    }
+    if (btnReveal) {
+      btnReveal.disabled = false;
+      btnReveal.classList.remove('revealed');
+      btnReveal.querySelector('.btn-text').textContent = 'Revelar Respuesta';
+    }
+
+    // Enviar evento show_prompt SIN surgicalCorrection ni explanation
+    if (window.electronAPI && typeof window.electronAPI.broadcastGuidedCorrection === 'function') {
+      try {
+        const rawCtx = (teacherContext || '').trim();
+        const safeCtx = (rawCtx === 'Pregunta o contexto oral' || rawCtx.toLowerCase().includes('tell me about your experience') || rawCtx === 'Speaking turn') ? '' : rawCtx;
+
+        await window.electronAPI.broadcastGuidedCorrection({
+          action: 'show_prompt',
+          sessionCode: state.sessionCode,
+          cardId,
+          category,
+          teacherContext: safeCtx,
+          studentQuote
+        });
+      } catch (err) {
+        console.warn('[Autocorrección] Error al emitir show_prompt:', err.message);
+      }
+    }
+  }
+}
+
+/**
+ * Revela la corrección y explicación pedagógica en la pantalla del estudiante
+ */
+async function handleRevealAnswerCard({ card, cardId, surgicalCorrection, explanation }) {
+  if (state.activeGuidedCardId !== cardId) return;
+
+  state.revealedGuidedCardId = cardId;
+  const btnReveal = card.querySelector('.btn-guided-reveal');
+  if (btnReveal) {
+    btnReveal.classList.add('revealed');
+    btnReveal.querySelector('.btn-text').textContent = 'Revelada ✓';
+  }
+
+  if (window.electronAPI && typeof window.electronAPI.broadcastGuidedCorrection === 'function') {
+    try {
+      await window.electronAPI.broadcastGuidedCorrection({
+        action: 'reveal_answer',
+        sessionCode: state.sessionCode,
+        cardId,
+        surgicalCorrection,
+        explanation
+      });
+    } catch (err) {
+      console.warn('[Autocorrección] Error al emitir reveal_answer:', err.message);
+    }
+  }
 }
 
 // ==============================================================================

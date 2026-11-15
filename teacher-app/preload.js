@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Servicio de Sesión en Tiempo Real (Supabase Realtime Bridge)
   startRealtimeSession: (sessionData) => ipcRenderer.invoke('session:start', sessionData),
   stopRealtimeSession: (reason) => ipcRenderer.invoke('session:stop', reason),
+  broadcastGuidedCorrection: (payload) => ipcRenderer.invoke('session:broadcastGuidedCorrection', payload),
 
   // Escuchadores de Eventos del Estudiante y Sesión
   onStudentJoined: (callback) => ipcRenderer.on('session:studentJoined', (_event, data) => callback(data)),

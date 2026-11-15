@@ -154,6 +154,15 @@ ipcMain.handle('session:stop', async (event, reason) => {
   }
 });
 
+ipcMain.handle('session:broadcastGuidedCorrection', async (event, payload) => {
+  try {
+    return await sessionService.broadcastGuidedCorrection(payload);
+  } catch (err) {
+    console.error('[MAIN session:broadcastGuidedCorrection ERROR]', err);
+    throw new Error(err && err.message ? err.message : String(err));
+  }
+});
+
 // Ciclo de vida de la aplicación
 app.whenReady().then(() => {
   createWindow();
