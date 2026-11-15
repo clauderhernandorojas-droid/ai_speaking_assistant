@@ -1,0 +1,22 @@
+﻿name: Mantener Supabase Activo
+
+on:
+  schedule:
+    # Se ejecuta cada 3 días a las 9:00 AM hora Colombia (14:00 UTC)
+    - cron: '0 14 */3 * *'
+  workflow_dispatch:
+
+jobs:
+  ping-supabase:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hacer ping a la API REST de Supabase
+        run: |
+          STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            "${{ secrets.SUPABASE_URL }}/rest/v1/")
+          echo "Respuesta de Supabase HTTP: $STATUS_CODE"
+          if [ "$STATUS_CODE" -ge 500 ] || [ "$STATUS_CODE" -eq 401 ]; then
+            echo "Error de conexión o autenticación en Supabase"
+            exit 1
+          fi
