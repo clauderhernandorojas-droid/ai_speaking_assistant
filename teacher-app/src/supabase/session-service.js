@@ -125,7 +125,17 @@ class TeacherSessionService {
     if (this.client) {
       if (this.channel) {
         try {
-          console.log('[Supabase Realtime] Limpiando suscripción previa antes de iniciar nueva sala...');
+          console.log('[Supabase Realtime] Limpiando pantalla del alumno y suscripción previa antes de iniciar nueva sala...');
+          await this.channel.send({
+            type: 'broadcast',
+            event: 'guided_correction',
+            payload: { action: 'hide' }
+          });
+          await this.channel.send({
+            type: 'broadcast',
+            event: 'micro_exercise',
+            payload: { action: 'hide_exercise' }
+          });
           this.client.removeChannel(this.channel);
         } catch (chanErr) {
           console.warn('[Supabase Realtime] Canal anterior limpiado:', chanErr.message);
@@ -409,6 +419,34 @@ class TeacherSessionService {
       console.error('[Supabase Realtime] Error emitiendo micro_exercise:', err.message);
       return { success: false, error: err.message };
     }
+  }
+
+  /**
+   * Cierra definitivamente el canal de Realtime limpiando antes la pantalla del alumno
+   */
+  async closeRoomDefinitively() {
+    if (this.channel) {
+      try {
+        console.log('[Supabase Realtime] Cerrando sala definitivamente y limpiando pantalla del alumno...');
+        await this.channel.send({
+          type: 'broadcast',
+          event: 'guided_correction',
+          payload: { action: 'hide' }
+        });
+        await this.channel.send({
+          type: 'broadcast',
+          event: 'micro_exercise',
+          payload: { action: 'hide_exercise' }
+        });
+        if (this.client) {
+          await this.client.removeChannel(this.channel);
+        }
+      } catch (err) {
+        console.warn('[Supabase Realtime] Error al cerrar sala:', err.message);
+      }
+      this.channel = null;
+    }
+    return { success: true };
   }
 }
 

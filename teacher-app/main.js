@@ -187,6 +187,15 @@ ipcMain.handle('session:broadcastMicroExercise', async (event, payload) => {
   }
 });
 
+ipcMain.handle('session:closeRoom', async () => {
+  try {
+    return await sessionService.closeRoomDefinitively();
+  } catch (err) {
+    console.error('[MAIN session:closeRoom ERROR]', err);
+    throw new Error(err && err.message ? err.message : String(err));
+  }
+});
+
 // Ciclo de vida de la aplicación
 app.whenReady().then(() => {
   createWindow();

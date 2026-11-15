@@ -514,6 +514,19 @@ async function proceedToStartNewSession() {
   // Deshabilitar botón de exportar reporte mientras no haya resultados evaluados
   if (btnExportReport) btnExportReport.disabled = true;
 
+  // 1.1 Si existía una sesión previa, limpiar pantalla del alumno antes de cambiar de sala
+  const previousCode = state.sessionCode;
+  if (previousCode && window.electronAPI) {
+    try {
+      if (typeof window.electronAPI.broadcastGuidedCorrection === 'function') {
+        window.electronAPI.broadcastGuidedCorrection({ action: 'hide', sessionCode: previousCode }).catch(() => {});
+      }
+      if (typeof window.electronAPI.broadcastMicroExercise === 'function') {
+        window.electronAPI.broadcastMicroExercise({ action: 'hide_exercise', sessionCode: previousCode }).catch(() => {});
+      }
+    } catch (_) {}
+  }
+
   // 2. Generar SIEMPRE un código nuevo y único (EFL-XXX) al iniciar sesión
   state.sessionCode = generateRoomCode();
   roomCodeDisplay.textContent = state.sessionCode;
@@ -1482,4 +1495,11 @@ function loadSampleDemoData() {
     ieltsCriterion: 'FC: Band 7.0 (Flexible use of cohesive devices to develop a clear line of thought)'
   });
 }
+
+// Limpieza definitiva al cerrar la ventana del docente
+window.addEventListener('beforeunload', () => {
+  if (window.electronAPI && typeof window.electronAPI.closeRealtimeSession === 'function') {
+    window.electronAPI.closeRealtimeSession().catch(() => {});
+  }
+});
 

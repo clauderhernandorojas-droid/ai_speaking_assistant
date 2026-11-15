@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Servicio de Sesión en Tiempo Real (Supabase Realtime Bridge)
   startRealtimeSession: (sessionData) => ipcRenderer.invoke('session:start', sessionData),
   stopRealtimeSession: (reason) => ipcRenderer.invoke('session:stop', reason),
+  closeRealtimeSession: () => ipcRenderer.invoke('session:closeRoom'),
   broadcastGuidedCorrection: (payload) => ipcRenderer.invoke('session:broadcastGuidedCorrection', payload),
   broadcastMicroExercise: (payload) => ipcRenderer.invoke('session:broadcastMicroExercise', payload),
 

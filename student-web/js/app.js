@@ -31,6 +31,7 @@ const guidedStudentQuote = document.getElementById('guided-student-quote');
 const guidedSolutionContainer = document.getElementById('guided-solution-container');
 const guidedSolutionText = document.getElementById('guided-solution-text');
 const guidedExplanationText = document.getElementById('guided-explanation-text');
+const btnCloseGuidedModal = document.getElementById('btn-close-guided-modal');
 
 // Elementos de Micro-Ejercicios con IA
 const exerciseModal = document.getElementById('exercise-modal');
@@ -41,6 +42,7 @@ const exerciseOptionsContainer = document.getElementById('exercise-options-conta
 const exerciseFeedbackContainer = document.getElementById('exercise-feedback-container');
 const exerciseFeedbackTitle = document.getElementById('exercise-feedback-title');
 const exerciseFeedbackText = document.getElementById('exercise-feedback-text');
+const btnCloseExerciseModal = document.getElementById('btn-close-exercise-modal');
 
 let currentStudentExercise = null;
 
@@ -337,7 +339,22 @@ function handleSelectExerciseOption(selectedIndex, clickedBtn, exercise) {
   supabaseService.sendMicroExerciseAnswer(answerPayload);
 }
 
-// 6. Retroalimentación visual sutil basada en volumen
+// 6. Cierre local de modales por el alumno
+if (btnCloseGuidedModal) {
+  btnCloseGuidedModal.addEventListener('click', () => {
+    guidedModal.classList.add('hidden');
+    guidedSolutionContainer.classList.add('hidden');
+  });
+}
+
+if (btnCloseExerciseModal) {
+  btnCloseExerciseModal.addEventListener('click', () => {
+    exerciseModal.classList.add('hidden');
+    exerciseFeedbackContainer.classList.add('hidden');
+  });
+}
+
+// 7. Retroalimentación visual sutil basada en volumen
 function handleVolumeFeedback(level) {
   if (!audioService || audioService.isMuted) return;
   // level oscila típicamente entre 0 y 120 para voz hablada
@@ -345,7 +362,7 @@ function handleVolumeFeedback(level) {
   micStatusCircle.style.transform = `scale(${scale})`;
 }
 
-// 7. Limpieza al salir o recargar la página
+// 8. Limpieza al salir o recargar la página
 async function cleanupSession() {
   if (audioService) {
     audioService.stop();
@@ -362,6 +379,11 @@ async function cleanupSession() {
     exerciseModal.classList.add('hidden');
     exerciseFeedbackContainer.classList.add('hidden');
   }
+  currentStudentExercise = null;
+  joinError.textContent = '';
+  btnJoin.disabled = false;
+  btnJoin.querySelector('span').textContent = 'Unirse a la Sesión';
+
   sessionScreen.classList.remove('active');
   joinScreen.classList.add('active');
   visualizerContainer.classList.remove('recording', 'muted');
