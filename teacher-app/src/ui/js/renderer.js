@@ -1115,6 +1115,10 @@ function addSurgicalCard(item) {
   const btnRefresh = card.querySelector('.btn-guided-refresh');
   const typeSelect = card.querySelector('.exercise-type-select');
 
+  if (typeSelect) {
+    card.dataset.selectedExerciseType = typeSelect.value || 'auto';
+  }
+
   btnBroadcast.addEventListener('click', async () => {
     await handleToggleBroadcastCard({
       card,
@@ -1135,7 +1139,8 @@ function addSurgicalCard(item) {
   });
 
   btnExercise.addEventListener('click', async () => {
-    const selectedType = typeSelect && typeSelect.value !== 'auto' ? typeSelect.value : null;
+    const rawVal = card.dataset.selectedExerciseType || (typeSelect ? typeSelect.value : 'auto');
+    const selectedType = rawVal !== 'auto' ? rawVal : null;
     await handleToggleExerciseCard({
       card,
       cardId,
@@ -1149,7 +1154,8 @@ function addSurgicalCard(item) {
   });
 
   btnRefresh.addEventListener('click', async () => {
-    const selectedType = typeSelect && typeSelect.value !== 'auto' ? typeSelect.value : null;
+    const rawVal = card.dataset.selectedExerciseType || (typeSelect ? typeSelect.value : 'auto');
+    const selectedType = rawVal !== 'auto' ? rawVal : null;
     await handleToggleExerciseCard({
       card,
       cardId,
@@ -1164,9 +1170,12 @@ function addSurgicalCard(item) {
 
   if (typeSelect) {
     typeSelect.addEventListener('change', async () => {
+      card.dataset.selectedExerciseType = typeSelect.value;
+      const rawVal = card.dataset.selectedExerciseType;
+      const selectedType = rawVal && rawVal !== 'auto' ? rawVal : null;
+
       // Si la tarjeta ya tiene el ejercicio activo abierto, regenerar y emitir de inmediato con el nuevo tipo
       if (state.activeExerciseCardId === cardId) {
-        const selectedType = typeSelect.value !== 'auto' ? typeSelect.value : null;
         await handleToggleExerciseCard({
           card,
           cardId,

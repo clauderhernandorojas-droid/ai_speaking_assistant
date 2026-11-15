@@ -350,8 +350,9 @@ ${typeInstructions}
 
 MANDATORY RULES:
 1. Target the EXACT SAME linguistic rule, pattern, or upgrade, but with a COMPLETELY NEW context/sentence (do NOT repeat the student's quote word-for-word).
-2. "feedbackExplanation": Concise pedagogical explanation in Spanish (max 20 words) explaining why the correct answer is right.
-3. Return ONLY a valid JSON object matching this schema without markdown or comments:
+2. TRANSFER OF LEARNING: Do NOT reuse the same root verb, noun, or key content word where the student made the error (e.g. if the student erred on 'goed'/'went', test the same irregular simple past rule using a completely different verb such as 'bought', 'saw', 'wrote', 'took', or 'spoke').
+3. "feedbackExplanation": Concise pedagogical explanation in Spanish (max 20 words) explaining why the correct answer is right.
+4. Return ONLY a valid JSON object matching this schema without markdown or comments:
 ${jsonSchemaExample}`;
 
     const payload = {
