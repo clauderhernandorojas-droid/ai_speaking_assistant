@@ -192,19 +192,57 @@
             <span id="exercise-instruction-text" class="exercise-instruction-text">Elige la opción correcta para completar la frase:</span>
           </div>
 
-          <div class="exercise-sentence-box">
-            <p id="exercise-prompt-sentence" class="exercise-prompt-sentence"></p>
+          <!-- FORMATO 1: MULTIPLE CHOICE (Oración con hueco ___ y 4 opciones) -->
+          <div id="exercise-mc-container">
+            <div class="exercise-sentence-box">
+              <p id="exercise-prompt-sentence" class="exercise-prompt-sentence"></p>
+            </div>
+            <div id="exercise-options-container" class="exercise-options-container">
+              <!-- Botones generados dinámicamente -->
+            </div>
           </div>
 
-          <!-- 3 BOTONES CLICABLES GRANDES DE OPCIONES -->
-          <div id="exercise-options-container" class="exercise-options-container">
-            <!-- Botones generados dinámicamente -->
+          <!-- FORMATO 2: SPOT THE ERROR (4 segmentos clicables) -->
+          <div id="exercise-spot-container" class="exercise-spot-container hidden">
+            <div id="exercise-spot-segments" class="exercise-spot-segments">
+              <!-- Segmentos clicables generados dinámicamente -->
+            </div>
+          </div>
+
+          <!-- FORMATO 3: KEY WORD TRANSFORMATION (Base, Keyword, Template, Input) -->
+          <div id="exercise-transform-container" class="exercise-transform-container hidden">
+            <div class="transform-base-box">
+              <span class="transform-box-label">Oración Base:</span>
+              <p id="exercise-transform-base" class="exercise-transform-base"></p>
+            </div>
+            <div class="transform-keyword-row">
+              <span class="transform-box-label">Palabra Clave:</span>
+              <span id="exercise-transform-keyword" class="transform-keyword-chip"></span>
+            </div>
+            <div class="transform-template-box">
+              <span class="transform-box-label">Completa la Oración:</span>
+              <p id="exercise-transform-template" class="exercise-transform-template"></p>
+            </div>
+            <form id="exercise-transform-form" class="exercise-input-group">
+              <input
+                type="text"
+                id="exercise-text-input"
+                class="exercise-text-input"
+                placeholder="Escribe aquí tu transformación..."
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button type="submit" id="btn-submit-exercise" class="btn btn-primary btn-submit-exercise">
+                Enviar Respuesta
+              </button>
+            </form>
           </div>
 
           <!-- EXPLICACIÓN RETROALIMENTACIÓN TRAS RESPONDER -->
           <div id="exercise-feedback-container" class="exercise-feedback-container hidden">
             <div id="exercise-feedback-box" class="exercise-feedback-box">
               <span id="exercise-feedback-title" class="exercise-feedback-title"></span>
+              <div id="exercise-feedback-solution" class="exercise-feedback-solution hidden"></div>
               <p id="exercise-feedback-text" class="exercise-feedback-text"></p>
             </div>
           </div>

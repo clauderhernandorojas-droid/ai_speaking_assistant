@@ -1077,9 +1077,20 @@ function addSurgicalCard(item) {
       <button type="button" class="btn-guided btn-guided-reveal" disabled title="Revelar la solución al alumno en su pantalla">
         <span class="btn-text">Revelar Respuesta</span>
       </button>
-      <button type="button" class="btn-guided btn-guided-exercise" title="Generar un micro-ejercicio interactivo con IA sobre esta regla">
-        <span class="btn-text">⚡ Ejercicio IA</span>
-      </button>
+      <div class="exercise-control-group">
+        <select class="exercise-type-select" title="Formato del ejercicio">
+          <option value="auto">Auto (CEFR)</option>
+          <option value="multiple_choice">Opción</option>
+          <option value="spot_the_error">Detectar Error</option>
+          <option value="key_word_transformation">Transformar C1</option>
+        </select>
+        <button type="button" class="btn-guided btn-guided-exercise" title="Generar un micro-ejercicio interactivo con IA sobre esta regla">
+          <span class="btn-text">⚡ Ejercicio IA</span>
+        </button>
+        <button type="button" class="btn-guided btn-guided-refresh hidden" title="Generar otra variante sobre esta misma regla">
+          <span class="btn-text">↻ Otro</span>
+        </button>
+      </div>
     </div>
 
     <!-- Mini vista previa del Micro-Ejercicio en vivo -->
@@ -1101,6 +1112,8 @@ function addSurgicalCard(item) {
   const btnBroadcast = card.querySelector('.btn-guided-broadcast');
   const btnReveal = card.querySelector('.btn-guided-reveal');
   const btnExercise = card.querySelector('.btn-guided-exercise');
+  const btnRefresh = card.querySelector('.btn-guided-refresh');
+  const typeSelect = card.querySelector('.exercise-type-select');
 
   btnBroadcast.addEventListener('click', async () => {
     await handleToggleBroadcastCard({
@@ -1128,7 +1141,22 @@ function addSurgicalCard(item) {
       category,
       studentQuote: studentResponse,
       surgicalCorrection,
-      explanation
+      explanation,
+      preferredType: typeSelect.value !== 'auto' ? typeSelect.value : null,
+      isRefresh: false
+    });
+  });
+
+  btnRefresh.addEventListener('click', async () => {
+    await handleToggleExerciseCard({
+      card,
+      cardId,
+      category,
+      studentQuote: studentResponse,
+      surgicalCorrection,
+      explanation,
+      preferredType: typeSelect.value !== 'auto' ? typeSelect.value : null,
+      isRefresh: true
     });
   });
 
@@ -1264,13 +1292,14 @@ async function handleRevealAnswerCard({ card, cardId, surgicalCorrection, explan
 /**
  * Genera y transmite un micro-ejercicio interactivo con IA para esta tarjeta
  */
-async function handleToggleExerciseCard({ card, cardId, category, studentQuote, surgicalCorrection, explanation }) {
+async function handleToggleExerciseCard({ card, cardId, category, studentQuote, surgicalCorrection, explanation, preferredType = null, isRefresh = false }) {
   const isCurrentActive = state.activeExerciseCardId === cardId;
   const btnExercise = card.querySelector('.btn-guided-exercise');
+  const btnRefresh = card.querySelector('.btn-guided-refresh');
   const panel = card.querySelector('.card-exercise-panel');
 
-  if (isCurrentActive) {
-    // Si ya está activo en esta tarjeta -> Ocultar / cerrar
+  if (isCurrentActive && !isRefresh) {
+    // Si ya está activo en esta tarjeta y no es refresco -> Ocultar / cerrar
     console.log(`[Micro-Ejercicio] Ocultando ejercicio de tarjeta ${cardId}`);
     const exerciseId = panel ? panel.dataset.exerciseId : '';
     state.activeExerciseCardId = null;
@@ -1279,6 +1308,9 @@ async function handleToggleExerciseCard({ card, cardId, category, studentQuote, 
     if (btnExercise) {
       btnExercise.classList.remove('active');
       btnExercise.querySelector('.btn-text').textContent = '⚡ Ejercicio IA';
+    }
+    if (btnRefresh) {
+      btnRefresh.classList.add('hidden');
     }
     if (panel) {
       panel.classList.add('hidden');
@@ -1298,15 +1330,19 @@ async function handleToggleExerciseCard({ card, cardId, category, studentQuote, 
     return;
   }
 
-  // Si había otro ejercicio activo en otra tarjeta, ocultarlo primero
-  if (state.activeExerciseCardId) {
+  // Si había otro ejercicio activo en otra tarjeta y no es esta, ocultarlo primero
+  if (state.activeExerciseCardId && state.activeExerciseCardId !== cardId) {
     const prevCard = document.querySelector(`.surgical-card[data-card-id="${state.activeExerciseCardId}"]`);
     if (prevCard) {
       const prevBtn = prevCard.querySelector('.btn-guided-exercise');
+      const prevRefresh = prevCard.querySelector('.btn-guided-refresh');
       const prevPanel = prevCard.querySelector('.card-exercise-panel');
       if (prevBtn) {
         prevBtn.classList.remove('active');
         prevBtn.querySelector('.btn-text').textContent = '⚡ Ejercicio IA';
+      }
+      if (prevRefresh) {
+        prevRefresh.classList.add('hidden');
       }
       if (prevPanel) {
         prevPanel.classList.add('hidden');
@@ -1314,21 +1350,27 @@ async function handleToggleExerciseCard({ card, cardId, category, studentQuote, 
     }
   }
 
-  // Generar nuevo ejercicio con Gemini Flash
-  if (btnExercise) {
+  // Feedback visual de generación
+  if (isRefresh && btnRefresh) {
+    btnRefresh.disabled = true;
+    btnRefresh.querySelector('.btn-text').textContent = '...';
+  } else if (btnExercise) {
     btnExercise.disabled = true;
     btnExercise.querySelector('.btn-text').textContent = 'Generando...';
   }
 
   try {
     let exercise = null;
+    const randomSeed = `${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
     if (window.electronAPI && typeof window.electronAPI.generateMicroExercise === 'function') {
       exercise = await window.electronAPI.generateMicroExercise({
         category,
         studentQuote,
         surgicalCorrection,
         explanation,
-        targetLevel: state.targetLevel || 'B1'
+        targetLevel: state.targetLevel || 'B1',
+        preferredType,
+        seed: randomSeed
       });
     }
 
@@ -1339,31 +1381,72 @@ async function handleToggleExerciseCard({ card, cardId, category, studentQuote, 
     state.activeExerciseCardId = cardId;
     state.currentExercise = exercise;
 
-    // Actualizar botón del docente
+    // Actualizar botones del docente
     if (btnExercise) {
       btnExercise.disabled = false;
       btnExercise.classList.add('active');
       btnExercise.querySelector('.btn-text').textContent = 'Ocultar Ejercicio';
     }
+    if (btnRefresh) {
+      btnRefresh.disabled = false;
+      btnRefresh.classList.remove('hidden');
+      btnRefresh.querySelector('.btn-text').textContent = '↻ Otro';
+    }
 
-    // Renderizar panel en la tarjeta del docente
+    // Renderizar panel en la tarjeta del docente según el tipo de ejercicio
     if (panel) {
       panel.dataset.exerciseId = exercise.exerciseId;
       const instructionEl = panel.querySelector('.exercise-panel-instruction');
       if (instructionEl) instructionEl.textContent = exercise.instruction || '';
 
       const sentenceEl = panel.querySelector('.exercise-panel-sentence');
-      if (sentenceEl) {
-        const sentenceWithHighlight = (exercise.promptSentence || '').replace('___', '<strong class="blank-highlight">___</strong>');
-        sentenceEl.innerHTML = sentenceWithHighlight;
-      }
-
       const optionsEl = panel.querySelector('.exercise-panel-options');
-      if (optionsEl) {
-        optionsEl.innerHTML = (exercise.options || []).map((opt, idx) => {
-          const isCorrect = idx === exercise.correctIndex;
-          return `<span class="exercise-panel-opt ${isCorrect ? 'is-correct-key' : ''}">${opt}</span>`;
-        }).join('');
+
+      if (exercise.type === 'spot_the_error') {
+        if (sentenceEl) sentenceEl.innerHTML = '';
+        if (optionsEl) {
+          optionsEl.innerHTML = `
+            <div class="exercise-panel-segments">
+              ${(exercise.segments || []).map((seg, idx) => `
+                <span class="preview-seg ${idx === exercise.errorSegmentIndex ? 'is-error-seg' : ''}">
+                  [${idx + 1}] ${seg}
+                </span>
+              `).join('')}
+            </div>
+            <div class="exercise-panel-correction">
+              <span class="preview-corr-label">Corrección:</span>
+              <span class="preview-corr-val">${exercise.correctedSegment}</span>
+            </div>
+          `;
+        }
+      } else if (exercise.type === 'key_word_transformation') {
+        if (sentenceEl) sentenceEl.innerHTML = '';
+        if (optionsEl) {
+          optionsEl.innerHTML = `
+            <div class="exercise-panel-transform">
+              <p class="preview-base">"${exercise.baseSentence}"</p>
+              <div class="preview-kw-row">
+                <span class="preview-kw">[${exercise.keyWord}]</span>
+                <span class="preview-template">${(exercise.targetSentenceTemplate || '').replace('___', '<strong class="blank-highlight">___</strong>')}</span>
+              </div>
+              <div class="preview-ideal">
+                <span class="preview-corr-label">Respuesta Modelo:</span>
+                <span class="preview-corr-val">${exercise.idealAnswer}</span>
+              </div>
+            </div>
+          `;
+        }
+      } else { // multiple_choice
+        if (sentenceEl) {
+          const sentenceWithHighlight = (exercise.promptSentence || '').replace('___', '<strong class="blank-highlight">___</strong>');
+          sentenceEl.innerHTML = sentenceWithHighlight;
+        }
+        if (optionsEl) {
+          optionsEl.innerHTML = (exercise.options || []).map((opt, idx) => {
+            const isCorrect = idx === exercise.correctIndex;
+            return `<span class="exercise-panel-opt ${isCorrect ? 'is-correct-key' : ''}">${opt}</span>`;
+          }).join('');
+        }
       }
 
       const statusBar = panel.querySelector('.exercise-status-bar');
@@ -1387,8 +1470,11 @@ async function handleToggleExerciseCard({ card, cardId, category, studentQuote, 
     console.error('[Micro-Ejercicio Error]:', err.message);
     if (btnExercise) {
       btnExercise.disabled = false;
-      btnExercise.classList.remove('active');
       btnExercise.querySelector('.btn-text').textContent = '⚡ Ejercicio IA';
+    }
+    if (btnRefresh) {
+      btnRefresh.disabled = false;
+      btnRefresh.querySelector('.btn-text').textContent = '↻ Otro';
     }
   }
 }
@@ -1406,13 +1492,33 @@ function handleStudentExerciseAnswer(answer) {
   const statusBar = panel.querySelector('.exercise-status-bar');
   if (!statusBar) return;
 
-  if (answer.isCorrect) {
-    statusBar.className = 'exercise-status-bar status-correct';
-    statusBar.innerHTML = `<span>✓ Respondió correctamente: <strong>${answer.selectedText}</strong></span>`;
+  if (answer.exerciseType === 'spot_the_error') {
+    if (answer.isCorrect) {
+      statusBar.className = 'exercise-status-bar status-correct';
+      statusBar.innerHTML = `<span>✓ Detectó el error correctamente: <strong>"${answer.selectedText}"</strong></span>`;
+    } else {
+      statusBar.className = 'exercise-status-bar status-wrong';
+      const corr = answer.correctText ? ` (Error real en: <strong>"${answer.correctText}"</strong>)` : '';
+      statusBar.innerHTML = `<span>✗ Marcó el segmento: <strong>"${answer.selectedText}"</strong>${corr}</span>`;
+    }
+  } else if (answer.exerciseType === 'key_word_transformation') {
+    if (answer.isCorrect) {
+      statusBar.className = 'exercise-status-bar status-correct';
+      statusBar.innerHTML = `<span>✓ Transformación correcta: <strong>"${answer.selectedText}"</strong></span>`;
+    } else {
+      statusBar.className = 'exercise-status-bar status-wrong';
+      const ideal = answer.correctText ? ` (Modelo: <strong>"${answer.correctText}"</strong>)` : '';
+      statusBar.innerHTML = `<span>✗ Escribió: <strong>"${answer.selectedText}"</strong>${ideal}</span>`;
+    }
   } else {
-    statusBar.className = 'exercise-status-bar status-wrong';
-    const correctInfo = answer.correctText ? ` (Correcta: <strong>${answer.correctText}</strong>)` : '';
-    statusBar.innerHTML = `<span>✗ Eligió: <strong>${answer.selectedText}</strong>${correctInfo}</span>`;
+    if (answer.isCorrect) {
+      statusBar.className = 'exercise-status-bar status-correct';
+      statusBar.innerHTML = `<span>✓ Respondió correctamente: <strong>${answer.selectedText}</strong></span>`;
+    } else {
+      statusBar.className = 'exercise-status-bar status-wrong';
+      const correctInfo = answer.correctText ? ` (Correcta: <strong>${answer.correctText}</strong>)` : '';
+      statusBar.innerHTML = `<span>✗ Eligió: <strong>${answer.selectedText}</strong>${correctInfo}</span>`;
+    }
   }
 }
 

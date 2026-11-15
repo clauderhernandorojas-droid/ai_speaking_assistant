@@ -242,39 +242,100 @@ Analyze according to the 5 tabs and output ONLY the valid JSON array starting wi
   }
 
   /**
-   * Genera un micro-ejercicio interactivo de opción múltiple con IA basado en una tarjeta de feedback
+   * Genera un micro-ejercicio interactivo con IA calibrado según el nivel CEFR y tipo seleccionado
    */
-  async generateMicroExercise({ category = 'grammar', studentQuote = '', surgicalCorrection = '', explanation = '', targetLevel = 'B1' }) {
+  async generateMicroExercise({ category = 'grammar', studentQuote = '', surgicalCorrection = '', explanation = '', targetLevel = 'B1', preferredType = null, seed = null }) {
     const exerciseId = `ex_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-    const systemInstruction = `You are an expert Cambridge/IELTS ESL examiner designing a focused multiple-choice micro-exercise for an English student at CEFR ${targetLevel} level.
-Based on this diagnosed error or learning point:
+    const randomNonce = seed || `${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+
+    // Calibración automática del tipo de ejercicio si no se especificó preferredType
+    let selectedType = (preferredType || '').toLowerCase().trim();
+    const validTypes = ['multiple_choice', 'spot_the_error', 'key_word_transformation'];
+    if (!validTypes.includes(selectedType)) {
+      const normLevel = (targetLevel || 'B1').toUpperCase().trim();
+      const isHighLevel = ['B2', 'C1', 'C2'].includes(normLevel);
+      const isUpgrade = (category || '').toLowerCase().includes('upgrade') || (category || '').toLowerCase() === 'c1';
+
+      if (isUpgrade || (isHighLevel && Math.random() > 0.45)) {
+        selectedType = 'key_word_transformation';
+      } else if (isHighLevel || Math.random() > 0.5) {
+        selectedType = 'spot_the_error';
+      } else {
+        selectedType = 'multiple_choice';
+      }
+    }
+
+    let typePromptInstructions = '';
+    if (selectedType === 'multiple_choice') {
+      typePromptInstructions = `
+TYPE: "multiple_choice"
+Create a brand new sentence with a blank formatted as "___".
+- "promptSentence": The new sentence containing "___" (do NOT use identical wording from the student quote).
+- "options": EXACTLY 4 realistic options. 1 is correct, and 3 are subtle distractors representing common Spanish L1 interference or false grammatical analogies.
+- "correctIndex": Integer (0, 1, 2, or 3) indicating the correct answer in "options".
+- "instruction": "Elige la opción más adecuada para completar la frase:"
+`;
+    } else if (selectedType === 'spot_the_error') {
+      typePromptInstructions = `
+TYPE: "spot_the_error"
+Create a single coherent English sentence divided into EXACTLY 4 sequential segments.
+- EXACTLY ONE segment MUST contain a subtle error of the same rule (syntax, preposition, collocation, false cognate). The other 3 segments MUST be grammatically flawless.
+- "segments": Array of exactly 4 strings. When read in order (0 -> 1 -> 2 -> 3), they form the full sentence.
+- "errorSegmentIndex": Integer (0, 1, 2, or 3) indicating which segment contains the error.
+- "correctedSegment": The exact string showing that segment corrected.
+- "promptSentence": The full sentence as a single string.
+- "instruction": "Encuentra y pulsa el segmento que contiene el error:"
+`;
+    } else { // key_word_transformation
+      typePromptInstructions = `
+TYPE: "key_word_transformation"
+Create a Cambridge C1/B2 style Key Word Transformation exercise.
+- "baseSentence": A complete, natural sentence presenting the idea.
+- "keyWord": A single word or short phrase in CAPITAL letters that must be used without alteration.
+- "targetSentenceTemplate": A second sentence with the exact same meaning, containing a blank "___" where the transformed words fit.
+- "idealAnswer": The model phrase that fills "___" (including the keyWord).
+- "acceptableVariants": Array of 1 to 3 valid variant phrases (e.g. minor synonym or valid syntactic variation).
+- "instruction": "Completa la segunda frase usando la palabra en mayúsculas para que signifique lo mismo que la primera:"
+`;
+    }
+
+    const systemInstruction = `You are a Senior Cambridge English / IELTS Examiner designing an interactive micro-exercise for an English learner at CEFR ${targetLevel} level.
+Nonce/Variation Seed: ${randomNonce}
+
+DIAGNOSED LEARNER NEED:
 - Category: ${category}
 - Student's original phrase: "${studentQuote}"
 - Teacher's surgical correction: "${surgicalCorrection}"
 - Pedagogical explanation: "${explanation}"
 
-TASK:
-Create a single multiple-choice gap-fill exercise targeting the EXACT SAME grammatical rule, collocation, or lexical upgrade, but using a BRAND NEW, natural sentence (do NOT repeat the exact student phrase).
+${typePromptInstructions}
 
-REQUIREMENTS:
-1. "instruction": A short, clear instruction in Spanish tailored for the student (e.g., "Elige la opción correcta para completar la frase:", "Selecciona la colocación más natural:").
-2. "promptSentence": A new sentence containing a blank formatted exactly as "___" (three underscores) where the target item fits.
-3. "options": Exactly 3 realistic options (1 correct answer and 2 plausible distractors representing common L1 interference or false grammatical assumptions).
-4. "correctIndex": Integer (0, 1, or 2) pointing to the single correct option in "options".
-5. "feedbackExplanation": A concise pedagogical explanation in Spanish (max 20 words) explaining why the chosen option is correct and why the distractors are incorrect.
+UNIVERSAL REQUIREMENTS:
+1. The exercise MUST target the EXACT SAME linguistic point or upgrade, but using a COMPLETELY FRESH sentence/context.
+2. "feedbackExplanation": A concise pedagogical explanation in Spanish (max 20 words) explaining why the correct choice or transformation is right.
+3. Return ONLY a valid JSON object matching the schema below without markdown backticks.
 
-OUTPUT FORMAT:
-Output ONLY a raw, valid JSON object without markdown code blocks, starting with { and ending with }.
-Schema:
+SCHEMA BY TYPE:
 {
   "exerciseId": "${exerciseId}",
-  "type": "multiple_choice",
+  "type": "${selectedType}",
   "category": "${category}",
   "instruction": "...",
+  "feedbackExplanation": "...",
+  // If multiple_choice:
   "promptSentence": "... ___ ...",
-  "options": ["Option 1", "Option 2", "Option 3"],
+  "options": ["A", "B", "C", "D"],
   "correctIndex": 0,
-  "feedbackExplanation": "..."
+  // If spot_the_error:
+  "segments": ["Part 1", "Part 2 with error", "Part 3", "Part 4"],
+  "errorSegmentIndex": 1,
+  "correctedSegment": "Part 2 corrected",
+  // If key_word_transformation:
+  "baseSentence": "...",
+  "keyWord": "WORD",
+  "targetSentenceTemplate": "... ___ ...",
+  "idealAnswer": "...",
+  "acceptableVariants": ["..."]
 }`;
 
     const payload = {
@@ -284,8 +345,8 @@ Schema:
         }
       ],
       generationConfig: {
-        temperature: 0.2,
-        maxOutputTokens: 1024,
+        temperature: 0.3,
+        maxOutputTokens: 1200,
         responseMimeType: 'application/json',
         thinkingConfig: {
           thinkingBudget: 0
@@ -299,29 +360,84 @@ Schema:
       text = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
       const parsed = JSON.parse(text);
 
-      return {
+      const baseResult = {
         exerciseId: parsed.exerciseId || exerciseId,
-        type: 'multiple_choice',
+        type: parsed.type || selectedType,
         category: parsed.category || category,
-        instruction: parsed.instruction || 'Elige la opción correcta para completar la frase:',
-        promptSentence: parsed.promptSentence || (surgicalCorrection ? `In professional contexts, they usually ___ this process.` : `She ___ to the office every morning.`),
-        options: Array.isArray(parsed.options) && parsed.options.length >= 3 ? parsed.options.slice(0, 3) : ['option A', 'option B', 'option C'],
-        correctIndex: (typeof parsed.correctIndex === 'number' && parsed.correctIndex >= 0 && parsed.correctIndex < 3) ? parsed.correctIndex : 0,
+        instruction: parsed.instruction || 'Elige la opción correcta:',
         feedbackExplanation: parsed.feedbackExplanation || explanation || 'Opción correcta acorde a la regla evaluada.'
       };
+
+      if (baseResult.type === 'spot_the_error') {
+        const segs = Array.isArray(parsed.segments) && parsed.segments.length === 4 ? parsed.segments : ['In many cases,', 'the staff worked hardly', 'to meet the expectations', 'of their clients.'];
+        const errIdx = typeof parsed.errorSegmentIndex === 'number' && parsed.errorSegmentIndex >= 0 && parsed.errorSegmentIndex < 4 ? parsed.errorSegmentIndex : 1;
+        return {
+          ...baseResult,
+          segments: segs,
+          errorSegmentIndex: errIdx,
+          correctedSegment: parsed.correctedSegment || 'the staff worked hard',
+          promptSentence: parsed.promptSentence || segs.join(' ')
+        };
+      } else if (baseResult.type === 'key_word_transformation') {
+        return {
+          ...baseResult,
+          baseSentence: parsed.baseSentence || 'The challenge was so demanding that we needed external assistance.',
+          keyWord: (parsed.keyWord || 'SUCH').toUpperCase().trim(),
+          targetSentenceTemplate: parsed.targetSentenceTemplate || 'It was ___ that we needed external assistance.',
+          idealAnswer: (parsed.idealAnswer || 'such a demanding challenge').trim(),
+          acceptableVariants: Array.isArray(parsed.acceptableVariants) ? parsed.acceptableVariants : []
+        };
+      } else { // multiple_choice
+        const opts = Array.isArray(parsed.options) && parsed.options.length >= 4 ? parsed.options.slice(0, 4) : ['option A', 'option B', 'option C', 'option D'];
+        const corrIdx = typeof parsed.correctIndex === 'number' && parsed.correctIndex >= 0 && parsed.correctIndex < opts.length ? parsed.correctIndex : 0;
+        return {
+          ...baseResult,
+          type: 'multiple_choice',
+          promptSentence: parsed.promptSentence || (surgicalCorrection ? `In professional settings, they usually ___ this process.` : `She ___ to the office every morning.`),
+          options: opts,
+          correctIndex: corrIdx
+        };
+      }
     } catch (err) {
       console.error('[GEMINI Micro-Exercise Error]:', err.message);
-      // Fallback seguro en caso de error o límite de cuota
-      return {
-        exerciseId,
-        type: 'multiple_choice',
-        category,
-        instruction: 'Elige la opción correcta para completar la frase:',
-        promptSentence: `They ___ to the meeting yesterday on time.`,
-        options: ['went', 'goed', 'have went'],
-        correctIndex: 0,
-        feedbackExplanation: 'El pasado simple del verbo irregular "go" es "went".'
-      };
+      // Fallback seguro según el tipo solicitado
+      if (selectedType === 'spot_the_error') {
+        return {
+          exerciseId,
+          type: 'spot_the_error',
+          category,
+          instruction: 'Encuentra y pulsa el segmento que contiene el error:',
+          promptSentence: 'Although he worked / very hardly all week, / he failed to meet / the project deadline.',
+          segments: ['Although he worked', 'very hardly all week,', 'he failed to meet', 'the project deadline.'],
+          errorSegmentIndex: 1,
+          correctedSegment: 'very hard all week,',
+          feedbackExplanation: '"Hardly" significa "apenas". Para denotar esfuerzo o intensidad se emplea el adverbio "hard".'
+        };
+      } else if (selectedType === 'key_word_transformation') {
+        return {
+          exerciseId,
+          type: 'key_word_transformation',
+          category,
+          instruction: 'Completa la segunda frase usando la palabra en mayúsculas para que signifique lo mismo:',
+          baseSentence: 'The task was so demanding that none of the delegates could finish it.',
+          keyWord: 'SUCH',
+          targetSentenceTemplate: 'It was ___ that none of the delegates could finish it.',
+          idealAnswer: 'such a demanding task',
+          acceptableVariants: ['such a demanding assignment', 'such a demanding project'],
+          feedbackExplanation: 'Se transforma "so + adjetivo" a la estructura compleja "such + a/an + adjetivo + sustantivo".'
+        };
+      } else {
+        return {
+          exerciseId,
+          type: 'multiple_choice',
+          category,
+          instruction: 'Elige la opción más adecuada para completar la frase:',
+          promptSentence: 'Despite the tight deadline, the engineering team ___ to finish the prototype.',
+          options: ['managed', 'achieved', 'succeeded', 'could'],
+          correctIndex: 0,
+          feedbackExplanation: '"Manage to + infinitivo" expresa éxito al superar un obstáculo o dificultad.'
+        };
+      }
     }
   }
 }

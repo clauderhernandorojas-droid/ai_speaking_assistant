@@ -37,10 +37,21 @@ const btnCloseGuidedModal = document.getElementById('btn-close-guided-modal');
 const exerciseModal = document.getElementById('exercise-modal');
 const exerciseCategoryBadge = document.getElementById('exercise-category-badge');
 const exerciseInstructionText = document.getElementById('exercise-instruction-text');
+const exerciseMcContainer = document.getElementById('exercise-mc-container');
 const exercisePromptSentence = document.getElementById('exercise-prompt-sentence');
 const exerciseOptionsContainer = document.getElementById('exercise-options-container');
+const exerciseSpotContainer = document.getElementById('exercise-spot-container');
+const exerciseSpotSegments = document.getElementById('exercise-spot-segments');
+const exerciseTransformContainer = document.getElementById('exercise-transform-container');
+const exerciseTransformBase = document.getElementById('exercise-transform-base');
+const exerciseTransformKeyword = document.getElementById('exercise-transform-keyword');
+const exerciseTransformTemplate = document.getElementById('exercise-transform-template');
+const exerciseTransformForm = document.getElementById('exercise-transform-form');
+const exerciseTextInput = document.getElementById('exercise-text-input');
+const btnSubmitExercise = document.getElementById('btn-submit-exercise');
 const exerciseFeedbackContainer = document.getElementById('exercise-feedback-container');
 const exerciseFeedbackTitle = document.getElementById('exercise-feedback-title');
+const exerciseFeedbackSolution = document.getElementById('exercise-feedback-solution');
 const exerciseFeedbackText = document.getElementById('exercise-feedback-text');
 const btnCloseExerciseModal = document.getElementById('btn-close-exercise-modal');
 
@@ -259,35 +270,29 @@ function handleMicroExerciseEvent(payload) {
     exerciseCategoryBadge.className = `guided-badge cat-${cat}`;
 
     // 2. Instrucción breve
-    exerciseInstructionText.textContent = payload.instruction || 'Elige la opción correcta para completar la frase:';
+    exerciseInstructionText.textContent = payload.instruction || 'Resuelve el siguiente ejercicio interactivo:';
 
-    // 3. Oración con hueco ___ resaltado
-    const rawSentence = payload.promptSentence || '___';
-    const sentenceHtml = rawSentence.replace('___', '<span class="prompt-blank">___</span>');
-    exercisePromptSentence.innerHTML = sentenceHtml;
-
-    // 4. Generar botones de opciones
-    exerciseOptionsContainer.innerHTML = '';
-    const options = Array.isArray(payload.options) ? payload.options : [];
-    options.forEach((optText, index) => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'exercise-option-btn';
-      btn.dataset.index = index;
-      btn.innerHTML = `<span>${optText}</span>`;
-
-      btn.addEventListener('click', () => {
-        handleSelectExerciseOption(index, btn, payload);
-      });
-
-      exerciseOptionsContainer.appendChild(btn);
-    });
-
-    // 5. Reiniciar contenedor de feedback
+    // 3. Reiniciar contenedor de feedback
     exerciseFeedbackContainer.classList.add('hidden');
+    exerciseFeedbackSolution.classList.add('hidden');
+    exerciseFeedbackSolution.innerHTML = '';
     exerciseFeedbackTitle.textContent = '';
     exerciseFeedbackTitle.className = 'exercise-feedback-title';
     exerciseFeedbackText.textContent = '';
+
+    // 4. Ocultar todos los sub-contenedores
+    exerciseMcContainer.classList.add('hidden');
+    exerciseSpotContainer.classList.add('hidden');
+    exerciseTransformContainer.classList.add('hidden');
+
+    // 5. Renderizar según formato
+    if (payload.type === 'spot_the_error') {
+      renderSpotTheError(payload);
+    } else if (payload.type === 'key_word_transformation') {
+      renderKeyWordTransformation(payload);
+    } else {
+      renderMultipleChoice(payload);
+    }
 
     // 6. Mostrar modal
     exerciseModal.classList.remove('hidden');
@@ -298,46 +303,185 @@ function handleMicroExerciseEvent(payload) {
   }
 }
 
-// 5.3 Lógica al seleccionar una opción del micro-ejercicio
-function handleSelectExerciseOption(selectedIndex, clickedBtn, exercise) {
-  // 1. Bloquear todos los botones para evitar doble clic
+// FORMATO 1: MULTIPLE CHOICE (4 opciones)
+function renderMultipleChoice(exercise) {
+  exerciseMcContainer.classList.remove('hidden');
+
+  const rawSentence = exercise.promptSentence || '___';
+  exercisePromptSentence.innerHTML = rawSentence.replace('___', '<span class="prompt-blank">___</span>');
+
+  exerciseOptionsContainer.innerHTML = '';
+  const options = Array.isArray(exercise.options) ? exercise.options : [];
+  options.forEach((optText, index) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'exercise-option-btn';
+    btn.dataset.index = index;
+    btn.innerHTML = `<span>${optText}</span>`;
+
+    btn.addEventListener('click', () => {
+      handleSelectMultipleChoice(index, btn, exercise);
+    });
+
+    exerciseOptionsContainer.appendChild(btn);
+  });
+}
+
+function handleSelectMultipleChoice(selectedIndex, clickedBtn, exercise) {
   const allBtns = exerciseOptionsContainer.querySelectorAll('.exercise-option-btn');
   allBtns.forEach((b) => (b.disabled = true));
 
   const isCorrect = selectedIndex === exercise.correctIndex;
   const correctBtn = allBtns[exercise.correctIndex];
 
-  // 2. Iluminar en verde la opción correcta y en rojo la elegida si falló
   if (isCorrect) {
     clickedBtn.classList.add('option-correct');
     exerciseFeedbackTitle.textContent = '¡Excelente! Opción Correcta';
     exerciseFeedbackTitle.className = 'exercise-feedback-title correct';
   } else {
     clickedBtn.classList.add('option-wrong');
-    if (correctBtn) {
-      correctBtn.classList.add('option-correct');
-    }
+    if (correctBtn) correctBtn.classList.add('option-correct');
     exerciseFeedbackTitle.textContent = 'Respuesta Incorrecta';
     exerciseFeedbackTitle.className = 'exercise-feedback-title incorrect';
   }
 
-  // 3. Mostrar explicación pedagógica
+  exerciseFeedbackSolution.innerHTML = `Opción correcta: <strong>${exercise.options[exercise.correctIndex]}</strong>`;
+  exerciseFeedbackSolution.classList.remove('hidden');
   exerciseFeedbackText.textContent = exercise.feedbackExplanation || '';
   exerciseFeedbackContainer.classList.remove('hidden');
 
-  // 4. Emitir respuesta de inmediato al profesor por Realtime
-  const answerPayload = {
+  supabaseService.sendMicroExerciseAnswer({
     exerciseId: exercise.exerciseId,
+    exerciseType: 'multiple_choice',
     selectedIndex,
     selectedText: exercise.options[selectedIndex] || '',
     correctIndex: exercise.correctIndex,
     correctText: exercise.options[exercise.correctIndex] || '',
     isCorrect,
     answeredAt: Date.now()
-  };
-
-  supabaseService.sendMicroExerciseAnswer(answerPayload);
+  });
 }
+
+// FORMATO 2: SPOT THE ERROR (4 segmentos clicables)
+function renderSpotTheError(exercise) {
+  exerciseSpotContainer.classList.remove('hidden');
+  exerciseSpotSegments.innerHTML = '';
+
+  const segments = Array.isArray(exercise.segments) ? exercise.segments : [];
+  segments.forEach((segText, index) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'spot-segment-btn';
+    btn.dataset.index = index;
+    btn.innerHTML = `<span><strong>[${index + 1}]</strong> ${segText}</span>`;
+
+    btn.addEventListener('click', () => {
+      handleSelectSpotSegment(index, btn, exercise);
+    });
+
+    exerciseSpotSegments.appendChild(btn);
+  });
+}
+
+function handleSelectSpotSegment(selectedIndex, clickedBtn, exercise) {
+  const allBtns = exerciseSpotSegments.querySelectorAll('.spot-segment-btn');
+  allBtns.forEach((b) => (b.disabled = true));
+
+  const isCorrect = selectedIndex === exercise.errorSegmentIndex;
+  const errorTargetBtn = allBtns[exercise.errorSegmentIndex];
+
+  if (isCorrect) {
+    clickedBtn.classList.add('option-correct');
+    exerciseFeedbackTitle.textContent = '¡Excelente! Identificaste el error con precisión.';
+    exerciseFeedbackTitle.className = 'exercise-feedback-title correct';
+  } else {
+    clickedBtn.classList.add('option-wrong');
+    if (errorTargetBtn) errorTargetBtn.classList.add('option-correct');
+    exerciseFeedbackTitle.textContent = 'Intento Incorrecto';
+    exerciseFeedbackTitle.className = 'exercise-feedback-title incorrect';
+  }
+
+  exerciseFeedbackSolution.innerHTML = `Corrección del segmento: <strong>${exercise.correctedSegment}</strong>`;
+  exerciseFeedbackSolution.classList.remove('hidden');
+  exerciseFeedbackText.textContent = exercise.feedbackExplanation || '';
+  exerciseFeedbackContainer.classList.remove('hidden');
+
+  supabaseService.sendMicroExerciseAnswer({
+    exerciseId: exercise.exerciseId,
+    exerciseType: 'spot_the_error',
+    selectedIndex,
+    selectedText: exercise.segments[selectedIndex] || '',
+    correctIndex: exercise.errorSegmentIndex,
+    correctText: exercise.segments[exercise.errorSegmentIndex] || '',
+    correctedSegment: exercise.correctedSegment,
+    isCorrect,
+    answeredAt: Date.now()
+  });
+}
+
+// FORMATO 3: KEY WORD TRANSFORMATION (C1/C2)
+function renderKeyWordTransformation(exercise) {
+  exerciseTransformContainer.classList.remove('hidden');
+
+  exerciseTransformBase.textContent = exercise.baseSentence || '';
+  exerciseTransformKeyword.textContent = exercise.keyWord || '';
+  const template = exercise.targetSentenceTemplate || '___';
+  exerciseTransformTemplate.innerHTML = template.replace('___', '<span class="prompt-blank">___</span>');
+
+  exerciseTextInput.value = '';
+  exerciseTextInput.disabled = false;
+  btnSubmitExercise.disabled = false;
+  btnSubmitExercise.textContent = 'Enviar Respuesta';
+  setTimeout(() => exerciseTextInput.focus(), 150);
+}
+
+function normalizeAnswerText(text) {
+  return (text || '')
+    .toLowerCase()
+    .replace(/['"`]/g, "'")
+    .replace(/[.,!?;:]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+exerciseTransformForm.addEventListener('submit', (e) => {
+  e.preventDefault();
+  if (!currentStudentExercise || currentStudentExercise.type !== 'key_word_transformation') return;
+
+  const rawAnswer = exerciseTextInput.value.trim();
+  if (!rawAnswer) return;
+
+  exerciseTextInput.disabled = true;
+  btnSubmitExercise.disabled = true;
+
+  const normInput = normalizeAnswerText(rawAnswer);
+  const normIdeal = normalizeAnswerText(currentStudentExercise.idealAnswer);
+  const normVariants = (currentStudentExercise.acceptableVariants || []).map(normalizeAnswerText);
+
+  const isCorrect = normInput === normIdeal || normVariants.includes(normInput);
+
+  if (isCorrect) {
+    exerciseFeedbackTitle.textContent = '¡Brillante! Transformación sintáctica correcta.';
+    exerciseFeedbackTitle.className = 'exercise-feedback-title correct';
+  } else {
+    exerciseFeedbackTitle.textContent = 'Intento Incorrecto';
+    exerciseFeedbackTitle.className = 'exercise-feedback-title incorrect';
+  }
+
+  exerciseFeedbackSolution.innerHTML = `Respuesta modelo: <strong>${currentStudentExercise.idealAnswer}</strong>`;
+  exerciseFeedbackSolution.classList.remove('hidden');
+  exerciseFeedbackText.textContent = currentStudentExercise.feedbackExplanation || '';
+  exerciseFeedbackContainer.classList.remove('hidden');
+
+  supabaseService.sendMicroExerciseAnswer({
+    exerciseId: currentStudentExercise.exerciseId,
+    exerciseType: 'key_word_transformation',
+    selectedText: rawAnswer,
+    correctText: currentStudentExercise.idealAnswer,
+    isCorrect,
+    answeredAt: Date.now()
+  });
+});
 
 // 6. Cierre local de modales por el alumno
 if (btnCloseGuidedModal) {
@@ -378,6 +522,13 @@ async function cleanupSession() {
   if (exerciseModal) {
     exerciseModal.classList.add('hidden');
     exerciseFeedbackContainer.classList.add('hidden');
+    if (exerciseFeedbackSolution) {
+      exerciseFeedbackSolution.classList.add('hidden');
+      exerciseFeedbackSolution.innerHTML = '';
+    }
+    if (exerciseTextInput) {
+      exerciseTextInput.value = '';
+    }
   }
   currentStudentExercise = null;
   joinError.textContent = '';
