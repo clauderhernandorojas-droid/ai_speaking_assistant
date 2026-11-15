@@ -240,6 +240,90 @@ Analyze according to the 5 tabs and output ONLY the valid JSON array starting wi
       throw err;
     }
   }
+
+  /**
+   * Genera un micro-ejercicio interactivo de opción múltiple con IA basado en una tarjeta de feedback
+   */
+  async generateMicroExercise({ category = 'grammar', studentQuote = '', surgicalCorrection = '', explanation = '', targetLevel = 'B1' }) {
+    const exerciseId = `ex_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    const systemInstruction = `You are an expert Cambridge/IELTS ESL examiner designing a focused multiple-choice micro-exercise for an English student at CEFR ${targetLevel} level.
+Based on this diagnosed error or learning point:
+- Category: ${category}
+- Student's original phrase: "${studentQuote}"
+- Teacher's surgical correction: "${surgicalCorrection}"
+- Pedagogical explanation: "${explanation}"
+
+TASK:
+Create a single multiple-choice gap-fill exercise targeting the EXACT SAME grammatical rule, collocation, or lexical upgrade, but using a BRAND NEW, natural sentence (do NOT repeat the exact student phrase).
+
+REQUIREMENTS:
+1. "instruction": A short, clear instruction in Spanish tailored for the student (e.g., "Elige la opción correcta para completar la frase:", "Selecciona la colocación más natural:").
+2. "promptSentence": A new sentence containing a blank formatted exactly as "___" (three underscores) where the target item fits.
+3. "options": Exactly 3 realistic options (1 correct answer and 2 plausible distractors representing common L1 interference or false grammatical assumptions).
+4. "correctIndex": Integer (0, 1, or 2) pointing to the single correct option in "options".
+5. "feedbackExplanation": A concise pedagogical explanation in Spanish (max 20 words) explaining why the chosen option is correct and why the distractors are incorrect.
+
+OUTPUT FORMAT:
+Output ONLY a raw, valid JSON object without markdown code blocks, starting with { and ending with }.
+Schema:
+{
+  "exerciseId": "${exerciseId}",
+  "type": "multiple_choice",
+  "category": "${category}",
+  "instruction": "...",
+  "promptSentence": "... ___ ...",
+  "options": ["Option 1", "Option 2", "Option 3"],
+  "correctIndex": 0,
+  "feedbackExplanation": "..."
+}`;
+
+    const payload = {
+      contents: [
+        {
+          parts: [{ text: systemInstruction }]
+        }
+      ],
+      generationConfig: {
+        temperature: 0.2,
+        maxOutputTokens: 1024,
+        responseMimeType: 'application/json',
+        thinkingConfig: {
+          thinkingBudget: 0
+        }
+      }
+    };
+
+    try {
+      const result = await this.requestGemini('generateContent', payload);
+      let text = result?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+      text = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
+      const parsed = JSON.parse(text);
+
+      return {
+        exerciseId: parsed.exerciseId || exerciseId,
+        type: 'multiple_choice',
+        category: parsed.category || category,
+        instruction: parsed.instruction || 'Elige la opción correcta para completar la frase:',
+        promptSentence: parsed.promptSentence || (surgicalCorrection ? `In professional contexts, they usually ___ this process.` : `She ___ to the office every morning.`),
+        options: Array.isArray(parsed.options) && parsed.options.length >= 3 ? parsed.options.slice(0, 3) : ['option A', 'option B', 'option C'],
+        correctIndex: (typeof parsed.correctIndex === 'number' && parsed.correctIndex >= 0 && parsed.correctIndex < 3) ? parsed.correctIndex : 0,
+        feedbackExplanation: parsed.feedbackExplanation || explanation || 'Opción correcta acorde a la regla evaluada.'
+      };
+    } catch (err) {
+      console.error('[GEMINI Micro-Exercise Error]:', err.message);
+      // Fallback seguro en caso de error o límite de cuota
+      return {
+        exerciseId,
+        type: 'multiple_choice',
+        category,
+        instruction: 'Elige la opción correcta para completar la frase:',
+        promptSentence: `They ___ to the meeting yesterday on time.`,
+        options: ['went', 'goed', 'have went'],
+        correctIndex: 0,
+        feedbackExplanation: 'El pasado simple del verbo irregular "go" es "went".'
+      };
+    }
+  }
 }
 
 module.exports = new GeminiService();

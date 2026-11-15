@@ -32,6 +32,18 @@ const guidedSolutionContainer = document.getElementById('guided-solution-contain
 const guidedSolutionText = document.getElementById('guided-solution-text');
 const guidedExplanationText = document.getElementById('guided-explanation-text');
 
+// Elementos de Micro-Ejercicios con IA
+const exerciseModal = document.getElementById('exercise-modal');
+const exerciseCategoryBadge = document.getElementById('exercise-category-badge');
+const exerciseInstructionText = document.getElementById('exercise-instruction-text');
+const exercisePromptSentence = document.getElementById('exercise-prompt-sentence');
+const exerciseOptionsContainer = document.getElementById('exercise-options-container');
+const exerciseFeedbackContainer = document.getElementById('exercise-feedback-container');
+const exerciseFeedbackTitle = document.getElementById('exercise-feedback-title');
+const exerciseFeedbackText = document.getElementById('exercise-feedback-text');
+
+let currentStudentExercise = null;
+
 const CATEGORY_NAMES = {
   grammar: 'Gramática',
   vocabulary: 'Vocabulario',
@@ -164,6 +176,8 @@ function handleTeacherEvent(eventType, payload) {
     visualizerContainer.classList.remove('recording');
   } else if (eventType === 'guided_correction') {
     handleGuidedCorrectionEvent(payload);
+  } else if (eventType === 'micro_exercise') {
+    handleMicroExerciseEvent(payload);
   }
 }
 
@@ -172,6 +186,11 @@ function handleGuidedCorrectionEvent(payload) {
   if (!payload || !payload.action) return;
 
   if (payload.action === 'show_prompt') {
+    // Si hubiera un ejercicio activo, ocultarlo para priorizar la autocorrección guiada
+    if (exerciseModal) {
+      exerciseModal.classList.add('hidden');
+    }
+
     // 1. Badge de Categoría
     const cat = (payload.category || 'grammar').toLowerCase();
     guidedCategoryBadge.textContent = CATEGORY_NAMES[cat] || payload.category || 'Atención';
@@ -219,6 +238,105 @@ function handleGuidedCorrectionEvent(payload) {
   }
 }
 
+// 5.2 Manejador de Micro-Ejercicios Interactivos con IA en tiempo real
+function handleMicroExerciseEvent(payload) {
+  if (!payload || !payload.action) return;
+
+  if (payload.action === 'show_exercise') {
+    currentStudentExercise = payload;
+
+    // Cerrar modal de autocorrección guiada si estuviera abierto
+    if (guidedModal) {
+      guidedModal.classList.add('hidden');
+      guidedSolutionContainer.classList.add('hidden');
+    }
+
+    // 1. Badge de Categoría
+    const cat = (payload.category || 'grammar').toLowerCase();
+    exerciseCategoryBadge.textContent = CATEGORY_NAMES[cat] || payload.category || 'Ejercicio';
+    exerciseCategoryBadge.className = `guided-badge cat-${cat}`;
+
+    // 2. Instrucción breve
+    exerciseInstructionText.textContent = payload.instruction || 'Elige la opción correcta para completar la frase:';
+
+    // 3. Oración con hueco ___ resaltado
+    const rawSentence = payload.promptSentence || '___';
+    const sentenceHtml = rawSentence.replace('___', '<span class="prompt-blank">___</span>');
+    exercisePromptSentence.innerHTML = sentenceHtml;
+
+    // 4. Generar botones de opciones
+    exerciseOptionsContainer.innerHTML = '';
+    const options = Array.isArray(payload.options) ? payload.options : [];
+    options.forEach((optText, index) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'exercise-option-btn';
+      btn.dataset.index = index;
+      btn.innerHTML = `<span>${optText}</span>`;
+
+      btn.addEventListener('click', () => {
+        handleSelectExerciseOption(index, btn, payload);
+      });
+
+      exerciseOptionsContainer.appendChild(btn);
+    });
+
+    // 5. Reiniciar contenedor de feedback
+    exerciseFeedbackContainer.classList.add('hidden');
+    exerciseFeedbackTitle.textContent = '';
+    exerciseFeedbackTitle.className = 'exercise-feedback-title';
+    exerciseFeedbackText.textContent = '';
+
+    // 6. Mostrar modal
+    exerciseModal.classList.remove('hidden');
+  } else if (payload.action === 'hide_exercise') {
+    currentStudentExercise = null;
+    exerciseModal.classList.add('hidden');
+    exerciseFeedbackContainer.classList.add('hidden');
+  }
+}
+
+// 5.3 Lógica al seleccionar una opción del micro-ejercicio
+function handleSelectExerciseOption(selectedIndex, clickedBtn, exercise) {
+  // 1. Bloquear todos los botones para evitar doble clic
+  const allBtns = exerciseOptionsContainer.querySelectorAll('.exercise-option-btn');
+  allBtns.forEach((b) => (b.disabled = true));
+
+  const isCorrect = selectedIndex === exercise.correctIndex;
+  const correctBtn = allBtns[exercise.correctIndex];
+
+  // 2. Iluminar en verde la opción correcta y en rojo la elegida si falló
+  if (isCorrect) {
+    clickedBtn.classList.add('option-correct');
+    exerciseFeedbackTitle.textContent = '¡Excelente! Opción Correcta';
+    exerciseFeedbackTitle.className = 'exercise-feedback-title correct';
+  } else {
+    clickedBtn.classList.add('option-wrong');
+    if (correctBtn) {
+      correctBtn.classList.add('option-correct');
+    }
+    exerciseFeedbackTitle.textContent = 'Respuesta Incorrecta';
+    exerciseFeedbackTitle.className = 'exercise-feedback-title incorrect';
+  }
+
+  // 3. Mostrar explicación pedagógica
+  exerciseFeedbackText.textContent = exercise.feedbackExplanation || '';
+  exerciseFeedbackContainer.classList.remove('hidden');
+
+  // 4. Emitir respuesta de inmediato al profesor por Realtime
+  const answerPayload = {
+    exerciseId: exercise.exerciseId,
+    selectedIndex,
+    selectedText: exercise.options[selectedIndex] || '',
+    correctIndex: exercise.correctIndex,
+    correctText: exercise.options[exercise.correctIndex] || '',
+    isCorrect,
+    answeredAt: Date.now()
+  };
+
+  supabaseService.sendMicroExerciseAnswer(answerPayload);
+}
+
 // 6. Retroalimentación visual sutil basada en volumen
 function handleVolumeFeedback(level) {
   if (!audioService || audioService.isMuted) return;
@@ -239,6 +357,10 @@ async function cleanupSession() {
   if (guidedModal) {
     guidedModal.classList.add('hidden');
     guidedSolutionContainer.classList.add('hidden');
+  }
+  if (exerciseModal) {
+    exerciseModal.classList.add('hidden');
+    exerciseFeedbackContainer.classList.add('hidden');
   }
   sessionScreen.classList.remove('active');
   joinScreen.classList.add('active');

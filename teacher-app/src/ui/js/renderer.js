@@ -21,6 +21,8 @@ const state = {
   sessionCode: generateRoomCode(),
   activeGuidedCardId: null,
   revealedGuidedCardId: null,
+  activeExerciseCardId: null,
+  currentExercise: null,
   feedbackCounts: {
     grammar: 0,
     vocabulary: 0,
@@ -646,6 +648,8 @@ function handleSessionCompleted(summary) {
   tabPanes.forEach(pane => (pane.innerHTML = ''));
   state.activeGuidedCardId = null;
   state.revealedGuidedCardId = null;
+  state.activeExerciseCardId = null;
+  state.currentExercise = null;
   Object.keys(state.feedbackCounts).forEach(cat => {
     state.feedbackCounts[cat] = 0;
     updateBadgeCounter(cat);
@@ -926,6 +930,12 @@ function setupEventListeners() {
         handleSessionCompleted(summary);
       });
     }
+
+    if (typeof window.electronAPI.onMicroExerciseAnswer === 'function') {
+      window.electronAPI.onMicroExerciseAnswer((data) => {
+        handleStudentExerciseAnswer(data);
+      });
+    }
   }
 
   tabButtons.forEach((btn) => {
@@ -1054,12 +1064,30 @@ function addSurgicalCard(item) {
       <button type="button" class="btn-guided btn-guided-reveal" disabled title="Revelar la solución al alumno en su pantalla">
         <span class="btn-text">Revelar Respuesta</span>
       </button>
+      <button type="button" class="btn-guided btn-guided-exercise" title="Generar un micro-ejercicio interactivo con IA sobre esta regla">
+        <span class="btn-text">⚡ Ejercicio IA</span>
+      </button>
+    </div>
+
+    <!-- Mini vista previa del Micro-Ejercicio en vivo -->
+    <div class="card-exercise-panel hidden" data-exercise-id="">
+      <div class="exercise-panel-top">
+        <span class="exercise-live-badge">⚡ Micro-Ejercicio en Vivo</span>
+        <span class="exercise-panel-instruction"></span>
+      </div>
+      <p class="exercise-panel-sentence"></p>
+      <div class="exercise-panel-options"></div>
+      <div class="exercise-status-bar status-waiting">
+        <span class="status-dot"></span>
+        <span class="status-label">Esperando respuesta del alumno...</span>
+      </div>
     </div>
   `;
 
-  // Controladores de eventos para Autocorrección Guiada
+  // Controladores de eventos para Autocorrección Guiada y Micro-Ejercicio
   const btnBroadcast = card.querySelector('.btn-guided-broadcast');
   const btnReveal = card.querySelector('.btn-guided-reveal');
+  const btnExercise = card.querySelector('.btn-guided-exercise');
 
   btnBroadcast.addEventListener('click', async () => {
     await handleToggleBroadcastCard({
@@ -1075,6 +1103,17 @@ function addSurgicalCard(item) {
     await handleRevealAnswerCard({
       card,
       cardId,
+      surgicalCorrection,
+      explanation
+    });
+  });
+
+  btnExercise.addEventListener('click', async () => {
+    await handleToggleExerciseCard({
+      card,
+      cardId,
+      category,
+      studentQuote: studentResponse,
       surgicalCorrection,
       explanation
     });
@@ -1206,6 +1245,161 @@ async function handleRevealAnswerCard({ card, cardId, surgicalCorrection, explan
     } catch (err) {
       console.warn('[Autocorrección] Error al emitir reveal_answer:', err.message);
     }
+  }
+}
+
+/**
+ * Genera y transmite un micro-ejercicio interactivo con IA para esta tarjeta
+ */
+async function handleToggleExerciseCard({ card, cardId, category, studentQuote, surgicalCorrection, explanation }) {
+  const isCurrentActive = state.activeExerciseCardId === cardId;
+  const btnExercise = card.querySelector('.btn-guided-exercise');
+  const panel = card.querySelector('.card-exercise-panel');
+
+  if (isCurrentActive) {
+    // Si ya está activo en esta tarjeta -> Ocultar / cerrar
+    console.log(`[Micro-Ejercicio] Ocultando ejercicio de tarjeta ${cardId}`);
+    const exerciseId = panel ? panel.dataset.exerciseId : '';
+    state.activeExerciseCardId = null;
+    state.currentExercise = null;
+
+    if (btnExercise) {
+      btnExercise.classList.remove('active');
+      btnExercise.querySelector('.btn-text').textContent = '⚡ Ejercicio IA';
+    }
+    if (panel) {
+      panel.classList.add('hidden');
+    }
+
+    if (window.electronAPI && typeof window.electronAPI.broadcastMicroExercise === 'function') {
+      try {
+        await window.electronAPI.broadcastMicroExercise({
+          action: 'hide_exercise',
+          sessionCode: state.sessionCode,
+          exerciseId
+        });
+      } catch (err) {
+        console.warn('[Micro-Ejercicio] Error al emitir hide_exercise:', err.message);
+      }
+    }
+    return;
+  }
+
+  // Si había otro ejercicio activo en otra tarjeta, ocultarlo primero
+  if (state.activeExerciseCardId) {
+    const prevCard = document.querySelector(`.surgical-card[data-card-id="${state.activeExerciseCardId}"]`);
+    if (prevCard) {
+      const prevBtn = prevCard.querySelector('.btn-guided-exercise');
+      const prevPanel = prevCard.querySelector('.card-exercise-panel');
+      if (prevBtn) {
+        prevBtn.classList.remove('active');
+        prevBtn.querySelector('.btn-text').textContent = '⚡ Ejercicio IA';
+      }
+      if (prevPanel) {
+        prevPanel.classList.add('hidden');
+      }
+    }
+  }
+
+  // Generar nuevo ejercicio con Gemini Flash
+  if (btnExercise) {
+    btnExercise.disabled = true;
+    btnExercise.querySelector('.btn-text').textContent = 'Generando...';
+  }
+
+  try {
+    let exercise = null;
+    if (window.electronAPI && typeof window.electronAPI.generateMicroExercise === 'function') {
+      exercise = await window.electronAPI.generateMicroExercise({
+        category,
+        studentQuote,
+        surgicalCorrection,
+        explanation,
+        targetLevel: state.targetLevel || 'B1'
+      });
+    }
+
+    if (!exercise || !exercise.exerciseId) {
+      throw new Error('No se pudo generar el ejercicio');
+    }
+
+    state.activeExerciseCardId = cardId;
+    state.currentExercise = exercise;
+
+    // Actualizar botón del docente
+    if (btnExercise) {
+      btnExercise.disabled = false;
+      btnExercise.classList.add('active');
+      btnExercise.querySelector('.btn-text').textContent = 'Ocultar Ejercicio';
+    }
+
+    // Renderizar panel en la tarjeta del docente
+    if (panel) {
+      panel.dataset.exerciseId = exercise.exerciseId;
+      const instructionEl = panel.querySelector('.exercise-panel-instruction');
+      if (instructionEl) instructionEl.textContent = exercise.instruction || '';
+
+      const sentenceEl = panel.querySelector('.exercise-panel-sentence');
+      if (sentenceEl) {
+        const sentenceWithHighlight = (exercise.promptSentence || '').replace('___', '<strong class="blank-highlight">___</strong>');
+        sentenceEl.innerHTML = sentenceWithHighlight;
+      }
+
+      const optionsEl = panel.querySelector('.exercise-panel-options');
+      if (optionsEl) {
+        optionsEl.innerHTML = (exercise.options || []).map((opt, idx) => {
+          const isCorrect = idx === exercise.correctIndex;
+          return `<span class="exercise-panel-opt ${isCorrect ? 'is-correct-key' : ''}">${opt}</span>`;
+        }).join('');
+      }
+
+      const statusBar = panel.querySelector('.exercise-status-bar');
+      if (statusBar) {
+        statusBar.className = 'exercise-status-bar status-waiting';
+        statusBar.innerHTML = '<span class="status-dot"></span><span class="status-label">Esperando respuesta del alumno...</span>';
+      }
+
+      panel.classList.remove('hidden');
+    }
+
+    // Transmitir al alumno vía Supabase Realtime
+    if (window.electronAPI && typeof window.electronAPI.broadcastMicroExercise === 'function') {
+      await window.electronAPI.broadcastMicroExercise({
+        action: 'show_exercise',
+        sessionCode: state.sessionCode,
+        ...exercise
+      });
+    }
+  } catch (err) {
+    console.error('[Micro-Ejercicio Error]:', err.message);
+    if (btnExercise) {
+      btnExercise.disabled = false;
+      btnExercise.classList.remove('active');
+      btnExercise.querySelector('.btn-text').textContent = '⚡ Ejercicio IA';
+    }
+  }
+}
+
+/**
+ * Actualiza el indicador en la tarjeta del docente cuando el estudiante responde
+ */
+function handleStudentExerciseAnswer(answer) {
+  console.log('[Micro-Ejercicio] Respuesta del alumno recibida en UI:', answer);
+  if (!answer || !answer.exerciseId) return;
+
+  const panel = document.querySelector(`.card-exercise-panel[data-exercise-id="${answer.exerciseId}"]`);
+  if (!panel) return;
+
+  const statusBar = panel.querySelector('.exercise-status-bar');
+  if (!statusBar) return;
+
+  if (answer.isCorrect) {
+    statusBar.className = 'exercise-status-bar status-correct';
+    statusBar.innerHTML = `<span>✓ Respondió correctamente: <strong>${answer.selectedText}</strong></span>`;
+  } else {
+    statusBar.className = 'exercise-status-bar status-wrong';
+    const correctInfo = answer.correctText ? ` (Correcta: <strong>${answer.correctText}</strong>)` : '';
+    statusBar.innerHTML = `<span>✗ Eligió: <strong>${answer.selectedText}</strong>${correctInfo}</span>`;
   }
 }
 

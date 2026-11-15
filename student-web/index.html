@@ -170,6 +170,42 @@
       </div>
     </div>
 
+    <!-- MODAL / TARJETA DE MICRO-EJERCICIO INTERACTIVO CON IA -->
+    <div id="exercise-modal" class="guided-modal hidden">
+      <div class="guided-card exercise-modal-card">
+        <header class="guided-top-bar">
+          <div class="guided-badge-group">
+            <span class="guided-pulse-dot exercise-dot"></span>
+            <span id="exercise-category-badge" class="guided-badge">Gramática</span>
+          </div>
+          <span class="guided-tag">⚡ Micro-Ejercicio IA</span>
+        </header>
+
+        <div class="guided-content">
+          <div class="exercise-instruction-banner">
+            <span id="exercise-instruction-text" class="exercise-instruction-text">Elige la opción correcta para completar la frase:</span>
+          </div>
+
+          <div class="exercise-sentence-box">
+            <p id="exercise-prompt-sentence" class="exercise-prompt-sentence"></p>
+          </div>
+
+          <!-- 3 BOTONES CLICABLES GRANDES DE OPCIONES -->
+          <div id="exercise-options-container" class="exercise-options-container">
+            <!-- Botones generados dinámicamente -->
+          </div>
+
+          <!-- EXPLICACIÓN RETROALIMENTACIÓN TRAS RESPONDER -->
+          <div id="exercise-feedback-container" class="exercise-feedback-container hidden">
+            <div id="exercise-feedback-box" class="exercise-feedback-box">
+              <span id="exercise-feedback-title" class="exercise-feedback-title"></span>
+              <p id="exercise-feedback-text" class="exercise-feedback-text"></p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <script type="module" src="js/app.js"></script>

@@ -6,6 +6,7 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const dbService = require('./src/db/index');
 const speechCleaner = require('./src/ai/speech-cleaner');
 const ieltsEngine = require('./src/ai/ielts-engine');
+const geminiService = require('./src/ai/gemini-service');
 const sessionService = require('./src/supabase/session-service');
 
 let mainWindow = null;
@@ -52,6 +53,11 @@ function createWindow() {
     onStudentLeft: (data) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('session:studentLeft', data);
+      }
+    },
+    onMicroExerciseAnswer: (data) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('session:microExerciseAnswer', data);
       }
     }
   });
@@ -127,6 +133,15 @@ ipcMain.handle('ai:evaluateUtterance', async (event, options) => {
   return ieltsEngine.evaluateUtterance(options);
 });
 
+ipcMain.handle('ai:generateMicroExercise', async (event, params) => {
+  try {
+    return await geminiService.generateMicroExercise(params);
+  } catch (err) {
+    console.error('[MAIN ai:generateMicroExercise ERROR]', err);
+    throw new Error(err && err.message ? err.message : String(err));
+  }
+});
+
 // ==============================================================================
 // CANALES IPC DE SESIÓN EN TIEMPO REAL (SUPABASE BRIDGE)
 // ==============================================================================
@@ -159,6 +174,15 @@ ipcMain.handle('session:broadcastGuidedCorrection', async (event, payload) => {
     return await sessionService.broadcastGuidedCorrection(payload);
   } catch (err) {
     console.error('[MAIN session:broadcastGuidedCorrection ERROR]', err);
+    throw new Error(err && err.message ? err.message : String(err));
+  }
+});
+
+ipcMain.handle('session:broadcastMicroExercise', async (event, payload) => {
+  try {
+    return await sessionService.broadcastMicroExercise(payload);
+  } catch (err) {
+    console.error('[MAIN session:broadcastMicroExercise ERROR]', err);
     throw new Error(err && err.message ? err.message : String(err));
   }
 });

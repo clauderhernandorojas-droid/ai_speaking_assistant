@@ -17,17 +17,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Motor de Inteligencia Artificial (Limpieza y Rúbricas IELTS)
   cleanSpeech: (rawText) => ipcRenderer.invoke('ai:cleanSpeech', rawText),
   evaluateUtterance: (options) => ipcRenderer.invoke('ai:evaluateUtterance', options),
+  generateMicroExercise: (params) => ipcRenderer.invoke('ai:generateMicroExercise', params),
 
   // Servicio de Sesión en Tiempo Real (Supabase Realtime Bridge)
   startRealtimeSession: (sessionData) => ipcRenderer.invoke('session:start', sessionData),
   stopRealtimeSession: (reason) => ipcRenderer.invoke('session:stop', reason),
   broadcastGuidedCorrection: (payload) => ipcRenderer.invoke('session:broadcastGuidedCorrection', payload),
+  broadcastMicroExercise: (payload) => ipcRenderer.invoke('session:broadcastMicroExercise', payload),
 
   // Escuchadores de Eventos del Estudiante y Sesión
   onStudentJoined: (callback) => ipcRenderer.on('session:studentJoined', (_event, data) => callback(data)),
   onAudioChunk: (callback) => ipcRenderer.on('session:audioChunk', (_event, data) => callback(data)),
   onMuteChanged: (callback) => ipcRenderer.on('session:muteChanged', (_event, data) => callback(data)),
   onStudentLeft: (callback) => ipcRenderer.on('session:studentLeft', (_event, data) => callback(data)),
-  onSessionCompleted: (callback) => ipcRenderer.on('session:completed', (_event, data) => callback(data))
+  onSessionCompleted: (callback) => ipcRenderer.on('session:completed', (_event, data) => callback(data)),
+  onMicroExerciseAnswer: (callback) => ipcRenderer.on('session:microExerciseAnswer', (_event, data) => callback(data))
 });
 

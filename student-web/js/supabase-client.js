@@ -83,6 +83,9 @@ export class StudentSupabaseService {
       .on('broadcast', { event: 'guided_correction' }, (payload) => {
         if (onTeacherEvent) onTeacherEvent('guided_correction', payload.payload);
       })
+      .on('broadcast', { event: 'micro_exercise' }, (payload) => {
+        if (onTeacherEvent) onTeacherEvent('micro_exercise', payload.payload);
+      })
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           // Notificar al docente que el alumno se unió
@@ -121,6 +124,14 @@ export class StudentSupabaseService {
       isMuted,
       timestamp: Date.now()
     });
+  }
+
+  /**
+   * Envía la respuesta seleccionada por el estudiante en el micro-ejercicio.
+   */
+  sendMicroExerciseAnswer(payload) {
+    if (!this.channel) return;
+    this.broadcastEvent('micro_exercise_answer', payload);
   }
 
   /**

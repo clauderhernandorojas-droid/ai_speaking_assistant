@@ -25,7 +25,8 @@ class TeacherSessionService {
       onStudentJoined: () => {},
       onAudioChunk: () => {},
       onMuteChange: () => {},
-      onStudentLeft: () => {}
+      onStudentLeft: () => {},
+      onMicroExerciseAnswer: () => {}
     };
 
     this.initClient();
@@ -159,6 +160,10 @@ class TeacherSessionService {
         .on('broadcast', { event: 'student:left' }, (payload) => {
           console.log('[Supabase Realtime] Alumno abandonó la sala');
           this.eventListeners.onStudentLeft(payload.payload);
+        })
+        .on('broadcast', { event: 'micro_exercise_answer' }, (payload) => {
+          console.log('[Supabase Realtime] Respuesta de alumno recibida:', payload.payload);
+          this.eventListeners.onMicroExerciseAnswer(payload.payload);
         })
         .subscribe((status) => {
           if (status === 'SUBSCRIBED') {
@@ -350,6 +355,58 @@ class TeacherSessionService {
       return { success: true };
     } catch (err) {
       console.error('[Supabase Realtime] Error emitiendo guided_correction:', err.message);
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Envía un evento broadcast 'micro_exercise' al canal activo de la sala
+   * para la función de Micro-Ejercicios Interactivos en student-web.
+   */
+  async broadcastMicroExercise(payload = {}) {
+    const sessionCode = (payload.sessionCode || this.currentSession?.sessionCode || '').toUpperCase().trim();
+    if (!sessionCode) {
+      console.warn('[Supabase Realtime] No hay sessionCode para broadcastMicroExercise');
+      return { success: false, error: 'No active session code' };
+    }
+
+    if (!this.client) {
+      this.initClient();
+    }
+
+    // Si el canal no está inicializado o fue cerrado, reconectar a la sala
+    if (!this.channel && this.client) {
+      const channelName = `session:${sessionCode}`;
+      console.log(`[Supabase Realtime] Suscribiendo al canal ${channelName} para broadcastMicroExercise...`);
+      this.channel = this.client.channel(channelName, {
+        config: { broadcast: { self: false } }
+      });
+      this.channel.on('broadcast', { event: 'micro_exercise_answer' }, (p) => {
+        console.log('[Supabase Realtime] Respuesta de alumno recibida:', p.payload);
+        this.eventListeners.onMicroExerciseAnswer(p.payload);
+      });
+      await new Promise((resolve) => {
+        this.channel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') resolve();
+        });
+        setTimeout(resolve, 1500);
+      });
+    }
+
+    if (!this.channel) {
+      return { success: false, error: 'No channel available' };
+    }
+
+    try {
+      console.log('[Supabase Realtime] Emitiendo micro_exercise:', payload.action, payload.exerciseId);
+      await this.channel.send({
+        type: 'broadcast',
+        event: 'micro_exercise',
+        payload
+      });
+      return { success: true };
+    } catch (err) {
+      console.error('[Supabase Realtime] Error emitiendo micro_exercise:', err.message);
       return { success: false, error: err.message };
     }
   }
