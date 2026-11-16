@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Escuchadores de Eventos del Estudiante y Sesión
   onStudentJoined: (callback) => ipcRenderer.on('session:studentJoined', (_event, data) => callback(data)),
   onAudioChunk: (callback) => ipcRenderer.on('session:audioChunk', (_event, data) => callback(data)),
+  onTranscriptSegment: (callback) => ipcRenderer.on('session:transcriptSegment', (_event, data) => callback(data)),
   onMuteChanged: (callback) => ipcRenderer.on('session:muteChanged', (_event, data) => callback(data)),
   onStudentLeft: (callback) => ipcRenderer.on('session:studentLeft', (_event, data) => callback(data)),
   onSessionCompleted: (callback) => ipcRenderer.on('session:completed', (_event, data) => callback(data)),

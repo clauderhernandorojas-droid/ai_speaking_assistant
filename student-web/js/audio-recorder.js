@@ -1,12 +1,15 @@
 /**
  * Gestor de captura de audio y hardware del micrófono para el estudiante.
- * Utiliza MediaRecorder con timeslice para fragmentar el audio en chunks y
- * Web Audio API para calcular el volumen real de la voz.
+ * Utiliza MediaRecorder con ciclo de bloques WebM autocontenidos (hasta 35s o 2.0s de silencio continuo tras voz)
+ * y Web Audio API con VAD para descartar bloques sin voz y garantizar cabeceras WebM completas.
  */
 
 export class AudioCaptureService {
   constructor(options = {}) {
-    this.timeslice = options.timeslice || 2000; // 2 segundos por fragmento
+    this.maxBlockDuration = options.maxBlockDuration || 35000; // Máximo 35 segundos por bloque
+    this.speechThreshold = options.speechThreshold || 0.035;   // Umbral RMS calibrado de voz real
+    this.minSpeechMs = options.minSpeechMs || 500;             // Mínimo 500ms de actividad vocal
+    this.silenceTimeoutMs = options.silenceTimeoutMs || 2000;  // 2.0s de silencio continuo tras haber detectado voz
     this.onChunk = options.onChunk || (() => {});
     this.onVolume = options.onVolume || (() => {});
     this.deviceId = options.deviceId || null;
@@ -17,6 +20,20 @@ export class AudioCaptureService {
     this.analyser = null;
     this.animationFrameId = null;
     this.isMuted = false;
+    this.isActive = false;
+
+    // Métricas y control del ciclo de bloques
+    this.blockTimer = null;
+    this.currentBlockChunks = [];
+    this.blockMetrics = {
+      startTime: 0,
+      activeSpeechMs: 0,
+      continuousSilenceMs: 0,
+      hasSpeech: false,
+      peakRms: 0
+    };
+    this.isCycling = false;
+    this.supportedMime = '';
   }
 
   /**
@@ -46,8 +63,118 @@ export class AudioCaptureService {
       video: false
     });
 
+    this.isActive = true;
     this.setupAudioAnalysis(this.mediaStream);
-    this.setupMediaRecorder(this.mediaStream);
+    this.startNewRecordingBlock();
+  }
+
+  /**
+   * Inicia un nuevo bloque de grabación WebM autocontenido.
+   */
+  startNewRecordingBlock() {
+    if (!this.isActive || this.isMuted || !this.mediaStream) return;
+
+    if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+      try {
+        this.mediaRecorder.stop();
+      } catch (_) {}
+    }
+
+    // Determinar MIME type compatible una sola vez
+    if (!this.supportedMime) {
+      const mimeTypes = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/ogg;codecs=opus',
+        'audio/mp4'
+      ];
+      this.supportedMime = mimeTypes.find(type => MediaRecorder.isTypeSupported(type)) || '';
+    }
+
+    this.currentBlockChunks = [];
+    this.blockMetrics = {
+      startTime: performance.now(),
+      activeSpeechMs: 0,
+      continuousSilenceMs: 0,
+      hasSpeech: false,
+      peakRms: 0
+    };
+    this.isCycling = false;
+
+    try {
+      this.mediaRecorder = new MediaRecorder(
+        this.mediaStream,
+        this.supportedMime ? { mimeType: this.supportedMime } : {}
+      );
+    } catch (err) {
+      console.error('[AudioCaptureService] Error instanciando MediaRecorder:', err);
+      return;
+    }
+
+    this.mediaRecorder.ondataavailable = (event) => {
+      if (event.data && event.data.size > 0) {
+        this.currentBlockChunks.push(event.data);
+      }
+    };
+
+    this.mediaRecorder.onstop = async () => {
+      const chunks = this.currentBlockChunks;
+      const metrics = { ...this.blockMetrics };
+      this.currentBlockChunks = [];
+
+      if (chunks.length > 0) {
+        const mime = this.mediaRecorder?.mimeType || this.supportedMime || 'audio/webm';
+        const blob = new Blob(chunks, { type: mime });
+
+        // Verificación estricta: ¿tuvo al menos 500ms de voz real?
+        if (metrics.activeSpeechMs >= this.minSpeechMs) {
+          console.log(`[AudioCapture] Bloque autocontenido con voz (${blob.size} bytes, voz: ${Math.round(metrics.activeSpeechMs)}ms, peakRms: ${metrics.peakRms.toFixed(3)}). Transmitiendo...`);
+          try {
+            const base64 = await this.blobToBase64(blob);
+            this.onChunk(base64, mime, metrics);
+          } catch (b64Err) {
+            console.error('[AudioCapture] Error al codificar blob a Base64:', b64Err);
+          }
+        } else {
+          console.log(`[AudioCapture] Bloque descartado localmente por falta de voz (${blob.size} bytes, voz: ${Math.round(metrics.activeSpeechMs)}ms < ${this.minSpeechMs}ms, peakRms: ${metrics.peakRms.toFixed(3)}). 0 tokens IA consumidos.`);
+        }
+      }
+
+      // Iniciar el siguiente bloque de inmediato si la sesión sigue activa y no está silenciado
+      if (this.isActive && !this.isMuted) {
+        this.startNewRecordingBlock();
+      }
+    };
+
+    // Iniciar sin timeslice para generar un archivo WebM autocontenido al llamar .stop()
+    this.mediaRecorder.start();
+
+    // Límite máximo: 35 segundos por bloque
+    if (this.blockTimer) clearTimeout(this.blockTimer);
+    this.blockTimer = setTimeout(() => {
+      this.cycleBlock('max_duration_35s');
+    }, this.maxBlockDuration);
+  }
+
+  /**
+   * Cierra de forma anticipada o programada el bloque de grabación actual.
+   */
+  cycleBlock(reason = 'vad') {
+    if (this.isCycling) return;
+    this.isCycling = true;
+
+    if (this.blockTimer) {
+      clearTimeout(this.blockTimer);
+      this.blockTimer = null;
+    }
+
+    if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
+      try {
+        this.mediaRecorder.stop();
+      } catch (err) {
+        console.warn(`[AudioCapture] Error al cerrar bloque (${reason}):`, err.message);
+      }
+    }
   }
 
   /**
@@ -150,33 +277,7 @@ export class AudioCaptureService {
   }
 
   /**
-   * Configura MediaRecorder para fragmentar audio periódicamente.
-   */
-  setupMediaRecorder(stream) {
-    const mimeTypes = [
-      'audio/webm;codecs=opus',
-      'audio/webm',
-      'audio/ogg;codecs=opus',
-      'audio/mp4'
-    ];
-
-    const supportedMime = mimeTypes.find(type => MediaRecorder.isTypeSupported(type)) || '';
-
-    this.mediaRecorder = new MediaRecorder(stream, supportedMime ? { mimeType: supportedMime } : {});
-
-    this.mediaRecorder.ondataavailable = async (event) => {
-      if (event.data && event.data.size > 0 && !this.isMuted) {
-        const base64 = await this.blobToBase64(event.data);
-        this.onChunk(base64, this.mediaRecorder.mimeType || 'audio/webm');
-      }
-    };
-
-    // Iniciar grabación continua en fragmentos
-    this.mediaRecorder.start(this.timeslice);
-  }
-
-  /**
-   * Conecta un AnalyserNode para monitorear el nivel de voz en tiempo real.
+   * Conecta un AnalyserNode para monitorear el nivel de voz en tiempo real y ejecutar VAD.
    */
   setupAudioAnalysis(stream) {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -191,9 +292,14 @@ export class AudioCaptureService {
 
     const freqArray = new Uint8Array(this.analyser.frequencyBinCount);
     const timeArray = new Uint8Array(this.analyser.fftSize);
+    let lastTime = performance.now();
 
     const checkVolume = () => {
-      if (!this.analyser || this.isMuted) {
+      const now = performance.now();
+      const dt = Math.min(now - lastTime, 100); // delta de tiempo transcurrido en ms
+      lastTime = now;
+
+      if (!this.analyser || this.isMuted || !this.isActive) {
         this.onVolume(0, 0);
       } else {
         // Nivel de energía en frecuencias (0 - 255)
@@ -213,16 +319,45 @@ export class AudioCaptureService {
         }
         const rms = Math.sqrt(sumSquares / timeArray.length);
 
-        this.onVolume(average, rms); // Escala promedio y RMS
+        // Feedback visual para el visualizador
+        this.onVolume(average, rms);
+
+        // Rastreo de VAD si hay un bloque activo
+        if (!this.isCycling && this.mediaRecorder && this.mediaRecorder.state === 'recording') {
+          if (rms > this.blockMetrics.peakRms) {
+            this.blockMetrics.peakRms = rms;
+          }
+
+          if (rms >= this.speechThreshold) {
+            // Voz real detectada en este frame
+            this.blockMetrics.activeSpeechMs += dt;
+            this.blockMetrics.hasSpeech = true;
+            this.blockMetrics.continuousSilenceMs = 0;
+          } else {
+            // Silencio en este frame
+            if (this.blockMetrics.hasSpeech) {
+              this.blockMetrics.continuousSilenceMs += dt;
+              // Si detecta 2.0s de silencio continuo tras haber captado voz:
+              if (this.blockMetrics.continuousSilenceMs >= this.silenceTimeoutMs &&
+                  this.blockMetrics.activeSpeechMs >= this.minSpeechMs) {
+                this.cycleBlock('silence_after_speech_2s');
+              }
+            }
+          }
+        }
       }
-      this.animationFrameId = requestAnimationFrame(checkVolume);
+
+      if (this.isActive) {
+        this.animationFrameId = requestAnimationFrame(checkVolume);
+      }
     };
 
-    checkVolume();
+    this.animationFrameId = requestAnimationFrame(checkVolume);
   }
 
   /**
    * Alterna el estado de silencio (Mute / Unmute).
+   * Al silenciar, detiene el bloque actual y no inicia otro hasta reactivar.
    */
   toggleMute() {
     if (!this.mediaStream) return this.isMuted;
@@ -232,6 +367,18 @@ export class AudioCaptureService {
       track.enabled = !this.isMuted;
     });
 
+    if (this.isMuted) {
+      // Detiene y cierra el bloque actual (se enviará en onstop solo si tenía voz previa)
+      if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
+        this.cycleBlock('mute');
+      }
+    } else {
+      // Al reactivar el micrófono, inicia un nuevo bloque limpio
+      if (this.isActive && (!this.mediaRecorder || this.mediaRecorder.state === 'inactive')) {
+        this.startNewRecordingBlock();
+      }
+    }
+
     return this.isMuted;
   }
 
@@ -239,6 +386,13 @@ export class AudioCaptureService {
    * Detiene la captura y libera el hardware del micrófono.
    */
   stop() {
+    this.isActive = false;
+
+    if (this.blockTimer) {
+      clearTimeout(this.blockTimer);
+      this.blockTimer = null;
+    }
+
     if (this.animationFrameId) {
       cancelAnimationFrame(this.animationFrameId);
       this.animationFrameId = null;
@@ -246,13 +400,8 @@ export class AudioCaptureService {
 
     if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
       try {
-        if (typeof this.mediaRecorder.requestData === 'function') {
-          this.mediaRecorder.requestData();
-        }
-      } catch (e) {
-        // En caso de que el recorder ya esté cerrando
-      }
-      this.mediaRecorder.stop();
+        this.mediaRecorder.stop();
+      } catch (_) {}
     }
 
     if (this.mediaStream) {
@@ -283,4 +432,3 @@ export class AudioCaptureService {
     });
   }
 }
-

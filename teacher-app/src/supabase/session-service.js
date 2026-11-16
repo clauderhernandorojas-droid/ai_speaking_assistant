@@ -22,10 +22,14 @@ class TeacherSessionService {
     this.client = null;
     this.channel = null;
     this.currentSession = null;
-    this.audioChunks = []; // Acumulador de chunks Base64 recibidos del alumno
+    this.audioChunks = []; // Historial de chunks/bloques recibidos
+    this.transcriptionQueue = []; // Cola secuencial de bloques WebM para transcripción
+    this.isProcessingQueue = false;
+    this.sessionTranscript = ''; // Transcripción acumulada en vivo
     this.eventListeners = {
       onStudentJoined: () => {},
       onAudioChunk: () => {},
+      onTranscriptSegment: () => {},
       onMuteChange: () => {},
       onStudentLeft: () => {},
       onMicroExerciseAnswer: () => {}
@@ -61,6 +65,102 @@ class TeacherSessionService {
   }
 
   /**
+   * Procesa la llegada de un bloque WebM autocontenido desde el estudiante.
+   */
+  handleIncomingAudioSegment(chunkData) {
+    if (!chunkData || !chunkData.data) return;
+
+    this.audioChunks.push(chunkData);
+    this.eventListeners.onAudioChunk({
+      sequence: chunkData.sequence,
+      totalChunks: this.audioChunks.length,
+      mimeType: chunkData.mimeType
+    });
+
+    // Si la sesión está activa, encolar el bloque para transcripción secuencial en vivo
+    if (this.currentSession && this.currentSession.status === 'active') {
+      this.transcriptionQueue.push(chunkData);
+      this.processTranscriptionQueue();
+    }
+  }
+
+  /**
+   * Cola secuencial de transcripción con Gemini para bloques WebM individuales.
+   */
+  async processTranscriptionQueue() {
+    if (this.isProcessingQueue) return;
+    this.isProcessingQueue = true;
+
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+
+    while (this.transcriptionQueue.length > 0) {
+      const segment = this.transcriptionQueue.shift();
+      if (!segment || !segment.data) continue;
+
+      try {
+        const segmentBuffer = Buffer.from(segment.data, 'base64');
+        const mimeType = (segment.mimeType || 'audio/webm').split(';')[0];
+
+        // Guardar diagnóstico del último segmento recibido en la carpeta temp de Electron
+        let tempDir = os.tmpdir();
+        try {
+          const electron = require('electron');
+          const electronApp = electron.app || electron.remote?.app;
+          if (electronApp && typeof electronApp.getPath === 'function') {
+            tempDir = electronApp.getPath('temp');
+          }
+        } catch (_) {}
+
+        const debugAudioPath = path.join(tempDir, 'last_session_debug.webm');
+        try {
+          fs.writeFileSync(debugAudioPath, segmentBuffer);
+          console.log(`[Audio Pipeline] 🎙️ Segmento #${segment.sequence} guardado para diagnóstico en: ${debugAudioPath} (${segmentBuffer.length} bytes, ${mimeType})`);
+        } catch (fsErr) {
+          console.warn('[Audio Pipeline] No se pudo escribir last_session_debug.webm:', fsErr.message);
+        }
+
+        if (apiKey && segmentBuffer.length > 0) {
+          console.log(`[Audio Pipeline] Transcribiendo bloque WebM #${segment.sequence} (${segmentBuffer.length} bytes) con Gemini...`);
+          const rawSegmentText = await geminiService.transcribeAudio(segmentBuffer, mimeType);
+          console.log(`[Audio Pipeline] Segmento #${segment.sequence} transcrito:`, rawSegmentText);
+
+          if (rawSegmentText &&
+              rawSegmentText.trim() !== '' &&
+              !rawSegmentText.includes('[No speech detected]') &&
+              !rawSegmentText.toUpperCase().includes('[SILENCE]')) {
+            
+            const cleanedSegment = speechCleaner.cleanText(rawSegmentText).trim();
+            if (cleanedSegment) {
+              if (this.sessionTranscript.length > 0) {
+                this.sessionTranscript += ' ' + cleanedSegment;
+              } else {
+                this.sessionTranscript = cleanedSegment;
+              }
+
+              console.log(`[Audio Pipeline] Transcripción acumulada en vivo: "${this.sessionTranscript}"`);
+
+              // Emitir inmediatamente al proceso de UI (renderer.js)
+              if (typeof this.eventListeners.onTranscriptSegment === 'function') {
+                this.eventListeners.onTranscriptSegment({
+                  segmentText: cleanedSegment,
+                  fullTranscript: this.sessionTranscript,
+                  sequence: segment.sequence
+                });
+              }
+            }
+          }
+        } else if (!apiKey) {
+          console.warn('[Audio Pipeline] Falta GEMINI_API_KEY en variables de entorno.');
+        }
+      } catch (err) {
+        console.error(`[Audio Pipeline] Error transcribiendo segmento #${segment.sequence}:`, err.message);
+      }
+    }
+
+    this.isProcessingQueue = false;
+  }
+
+  /**
    * Configura callbacks para notificar al proceso principal / renderizador
    */
   setListeners(listeners = {}) {
@@ -87,6 +187,9 @@ class TeacherSessionService {
     };
 
     this.audioChunks = [];
+    this.transcriptionQueue = [];
+    this.isProcessingQueue = false;
+    this.sessionTranscript = '';
 
     // 1. Sincronizar en la tabla 'sessions' con estado 'waiting'
     if (this.client) {
@@ -139,15 +242,7 @@ class TeacherSessionService {
           this.eventListeners.onStudentJoined(payload.payload);
         })
         .on('broadcast', { event: 'student:audio_chunk' }, (payload) => {
-          const chunkData = payload.payload;
-          if (chunkData && chunkData.data) {
-            this.audioChunks.push(chunkData);
-            this.eventListeners.onAudioChunk({
-              sequence: chunkData.sequence,
-              totalChunks: this.audioChunks.length,
-              mimeType: chunkData.mimeType
-            });
-          }
+          this.handleIncomingAudioSegment(payload.payload);
         })
         .on('broadcast', { event: 'student:mute_change' }, (payload) => {
           console.log('[Supabase Realtime] Cambio de Mute:', payload.payload);
@@ -190,6 +285,9 @@ class TeacherSessionService {
     };
 
     this.audioChunks = [];
+    this.transcriptionQueue = [];
+    this.isProcessingQueue = false;
+    this.sessionTranscript = '';
 
     // 1. Sincronizar en la tabla 'sessions' de Supabase con status 'active'
     if (this.client) {
@@ -284,15 +382,7 @@ class TeacherSessionService {
           this.eventListeners.onStudentJoined(payload.payload);
         })
         .on('broadcast', { event: 'student:audio_chunk' }, (payload) => {
-          const chunkData = payload.payload;
-          if (chunkData && chunkData.data) {
-            this.audioChunks.push(chunkData);
-            this.eventListeners.onAudioChunk({
-              sequence: chunkData.sequence,
-              totalChunks: this.audioChunks.length,
-              mimeType: chunkData.mimeType
-            });
-          }
+          this.handleIncomingAudioSegment(payload.payload);
         })
         .on('broadcast', { event: 'student:mute_change' }, (payload) => {
           console.log('[Supabase Realtime] Cambio de Mute:', payload.payload);
@@ -319,12 +409,13 @@ class TeacherSessionService {
 
   /**
    * Finaliza la sesión, emite teacher:session_end, espera el vaciado (flush)
-   * del último fragmento de audio del alumno y procesa el audio acumulado.
+   * del último fragmento de audio del alumno, espera a que termine la cola de transcripción
+   * y procesa la evaluación sobre todo el sessionTranscript acumulado.
    */
   async stopSession(reason = 'teacher_stopped') {
     if (!this.currentSession) return null;
 
-    // 1. Notificar al estudiante vía Realtime para que detenga la captura y transmita el último chunk
+    // 1. Notificar al estudiante vía Realtime para que detenga la captura y transmita el último bloque
     if (this.channel) {
       try {
         console.log('[Supabase Realtime] Notificando teacher:session_end al estudiante...');
@@ -338,15 +429,23 @@ class TeacherSessionService {
       }
     }
 
-    // 2. Margen de espera (1400 ms) para recibir el último chunk transmitido (flush) por el alumno
-    console.log('[Audio Pipeline] Margen de espera (1400ms) para vaciado (flush) del último chunk de audio...');
-    await new Promise((resolve) => setTimeout(resolve, 1400));
-    console.log(`[Audio Pipeline] Vaciado completado. Total de chunks recibidos en sesión: ${this.audioChunks.length}`);
+    // 2. Margen de espera (1500 ms) para recibir el último bloque transmitido (flush) por el alumno
+    console.log('[Audio Pipeline] Margen de espera (1500ms) para vaciado (flush) del último bloque de audio...');
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    console.log(`[Audio Pipeline] Vaciado completado. Total de bloques recibidos en sesión: ${this.audioChunks.length}`);
+
+    // 3. Esperar a que la cola secuencial de transcripción termine de procesar todos los bloques pendientes
+    console.log(`[Audio Pipeline] Esperando a que termine la cola de transcripción (pendientes: ${this.transcriptionQueue.length}, procesando: ${this.isProcessingQueue})...`);
+    const queueWaitStart = Date.now();
+    while ((this.transcriptionQueue.length > 0 || this.isProcessingQueue) && (Date.now() - queueWaitStart < 35000)) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    console.log(`[Audio Pipeline] Cola de transcripción finalizada. Transcripción acumulada total: "${this.sessionTranscript}"`);
 
     // Mantener el canal de Realtime abierto para permitir la Autocorrección Guiada post-sesión
     console.log('[Supabase Realtime] Canal activo conservado para interacción de Autocorrección Guiada.');
 
-    // 3. Actualizar estado en la tabla 'sessions' de Supabase
+    // 4. Actualizar estado en la tabla 'sessions' de Supabase
     if (this.client) {
       try {
         await this.client
@@ -361,69 +460,27 @@ class TeacherSessionService {
       }
     }
 
-    // 4. Procesar y canalizar el audio recibido hacia la IA
+    // 5. Ejecutar la evaluación IELTS una sola vez sobre todo el sessionTranscript acumulado
     const sessionSummary = await this.processReceivedAudioSession();
     this.currentSession = null;
     return sessionSummary;
   }
 
   /**
-   * Procesa los chunks recibidos: ensambla audio, limpia transcripciones
-   * y genera las tarjetas quirúrgicas evaluadas con la rúbrica IELTS.
+   * Evalúa la sesión acumulada contra la rúbrica IELTS y genera las tarjetas quirúrgicas.
    */
   async processReceivedAudioSession() {
     const chunkCount = this.audioChunks.length;
     const studentLevel = this.currentSession?.studentLevel || 'B1';
-    console.log(`[Audio Pipeline] Procesando ${chunkCount} fragmentos de audio recibidos...`);
+    console.log(`[Audio Pipeline] Evaluando sesión IELTS sobre la transcripción completa acumulada (${chunkCount} bloques recibidos)...`);
 
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
     console.log('[GEMINI] Clave encontrada:', !!apiKey, 'Longitud:', apiKey ? apiKey.length : 0);
 
-    let rawStudentSpeech = '';
-
-    // 1. Si hay chunks transmitidos, concatenar los buffers WebM secuencialmente
-    if (this.audioChunks.length > 0) {
-      try {
-        const sortedChunks = [...this.audioChunks].sort((a, b) => a.sequence - b.sequence);
-        const buffers = sortedChunks.map(c => Buffer.from(c.data, 'base64'));
-        const fullAudioBuffer = Buffer.concat(buffers);
-        const mimeType = (sortedChunks[0]?.mimeType || 'audio/webm').split(';')[0];
-        console.log(`[Audio Pipeline] Concatenados ${sortedChunks.length} fragmentos en un archivo de audio unificado de ${fullAudioBuffer.length} bytes (${mimeType})`);
-
-        // Diagnóstico auditivo: guardar archivo de audio en la carpeta temp de Electron
-        let tempDir = os.tmpdir();
-        try {
-          const electron = require('electron');
-          const electronApp = electron.app || electron.remote?.app;
-          if (electronApp && typeof electronApp.getPath === 'function') {
-            tempDir = electronApp.getPath('temp');
-          }
-        } catch (_) {}
-
-        const debugAudioPath = path.join(tempDir, 'last_session_debug.webm');
-        try {
-          fs.writeFileSync(debugAudioPath, fullAudioBuffer);
-          console.log(`[Audio Pipeline] 🎙️ Audio de sesión guardado para diagnóstico en: ${debugAudioPath} (${fullAudioBuffer.length} bytes)`);
-        } catch (fsErr) {
-          console.warn('[Audio Pipeline] No se pudo escribir last_session_debug.webm:', fsErr.message);
-        }
-
-        if (apiKey) {
-          console.log('[Audio Pipeline] Enviando audio real a Gemini para transcripción verbatim...');
-          rawStudentSpeech = await geminiService.transcribeAudio(fullAudioBuffer, mimeType);
-          console.log('[Audio Pipeline] Transcripción cruda obtenida de Gemini:', rawStudentSpeech);
-        } else {
-          console.warn('[Audio Pipeline] No se detectó GEMINI_API_KEY ni GOOGLE_API_KEY en variables de entorno.');
-        }
-      } catch (err) {
-        console.error('[GEMINI ERROR DETALLADO]:', err);
-      }
-    } else {
-      console.warn('[Audio Pipeline] No se recibieron fragmentos de audio en esta sesión.');
-    }
+    let rawStudentSpeech = (this.sessionTranscript || '').trim();
 
     // Si la transcripción fue nula, vacía o no hubo audio
-    if (!rawStudentSpeech || rawStudentSpeech.trim() === '' || rawStudentSpeech.includes('[No speech detected]') || rawStudentSpeech.toUpperCase().includes('[SILENCE]')) {
+    if (!rawStudentSpeech || rawStudentSpeech.includes('[No speech detected]') || rawStudentSpeech.toUpperCase().includes('[SILENCE]')) {
       if (!apiKey && this.audioChunks.length === 0) {
         console.log('[Audio Pipeline] Sin API key ni audio. Utilizando muestra representativa para visualización de prueba.');
         rawStudentSpeech = "well, um, last year I, I needs to travel for my job, but the flight was cancelled and I, I loose all the days waiting in the airport, you know?";
@@ -433,9 +490,9 @@ class TeacherSessionService {
       }
     }
 
-    // 2. Transcripción 100% literal (Verbatim): sin filtros ni alteración de muletillas
+    // Transcripción 100% literal (Verbatim): sin filtros ni alteración de muletillas
     const verbatimStudentSpeech = speechCleaner.cleanText(rawStudentSpeech);
-    console.log('[Audio Pipeline] Transcripción Verbatim para Panel y Evaluación:', verbatimStudentSpeech);
+    console.log('[Audio Pipeline] Transcripción Verbatim final para Panel y Evaluación:', verbatimStudentSpeech);
 
     // Diálogo completo literal para el panel izquierdo
     const teacherContext = (this.currentSession?.teacherContext || '').trim();
@@ -451,12 +508,18 @@ class TeacherSessionService {
       text: verbatimStudentSpeech
     });
 
-    // 3. Evaluación contra rúbricas IELTS para las 5 pestañas maestras (directo con texto verbatim)
-    const feedbackCards = await ieltsEngine.evaluateUtterance({
-      teacherContext,
-      studentUtterance: verbatimStudentSpeech,
-      studentLevel
-    });
+    // Evaluación contra rúbricas IELTS para las 5 pestañas maestras (directo con texto verbatim)
+    let feedbackCards = [];
+    if (verbatimStudentSpeech.trim().length > 0) {
+      console.log('[Audio Pipeline] Ejecutando motor IELTS sobre la transcripción acumulada...');
+      feedbackCards = await ieltsEngine.evaluateUtterance({
+        teacherContext,
+        studentUtterance: verbatimStudentSpeech,
+        studentLevel
+      });
+    } else {
+      console.log('[Audio Pipeline] Transcripción vacía. No se generan tarjetas de error.');
+    }
 
     console.log(`[Audio Pipeline] Evaluación completada. ${feedbackCards.length} tarjetas quirúrgicas generadas.`);
 

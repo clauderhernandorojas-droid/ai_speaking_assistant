@@ -86,6 +86,11 @@ function createWindow() {
         mainWindow.webContents.send('session:audioChunk', data);
       }
     },
+    onTranscriptSegment: (data) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('session:transcriptSegment', data);
+      }
+    },
     onMuteChange: (data) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('session:muteChanged', data);

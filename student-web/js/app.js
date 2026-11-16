@@ -238,52 +238,19 @@ joinForm.addEventListener('submit', async (e) => {
       selectedDeviceId = micSelect.value;
     }
 
-    // Inicializar captura de audio con filtro de silencios por RMS y energía
-    let currentChunkLevels = [];
-
+    // Inicializar captura de audio por bloques autocontenidos (35s máx o 2.0s de silencio tras voz)
     audioService = new AudioCaptureService({
       deviceId: selectedDeviceId,
-      timeslice: 2000,
-      onChunk: (base64Chunk, mimeType) => {
-        const samples = currentChunkLevels;
-        currentChunkLevels = [];
-
-        let avgLevel = 0;
-        let maxLevel = 0;
-        let avgRms = 0;
-        let maxRms = 0;
-
-        if (samples.length > 0) {
-          const sumLevel = samples.reduce((acc, s) => acc + (typeof s === 'number' ? s : (s.level || 0)), 0);
-          avgLevel = sumLevel / samples.length;
-          maxLevel = Math.max(...samples.map(s => (typeof s === 'number' ? s : (s.level || 0))));
-
-          const sumRms = samples.reduce((acc, s) => acc + (typeof s === 'object' && s.rms ? s.rms : 0), 0);
-          avgRms = sumRms / samples.length;
-          maxRms = Math.max(...samples.map(s => (typeof s === 'object' && s.rms ? s.rms : 0)));
-        }
-
-        // Estimar bytes de audio reales recibidos en el chunk Base64
+      maxBlockDuration: 35000,
+      speechThreshold: 0.035,
+      minSpeechMs: 500,
+      silenceTimeoutMs: 2000,
+      onChunk: (base64Chunk, mimeType, metrics) => {
         const rawByteEstimate = Math.round((base64Chunk.length * 3) / 4);
-
-        // Descartar si el contenedor está completamente vacío de frames de audio (< 450 bytes)
-        if (rawByteEstimate < 450) {
-          console.log(`[AudioCapture] Chunk descartado por contenedor vacío (${rawByteEstimate} bytes)`);
-          return;
-        }
-
-        // Descartar únicamente si hubo silencio absoluto / digital (sin voz)
-        const isDeadSilence = avgLevel < 1.5 && maxLevel < 4.0 && (avgRms < 0.01);
-        if (isDeadSilence) {
-          console.log(`[AudioCapture] Segmento descartado por silencio absoluto (bytes: ${rawByteEstimate}, avg: ${avgLevel.toFixed(1)}, peak: ${maxLevel}, rms: ${avgRms.toFixed(3)})`);
-          return;
-        }
-
-        console.log(`[AudioCapture] Transmitiendo segmento con voz (bytes: ${rawByteEstimate}, avg: ${avgLevel.toFixed(1)}, peak: ${maxLevel}, rms: ${avgRms.toFixed(3)})`);
+        console.log(`[AudioCapture] Transmitiendo bloque WebM autocontenido (${rawByteEstimate} bytes, voz: ${Math.round(metrics?.activeSpeechMs || 0)}ms, peakRms: ${metrics?.peakRms?.toFixed(3) || 0})`);
         supabaseService.sendAudioChunk(base64Chunk, mimeType);
       },
-      onVolume: (level, rms = 0) => {
-        currentChunkLevels.push({ level, rms });
+      onVolume: (level, _rms = 0) => {
         handleVolumeFeedback(level);
       }
     });

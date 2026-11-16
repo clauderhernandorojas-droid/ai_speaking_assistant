@@ -28,6 +28,7 @@ const state = {
   activeExerciseCardId: null,
   currentExercise: null,
   sessionExercises: [],
+  sessionTranscript: '',
   feedbackCounts: {
     grammar: 0,
     vocabulary: 0,
@@ -579,6 +580,7 @@ async function proceedToStartNewSession() {
   state.hasEvaluatedSession = false;
   state.isDemoData = false;
   state.sessionExercises = [];
+  state.sessionTranscript = '';
 
   // Limpiar campo de observaciones del docente para la nueva sesión
   const teacherObsEl = document.getElementById('teacher-observations');
@@ -1178,8 +1180,14 @@ function setupEventListeners() {
     if (typeof window.electronAPI.onAudioChunk === 'function') {
       window.electronAPI.onAudioChunk((data) => {
         if (transcriptStatus && state.isSessionActive) {
-          transcriptStatus.textContent = `Grabando (chunk #${data.sequence})`;
+          transcriptStatus.textContent = `Grabando (bloque #${data.sequence})`;
         }
+      });
+    }
+
+    if (typeof window.electronAPI.onTranscriptSegment === 'function') {
+      window.electronAPI.onTranscriptSegment((data) => {
+        handleLiveTranscriptSegment(data);
       });
     }
 
@@ -1263,6 +1271,41 @@ function updateBadgeCounter(category) {
 // ==============================================================================
 // 5. INSERCIÓN DE TRANSCRIPCIÓN CONTINUA Y TARJETAS QUIRÚRGICAS
 // ==============================================================================
+
+/**
+ * Despliega y actualiza en tiempo real la transcripción acumulada que llega de Gemini
+ */
+function handleLiveTranscriptSegment(data) {
+  if (!data) return;
+  if (transcriptEmptyState) transcriptEmptyState.classList.add('hidden');
+  if (transcriptStatus && state.isSessionActive) {
+    transcriptStatus.textContent = 'Transcribiendo en vivo...';
+  }
+
+  state.sessionTranscript = data.fullTranscript || data.segmentText || '';
+
+  let liveTurnEl = document.getElementById('live-student-turn');
+  if (!liveTurnEl) {
+    liveTurnEl = document.createElement('div');
+    liveTurnEl.id = 'live-student-turn';
+    liveTurnEl.className = 'transcript-turn turn-student';
+    liveTurnEl.innerHTML = `
+      <div class="turn-header">
+        <span class="speaker-badge">Estudiante</span>
+        <span class="live-dot" style="display: inline-block; margin-left: 8px; vertical-align: middle;" title="Transcripción en vivo"></span>
+      </div>
+      <div class="turn-content" id="live-student-turn-content"></div>
+    `;
+    transcriptFeed.appendChild(liveTurnEl);
+  }
+
+  const contentEl = document.getElementById('live-student-turn-content');
+  if (contentEl) {
+    contentEl.textContent = state.sessionTranscript;
+  }
+
+  transcriptFeed.scrollTop = transcriptFeed.scrollHeight;
+}
 
 /**
  * Añade una intervención limpia de la conversación en el Panel Izquierdo
