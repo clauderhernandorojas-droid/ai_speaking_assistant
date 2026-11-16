@@ -1,0 +1,5 @@
+
+teacher-app/dist/
+dist/
+*.exe
+*.blockmap

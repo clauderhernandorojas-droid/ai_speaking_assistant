@@ -127,13 +127,48 @@ joinForm.addEventListener('submit', async (e) => {
     // Validar sesión en Supabase
     await supabaseService.validateSession(sessionCode);
 
-    // Inicializar captura de audio
+    // Inicializar captura de audio con filtro de silencios por RMS y energía
+    let currentChunkLevels = [];
+
     audioService = new AudioCaptureService({
       timeslice: 2000,
       onChunk: (base64Chunk, mimeType) => {
+        const samples = currentChunkLevels;
+        currentChunkLevels = [];
+
+        let avgLevel = 0;
+        let maxLevel = 0;
+        let avgRms = 0;
+        let maxRms = 0;
+
+        if (samples.length > 0) {
+          const sumLevel = samples.reduce((acc, s) => acc + (typeof s === 'number' ? s : (s.level || 0)), 0);
+          avgLevel = sumLevel / samples.length;
+          maxLevel = Math.max(...samples.map(s => (typeof s === 'number' ? s : (s.level || 0))));
+
+          const sumRms = samples.reduce((acc, s) => acc + (typeof s === 'object' && s.rms ? s.rms : 0), 0);
+          avgRms = sumRms / samples.length;
+          maxRms = Math.max(...samples.map(s => (typeof s === 'object' && s.rms ? s.rms : 0)));
+        }
+
+        // Umbrales de silencio: descartar si no hubo energía vocal por encima del piso de ruido
+        const SILENCE_AVG_THRESHOLD = 3.5;
+        const SILENCE_PEAK_THRESHOLD = 7.0;
+        const SILENCE_RMS_THRESHOLD = 0.02;
+
+        const isSilent = (avgLevel < SILENCE_AVG_THRESHOLD && maxLevel < SILENCE_PEAK_THRESHOLD) ||
+                         (maxRms > 0 && avgRms < SILENCE_RMS_THRESHOLD && maxRms < 0.035);
+
+        if (isSilent) {
+          console.log(`[AudioCapture] Segmento descartado por silencio (avg: ${avgLevel.toFixed(1)}, peak: ${maxLevel}, rms: ${avgRms.toFixed(3)})`);
+          return;
+        }
+
+        console.log(`[AudioCapture] Transmitiendo segmento con voz (avg: ${avgLevel.toFixed(1)}, peak: ${maxLevel}, rms: ${avgRms.toFixed(3)})`);
         supabaseService.sendAudioChunk(base64Chunk, mimeType);
       },
-      onVolume: (level) => {
+      onVolume: (level, rms = 0) => {
+        currentChunkLevels.push({ level, rms });
         handleVolumeFeedback(level);
       }
     });
@@ -477,10 +512,75 @@ function renderKeyWordTransformation(exercise) {
 function normalizeAnswerText(text) {
   return (text || '')
     .toLowerCase()
-    .replace(/['"`]/g, "'")
+    .replace(/['"`´’]/g, "'")
     .replace(/[.,!?;:]/g, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/**
+ * Extrae candidatos para la respuesta del hueco cuando el alumno escribe
+ * la frase completa, parte del prefijo o parte del sufijo de targetSentenceTemplate.
+ */
+function extractGapAnswerCandidates(studentText, template) {
+  const normInput = normalizeAnswerText(studentText);
+  if (!normInput) return [];
+
+  const candidates = [normInput];
+  if (!template || !template.includes('___')) return candidates;
+
+  const [rawPrefix, rawSuffix] = template.split('___');
+  const normPrefix = normalizeAnswerText(rawPrefix);
+  const normSuffix = normalizeAnswerText(rawSuffix);
+
+  let extracted = normInput;
+
+  // 1. Quitar prefijo exacto si está al inicio
+  if (normPrefix && extracted.startsWith(normPrefix)) {
+    extracted = extracted.slice(normPrefix.length).trim();
+  }
+
+  // 2. Quitar sufijo exacto si está al final
+  if (normSuffix && extracted.endsWith(normSuffix)) {
+    extracted = extracted.slice(0, extracted.length - normSuffix.length).trim();
+  }
+
+  if (extracted && !candidates.includes(extracted)) {
+    candidates.push(extracted);
+  }
+
+  // 3. Quitar sufijo parcial si el estudiante no escribió todo el sufijo hasta el final
+  // Ej: template sufijo = "academic courses for international students", input termina en "academic courses"
+  if (normSuffix && extracted) {
+    const suffixWords = normSuffix.split(' ');
+    for (let len = suffixWords.length - 1; len >= 1; len--) {
+      const partialSuffix = suffixWords.slice(0, len).join(' ');
+      if (extracted.endsWith(partialSuffix)) {
+        const trimmed = extracted.slice(0, extracted.length - partialSuffix.length).trim();
+        if (trimmed && !candidates.includes(trimmed)) {
+          candidates.push(trimmed);
+        }
+        break;
+      }
+    }
+  }
+
+  // 4. Quitar prefijo parcial si el estudiante escribió solo parte del prefijo
+  if (normPrefix && extracted) {
+    const prefixWords = normPrefix.split(' ');
+    for (let start = 1; start < prefixWords.length; start++) {
+      const partialPrefix = prefixWords.slice(start).join(' ');
+      if (extracted.startsWith(partialPrefix)) {
+        const trimmed = extracted.slice(partialPrefix.length).trim();
+        if (trimmed && !candidates.includes(trimmed)) {
+          candidates.push(trimmed);
+        }
+        break;
+      }
+    }
+  }
+
+  return candidates;
 }
 
 exerciseTransformForm.addEventListener('submit', (e) => {
@@ -493,11 +593,12 @@ exerciseTransformForm.addEventListener('submit', (e) => {
   exerciseTextInput.disabled = true;
   btnSubmitExercise.disabled = true;
 
-  const normInput = normalizeAnswerText(rawAnswer);
+  const candidates = extractGapAnswerCandidates(rawAnswer, currentStudentExercise.targetSentenceTemplate);
   const normIdeal = normalizeAnswerText(currentStudentExercise.idealAnswer);
   const normVariants = (currentStudentExercise.acceptableVariants || []).map(normalizeAnswerText);
 
-  const isCorrect = normInput === normIdeal || normVariants.includes(normInput);
+  // Considerar correcto si el texto directo o la subcadena extraída del hueco coincide
+  const isCorrect = candidates.some(cand => cand === normIdeal || normVariants.includes(cand));
 
   if (isCorrect) {
     exerciseFeedbackTitle.textContent = '¡Brillante! Transformación sintáctica correcta.';
@@ -717,11 +818,11 @@ if (exerciseClozeForm) {
     exerciseClozeInput.disabled = true;
     btnSubmitCloze.disabled = true;
 
-    const normInput = normalizeAnswerText(rawAnswer);
+    const candidates = extractGapAnswerCandidates(rawAnswer, currentStudentExercise.promptSentence);
     const normIdeal = normalizeAnswerText(currentStudentExercise.idealAnswer);
     const normVariants = (currentStudentExercise.acceptableVariants || []).map(normalizeAnswerText);
 
-    const isCorrect = normInput === normIdeal || normVariants.includes(normInput);
+    const isCorrect = candidates.some(cand => cand === normIdeal || normVariants.includes(cand));
 
     if (isCorrect) {
       exerciseFeedbackTitle.textContent = '¡Correcto! Palabra precisa identificada.';

@@ -6,6 +6,7 @@
   "scripts": {
     "start:student": "npx serve student-web -p 3000",
     "start:teacher": "npm run start --prefix teacher-app",
+    "build:teacher": "npm run build --prefix teacher-app",
     "setup": "npm install --prefix teacher-app"
   },
   "keywords": [

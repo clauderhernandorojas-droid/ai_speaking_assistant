@@ -1,8 +1,49 @@
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '.env') });
-console.log('[MAIN] Supabase URL configurada:', !!process.env.SUPABASE_URL);
-
+const fs = require('fs');
 const { app, BrowserWindow, ipcMain } = require('electron');
+
+// Cargar variables de entorno tanto en desarrollo como en la app empaquetada (NSIS / asar)
+function loadEnvironmentVariables() {
+  const envCandidates = [];
+
+  // En producción (app.isPackaged), revisar en userData (personalización) y resourcesPath (.env empaquetado)
+  try {
+    if (app && typeof app.getPath === 'function') {
+      envCandidates.push(path.join(app.getPath('userData'), '.env'));
+    }
+  } catch (_) {}
+
+  if (process.resourcesPath) {
+    envCandidates.push(path.join(process.resourcesPath, '.env'));
+  }
+
+  // En desarrollo o raíz del proyecto
+  envCandidates.push(path.join(__dirname, '.env'));
+  envCandidates.push(path.join(process.cwd(), '.env'));
+
+  for (const envPath of envCandidates) {
+    try {
+      if (fs.existsSync(envPath)) {
+        require('dotenv').config({ path: envPath, override: false });
+      }
+    } catch (_) {}
+  }
+
+  // Si la app está empaquetada y no existe .env en userData, copiar una copia inicial para que el usuario pueda editarla
+  try {
+    if (app && app.isPackaged && typeof app.getPath === 'function') {
+      const userDataEnv = path.join(app.getPath('userData'), '.env');
+      const resourcesEnv = path.join(process.resourcesPath, '.env');
+      if (!fs.existsSync(userDataEnv) && fs.existsSync(resourcesEnv)) {
+        fs.copyFileSync(resourcesEnv, userDataEnv);
+      }
+    }
+  } catch (_) {}
+}
+
+loadEnvironmentVariables();
+console.log('[MAIN] Supabase URL configurada:', !!process.env.SUPABASE_URL);
+console.log('[MAIN] Gemini API Key configurada:', !!process.env.GEMINI_API_KEY);
 const dbService = require('./src/db/index');
 const speechCleaner = require('./src/ai/speech-cleaner');
 const ieltsEngine = require('./src/ai/ielts-engine');

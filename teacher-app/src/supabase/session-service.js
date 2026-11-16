@@ -281,10 +281,15 @@ class TeacherSessionService {
       console.warn('[Audio Pipeline] No se recibieron fragmentos de audio en esta sesión.');
     }
 
-    // Si la transcripción fue nula, vacía o no hubo audio, utilizar fallback de muestra explicativo
-    if (!rawStudentSpeech || rawStudentSpeech.trim() === '' || rawStudentSpeech.includes('[No speech detected]')) {
-      console.log('[Audio Pipeline] Sin voz audible detectada o transcripción vacía. Utilizando muestra representativa para visualización.');
-      rawStudentSpeech = "well, um, last year I, I needs to travel for my job, but the flight was cancelled and I, I loose all the days waiting in the airport, you know?";
+    // Si la transcripción fue nula, vacía o no hubo audio
+    if (!rawStudentSpeech || rawStudentSpeech.trim() === '' || rawStudentSpeech.includes('[No speech detected]') || rawStudentSpeech.toUpperCase().includes('[SILENCE]')) {
+      if (!apiKey && this.audioChunks.length === 0) {
+        console.log('[Audio Pipeline] Sin API key ni audio. Utilizando muestra representativa para visualización de prueba.');
+        rawStudentSpeech = "well, um, last year I, I needs to travel for my job, but the flight was cancelled and I, I loose all the days waiting in the airport, you know?";
+      } else {
+        console.log('[Audio Pipeline] Sin voz audible detectada o transcripción vacía (silencio/ruido de fondo).');
+        rawStudentSpeech = "";
+      }
     }
 
     // 2. Transcripción 100% literal (Verbatim): sin filtros ni alteración de muletillas

@@ -166,7 +166,8 @@ class GeminiService {
         {
           parts: [
             {
-              text: 'Transcribe the following audio recording verbatim. Output only the transcribed text in English without commentary. Keep all grammatical errors, stuttering, and hesitation sounds intact.'
+              text: `Transcribe the following audio recording verbatim. Output only the transcribed text in English without commentary. Keep all grammatical errors, stuttering, and hesitation sounds intact.
+CRITICAL SILENCE AND NOISE RULE: If the audio contains only silence, background noise, breathing, static, or no intelligible human words in English, output EXCLUSIVELY [SILENCE]. NEVER invent, complete, hallucinate, or assume speech when there is no clear human speech.`
             },
             {
               inlineData: {
@@ -178,7 +179,7 @@ class GeminiService {
         }
       ],
       generationConfig: {
-        temperature: 0.1,
+        temperature: 0.0,
         thinkingConfig: {
           thinkingBudget: 0
         }
@@ -187,7 +188,25 @@ class GeminiService {
 
     try {
       const result = await this.requestGemini('generateContent', payload);
-      const text = result?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      let text = result?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      text = text.trim();
+
+      // Limpiar prefijos residuales del prompt o alucinaciones de formato
+      text = text.replace(/^(and\s+)?output\s+only\s+the\s+transcribed\s+text:?\s*/i, '');
+      text = text.replace(/^transcribed\s+text:?\s*/i, '');
+      text = text.replace(/^transcription:?\s*/i, '');
+
+      // Descartar si el audio fue silencio o devolvió el token [SILENCE]
+      if (
+        !text ||
+        text.toUpperCase().includes('[SILENCE]') ||
+        text.toLowerCase() === 'silence' ||
+        text.toLowerCase() === '[silence].' ||
+        text.toLowerCase() === '""'
+      ) {
+        return '';
+      }
+
       return text.trim();
     } catch (err) {
       console.error('[GEMINI ERROR DETALLADO]:', err);
@@ -313,7 +332,7 @@ Create a Cambridge-style Key Word Transformation task.
   STRICT RULE: NEVER provide the main verb or simple inflected word alone as the keyWord (e.g. NEVER give "WENT" or "BOUGHT").
 - "targetSentenceTemplate": A second sentence with the exact same meaning, containing a blank "___" where the transformed words fit.
 - "idealAnswer": The model phrase that fills "___" (MUST contain between 2 and 5 words, including the keyWord).
-- "acceptableVariants": Array of 1 to 3 valid variant phrases accepted as correct.
+- "acceptableVariants": Array of 2 to 4 valid grammatical variants that accurately complete the gap using the keyWord (e.g. if idealAnswer is "a wide variety of", also include "a variety of" and "a great variety of" if grammatically equivalent; include contracted vs full forms such as "would have been able to" / "'d have been able to"; include common equivalent collocations or qualifiers).
 - "instruction": "Completa la segunda frase usando la palabra en mayúsculas para que signifique lo mismo que la primera:"`;
 
       jsonSchemaExample = `{
@@ -326,7 +345,7 @@ Create a Cambridge-style Key Word Transformation task.
   "keyWord": "SUCH",
   "targetSentenceTemplate": "It was ___ that we needed external assistance.",
   "idealAnswer": "such a demanding task",
-  "acceptableVariants": ["such a demanding assignment"],
+  "acceptableVariants": ["such a demanding assignment", "such a demanding job"],
   "feedbackExplanation": "Concise pedagogical explanation in Spanish (max 20 words)"
 }`;
     } else if (resolvedType === 'error_correction_input') {
@@ -491,13 +510,42 @@ ${jsonSchemaExample}`;
         const keyWord = (parsed.keyWord || 'SUCH').toUpperCase().trim();
         const targetSentenceTemplate = parsed.targetSentenceTemplate || 'It was ___ that we needed external assistance.';
         const idealAnswer = (parsed.idealAnswer || 'such a demanding task').trim();
+        let variants = Array.isArray(parsed.acceptableVariants)
+          ? parsed.acceptableVariants.map(v => (v || '').trim()).filter(Boolean)
+          : [];
+
+        // Generar variantes estándar comunes si faltan (ej. contracciones vs formas completas)
+        if (idealAnswer.includes("'")) {
+          const expanded = idealAnswer
+            .replace(/'d\b/g, ' would')
+            .replace(/'ve\b/g, ' have')
+            .replace(/'re\b/g, ' are')
+            .replace(/'m\b/g, ' am')
+            .replace(/'s\b/g, ' is')
+            .replace(/n't\b/g, ' not');
+          if (expanded !== idealAnswer && !variants.includes(expanded)) {
+            variants.push(expanded);
+          }
+        }
+        if (idealAnswer.includes('would ') || idealAnswer.includes('have ') || idealAnswer.includes('not ')) {
+          const contracted = idealAnswer
+            .replace(/\bwould\b/g, "'d")
+            .replace(/\bhave\b/g, "'ve")
+            .replace(/\bare\b/g, "'re")
+            .replace(/\bis\b/g, "'s")
+            .replace(/\bnot\b/g, "n't");
+          if (contracted !== idealAnswer && !variants.includes(contracted)) {
+            variants.push(contracted);
+          }
+        }
+
         return {
           ...baseResult,
           baseSentence,
           keyWord,
           targetSentenceTemplate,
           idealAnswer,
-          acceptableVariants: Array.isArray(parsed.acceptableVariants) ? parsed.acceptableVariants : []
+          acceptableVariants: variants
         };
       } else if (resolvedType === 'error_correction_input') {
         return {

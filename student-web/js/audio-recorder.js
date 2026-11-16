@@ -79,19 +79,31 @@ export class AudioCaptureService {
 
     source.connect(this.analyser);
 
-    const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+    const freqArray = new Uint8Array(this.analyser.frequencyBinCount);
+    const timeArray = new Uint8Array(this.analyser.fftSize);
 
     const checkVolume = () => {
       if (!this.analyser || this.isMuted) {
-        this.onVolume(0);
+        this.onVolume(0, 0);
       } else {
-        this.analyser.getByteFrequencyData(dataArray);
+        // Nivel de energía en frecuencias (0 - 255)
+        this.analyser.getByteFrequencyData(freqArray);
         let sum = 0;
-        for (let i = 0; i < dataArray.length; i++) {
-          sum += dataArray[i];
+        for (let i = 0; i < freqArray.length; i++) {
+          sum += freqArray[i];
         }
-        const average = sum / dataArray.length;
-        this.onVolume(average); // Escala aproximada 0 - 255
+        const average = sum / freqArray.length;
+
+        // Nivel RMS en el dominio del tiempo (0.0 - 1.0)
+        this.analyser.getByteTimeDomainData(timeArray);
+        let sumSquares = 0;
+        for (let i = 0; i < timeArray.length; i++) {
+          const norm = (timeArray[i] - 128) / 128;
+          sumSquares += norm * norm;
+        }
+        const rms = Math.sqrt(sumSquares / timeArray.length);
+
+        this.onVolume(average, rms); // Escala promedio y RMS
       }
       this.animationFrameId = requestAnimationFrame(checkVolume);
     };
