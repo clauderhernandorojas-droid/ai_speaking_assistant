@@ -242,45 +242,54 @@ Analyze according to the 5 tabs and output ONLY the valid JSON array starting wi
   }
 
   /**
-   * Genera un micro-ejercicio interactivo con IA calibrado según el nivel CEFR y tipo seleccionado
+   * Genera un micro-ejercicio interactivo con IA contrastivo intercalado (6 formatos y polaridad target/contrast)
    */
-  async generateMicroExercise({ category = 'grammar', studentQuote = '', surgicalCorrection = '', explanation = '', targetLevel = 'B1', preferredType = null, seed = null } = {}) {
+  async generateMicroExercise({ category = 'grammar', studentQuote = '', surgicalCorrection = '', explanation = '', targetLevel = 'B1', preferredType = null, contrastPolarity = 'target', attemptIndex = 0, seed = null } = {}) {
     const exerciseId = `ex_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
     const randomNonce = seed || `${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+    const polarity = (contrastPolarity || 'target').toLowerCase() === 'contrast' ? 'contrast' : 'target';
 
-    // 1. Resolución explícita del tipo de ejercicio antes de llamar a Gemini
+    // 1. Resolución del formato entre los 6 tipos soportados
+    const validTypes = [
+      'multiple_choice',
+      'spot_the_error',
+      'key_word_transformation',
+      'error_correction_input',
+      'sentence_unscramble',
+      'open_cloze'
+    ];
     const requested = (preferredType || '').toLowerCase().trim();
     let resolvedType = 'multiple_choice';
 
-    if (['spot_the_error', 'key_word_transformation', 'multiple_choice'].includes(requested)) {
+    if (validTypes.includes(requested)) {
       resolvedType = requested;
     } else {
-      // Auto o no especificado: calibración según nivel CEFR y categoría
+      // Auto: rotación intercalada según nivel CEFR y número de intento
       const normLevel = (targetLevel || 'B1').toUpperCase().trim();
       const isHighLevel = ['B2', 'C1', 'C2'].includes(normLevel);
       const isUpgrade = (category || '').toLowerCase().includes('upgrade') || (category || '').toLowerCase() === 'c1';
 
-      if (isUpgrade || isHighLevel) {
-        resolvedType = Math.random() < 0.5 ? 'key_word_transformation' : 'spot_the_error';
-      } else {
-        resolvedType = Math.random() < 0.5 ? 'spot_the_error' : 'multiple_choice';
-      }
+      const highPool = ['key_word_transformation', 'open_cloze', 'error_correction_input', 'spot_the_error', 'sentence_unscramble', 'multiple_choice'];
+      const basePool = ['multiple_choice', 'sentence_unscramble', 'spot_the_error', 'open_cloze', 'error_correction_input'];
+      const pool = (isUpgrade || isHighLevel) ? highPool : basePool;
+      resolvedType = pool[attemptIndex % pool.length] || pool[0];
     }
 
-    console.log(`[GEMINI generateMicroExercise] resolvedType: "${resolvedType}" (preferredType: "${preferredType}", targetLevel: "${targetLevel}", category: "${category}")`);
+    console.log(`[GEMINI generateMicroExercise] resolvedType: "${resolvedType}", polarity: "${polarity}", attempt: ${attemptIndex}, level: "${targetLevel}", cat: "${category}"`);
 
-    // 2. Construcción de instrucciones y esquema JSON exclusivo para el resolvedType
+    // 2. Construcción de instrucciones y esquema JSON exclusivo para resolvedType
     let typeInstructions = '';
     let jsonSchemaExample = '';
 
     if (resolvedType === 'spot_the_error') {
-      typeInstructions = `TASK: SPOT THE ERROR (Grammar/Vocabulary diagnostic)
+      typeInstructions = `TASK: SPOT THE ERROR (Grammar / Vocabulary Diagnostic)
 Create a single coherent English sentence divided into EXACTLY 4 sequential segments.
-- EXACTLY ONE segment MUST contain a subtle error of the same diagnosed linguistic rule/pattern (syntax, preposition, collocation, subject-verb agreement, false cognate).
-- The other 3 segments MUST be grammatically and semantically flawless.
-- "segments": Array of EXACTLY 4 strings. When concatenated in order (0 -> 1 -> 2 -> 3), they form the complete sentence.
-- "errorSegmentIndex": Integer (0, 1, 2, or 3) indicating which segment contains the error.
-- "correctedSegment": The exact replacement string showing how that error segment should be written correctly.
+- EXACTLY ONE segment MUST contain a subtle error based on the active polarity (${polarity.toUpperCase()}).
+  * If POLARITY is "TARGET": error violates the Target Rule (other 3 segments are flawless).
+  * If POLARITY is "CONTRAST": sentence requires the Contrast Rule, but incorrectly uses the Target Rule (or vice versa).
+- "segments": Array of EXACTLY 4 strings. When read in order (0 -> 1 -> 2 -> 3), they form the full sentence.
+- "errorSegmentIndex": Integer (0, 1, 2, or 3) indicating which segment has the error.
+- "correctedSegment": The exact replacement string showing how that segment should read.
 - "promptSentence": The full sentence as a single coherent string.
 - "instruction": "Encuentra y pulsa el segmento que contiene el error:"`;
 
@@ -288,6 +297,7 @@ Create a single coherent English sentence divided into EXACTLY 4 sequential segm
   "exerciseId": "${exerciseId}",
   "type": "spot_the_error",
   "category": "${category}",
+  "contrastPolarity": "${polarity}",
   "instruction": "Encuentra y pulsa el segmento que contiene el error:",
   "promptSentence": "Although the team worked very hardly all week, they failed to meet the deadline.",
   "segments": ["Although the team worked", "very hardly all week,", "they failed to meet", "the deadline."],
@@ -297,11 +307,12 @@ Create a single coherent English sentence divided into EXACTLY 4 sequential segm
 }`;
     } else if (resolvedType === 'key_word_transformation') {
       typeInstructions = `TASK: KEY WORD TRANSFORMATION (Cambridge C1 / B2 Style)
-Create a Key Word Transformation task based on the linguistic upgrade diagnosed.
+Create a Cambridge-style Key Word Transformation task.
 - "baseSentence": A complete, natural sentence presenting the original idea.
-- "keyWord": A single word or short term in CAPITAL letters that must be used without alteration.
+- "keyWord": A single invariable pivot word in CAPITAL letters (e.g. "INSTEAD", "USED", "RATHER", "DESPITE", "BY", "ORDER", "PREVENT", "UNLESS", "POINT").
+  STRICT RULE: NEVER provide the main verb or simple inflected word alone as the keyWord (e.g. NEVER give "WENT" or "BOUGHT").
 - "targetSentenceTemplate": A second sentence with the exact same meaning, containing a blank "___" where the transformed words fit.
-- "idealAnswer": The model phrase that fills "___" (including the keyWord, typically 3 to 6 words).
+- "idealAnswer": The model phrase that fills "___" (MUST contain between 2 and 5 words, including the keyWord).
 - "acceptableVariants": Array of 1 to 3 valid variant phrases accepted as correct.
 - "instruction": "Completa la segunda frase usando la palabra en mayúsculas para que signifique lo mismo que la primera:"`;
 
@@ -309,6 +320,7 @@ Create a Key Word Transformation task based on the linguistic upgrade diagnosed.
   "exerciseId": "${exerciseId}",
   "type": "key_word_transformation",
   "category": "${category}",
+  "contrastPolarity": "${polarity}",
   "instruction": "Completa la segunda frase usando la palabra en mayúsculas para que signifique lo mismo que la primera:",
   "baseSentence": "The task was so demanding that we needed external assistance.",
   "keyWord": "SUCH",
@@ -317,11 +329,69 @@ Create a Key Word Transformation task based on the linguistic upgrade diagnosed.
   "acceptableVariants": ["such a demanding assignment"],
   "feedbackExplanation": "Concise pedagogical explanation in Spanish (max 20 words)"
 }`;
+    } else if (resolvedType === 'error_correction_input') {
+      typeInstructions = `TASK: ERROR CORRECTION INPUT (Proofreading & Correction)
+Create a natural sentence containing EXACTLY ONE subtle grammatical, lexical, or collocational error according to polarity (${polarity.toUpperCase()}).
+- "faultySentence": The sentence containing the error (unmarked, no highlights or hints).
+- "idealAnswer": The complete grammatically correct sentence (or the exact corrected phrase).
+- "acceptableVariants": Array of 1 to 3 valid variant corrections (e.g. just the corrected word/phrase vs the full corrected sentence).
+- "instruction": "Encuentra el error en la frase y escribe la corrección adecuada:"`;
+
+      jsonSchemaExample = `{
+  "exerciseId": "${exerciseId}",
+  "type": "error_correction_input",
+  "category": "${category}",
+  "contrastPolarity": "${polarity}",
+  "instruction": "Encuentra el error en la frase y escribe la corrección adecuada:",
+  "faultySentence": "She has visited the historical museum yesterday afternoon.",
+  "idealAnswer": "She visited the historical museum yesterday afternoon.",
+  "acceptableVariants": ["visited", "She visited the museum yesterday afternoon."],
+  "feedbackExplanation": "Con expresiones de tiempo pasado definido como 'yesterday' se usa Past Simple, no Present Perfect."
+}`;
+    } else if (resolvedType === 'sentence_unscramble') {
+      typeInstructions = `TASK: SENTENCE UNSCRAMBLE (Syntax & Collocation Reordering)
+Create a natural, idiomatic English sentence demonstrating the grammatical pattern or collocation.
+- Break the sentence into EXACTLY 5 or 6 meaningful chunks (not individual words, but logical segments like subject, verb phrase, prepositional phrase).
+- "shuffledChunks": Array of the 5 or 6 chunks in RANDOM, scrambled order.
+- "correctSentence": The single correct, fluent English sentence with proper punctuation.
+- "instruction": "Ordena los bloques para formar la oración gramaticalmente correcta:"`;
+
+      jsonSchemaExample = `{
+  "exerciseId": "${exerciseId}",
+  "type": "sentence_unscramble",
+  "category": "${category}",
+  "contrastPolarity": "${polarity}",
+  "instruction": "Ordena los bloques para formar la oración gramaticalmente correcta:",
+  "shuffledChunks": ["to submit", "before Friday noon", "reminded the staff", "the project report", "the manager"],
+  "correctSentence": "The manager reminded the staff to submit the project report before Friday noon.",
+  "feedbackExplanation": "Estructura correcta: Sujeto + verbo ('reminded') + objeto ('the staff') + infinitivo con to ('to submit')."
+}`;
+    } else if (resolvedType === 'open_cloze') {
+      typeInstructions = `TASK: OPEN CLOZE (Cambridge Style Single-Word Gap Fill)
+Create a natural sentence with a single blank "___" that can ONLY be filled by a single functional/grammatical word (preposition, auxiliary, pronoun, determiner, particle, or connector).
+- "promptSentence": The sentence with exactly one "___" blank.
+- "idealAnswer": A SINGLE English word (no phrases) that accurately completes the gap.
+- "acceptableVariants": Array of valid variant words (e.g. contracted form or accepted synonym preposition).
+- "instruction": "Escribe la única palabra exacta que completa el hueco:"`;
+
+      jsonSchemaExample = `{
+  "exerciseId": "${exerciseId}",
+  "type": "open_cloze",
+  "category": "${category}",
+  "contrastPolarity": "${polarity}",
+  "instruction": "Escribe la única palabra exacta que completa el hueco:",
+  "promptSentence": "The team succeeded ___ completing the audit ahead of schedule.",
+  "idealAnswer": "in",
+  "acceptableVariants": ["in"],
+  "feedbackExplanation": "El verbo 'succeed' rige obligatoriamente la preposición 'in' seguida de gerundio."
+}`;
     } else { // multiple_choice
-      typeInstructions = `TASK: MULTIPLE CHOICE (4 Options)
+      typeInstructions = `TASK: MULTIPLE CHOICE (4 Contrastive Options)
 Create a brand new sentence with a blank formatted as "___".
 - "promptSentence": The new sentence containing "___" (do NOT use identical wording from the student quote).
-- "options": Array of EXACTLY 4 realistic options. Exactly 1 is correct, and 3 are subtle, plausible distractors reflecting common Spanish L1 interference or grammatical confusion.
+- "options": Array of EXACTLY 4 realistic options. Exactly 1 is correct based on polarity (${polarity.toUpperCase()}), and 3 are subtle contrastive distractors.
+  * When POLARITY is "TARGET": correct option is the Target Rule; distractors represent the Contrast Rule or common false analogies.
+  * When POLARITY is "CONTRAST": correct option is the Contrast Rule; distractors represent the overgeneralized Target Rule.
 - "correctIndex": Integer (0, 1, 2, or 3) indicating the correct answer in "options".
 - "instruction": "Elige la opción más adecuada para completar la frase:"`;
 
@@ -329,6 +399,7 @@ Create a brand new sentence with a blank formatted as "___".
   "exerciseId": "${exerciseId}",
   "type": "multiple_choice",
   "category": "${category}",
+  "contrastPolarity": "${polarity}",
   "instruction": "Elige la opción más adecuada para completar la frase:",
   "promptSentence": "Despite the tight deadline, the engineering team ___ to finish the prototype.",
   "options": ["managed", "achieved", "succeeded", "could"],
@@ -337,7 +408,7 @@ Create a brand new sentence with a blank formatted as "___".
 }`;
     }
 
-    const systemInstruction = `You are a Senior Cambridge English / IELTS Examiner designing an interactive micro-exercise for an English learner at CEFR ${targetLevel} level.
+    const systemInstruction = `You are a Senior Cambridge English / IELTS Examiner designing an interactive contrastive micro-exercise for an English learner at CEFR ${targetLevel} level.
 Variation Nonce: ${randomNonce}
 
 DIAGNOSED LEARNER NEED:
@@ -346,13 +417,21 @@ DIAGNOSED LEARNER NEED:
 - Teacher's surgical correction: "${surgicalCorrection}"
 - Pedagogical explanation: "${explanation}"
 
+CONTRASTIVE OPPOSITION SYSTEM:
+First, identify the linguistic opposition pair:
+- Target Rule: The grammatical, lexical, or collocational rule that corrects the student's phrase.
+- Contrast Rule: The opposing, competing, or alternate structure learners frequently confuse with it (e.g. Past Simple vs Present Perfect, Gerund vs Infinitive, State vs Action verbs, In vs On/At, Active vs Passive, Standard vs Inverted C1 syntax).
+
+ACTIVE POLARITY: "${polarity.toUpperCase()}"
+- If POLARITY is "TARGET": The exercise demands correctly applying the TARGET RULE.
+- If POLARITY is "CONTRAST": The exercise demands correctly applying the CONTRAST RULE (the opposing structure), or spotting/correcting an incorrect overextension of the Target Rule in an opposing context.
+
 ${typeInstructions}
 
 MANDATORY RULES:
-1. Target the EXACT SAME linguistic rule, pattern, or upgrade, but with a COMPLETELY NEW context/sentence (do NOT repeat the student's quote word-for-word).
-2. TRANSFER OF LEARNING: Do NOT reuse the same root verb, noun, or key content word where the student made the error (e.g. if the student erred on 'goed'/'went', test the same irregular simple past rule using a completely different verb such as 'bought', 'saw', 'wrote', 'took', or 'spoke').
-3. "feedbackExplanation": Concise pedagogical explanation in Spanish (max 20 words) explaining why the correct answer is right.
-4. Return ONLY a valid JSON object matching this schema without markdown or comments:
+1. TRANSFER OF LEARNING: Do NOT reuse the same root verb, noun, or key content word where the student made the error (e.g. if the student erred on 'goed'/'went', test the irregular simple past rule using a completely different verb such as 'bought', 'saw', 'wrote', 'took', or 'spoke').
+2. "feedbackExplanation": Concise pedagogical explanation in Spanish (max 20 words) explaining why the correct answer is right.
+3. Return ONLY a valid JSON object matching this schema without markdown or comments:
 ${jsonSchemaExample}`;
 
     const payload = {
@@ -381,9 +460,13 @@ ${jsonSchemaExample}`;
         exerciseId: parsed.exerciseId || exerciseId,
         type: resolvedType, // Siempre forzar el resolvedType
         category: parsed.category || category,
+        contrastPolarity: polarity,
         instruction: parsed.instruction || (
           resolvedType === 'spot_the_error' ? 'Encuentra y pulsa el segmento que contiene el error:' :
           resolvedType === 'key_word_transformation' ? 'Completa la segunda frase usando la palabra en mayúsculas para que signifique lo mismo que la primera:' :
+          resolvedType === 'error_correction_input' ? 'Encuentra el error en la frase y escribe la corrección adecuada:' :
+          resolvedType === 'sentence_unscramble' ? 'Ordena los bloques para formar la oración gramaticalmente correcta:' :
+          resolvedType === 'open_cloze' ? 'Escribe la única palabra exacta que completa el hueco:' :
           'Elige la opción más adecuada para completar la frase:'
         ),
         feedbackExplanation: parsed.feedbackExplanation || explanation || 'Opción correcta acorde a la regla evaluada.'
@@ -416,6 +499,31 @@ ${jsonSchemaExample}`;
           idealAnswer,
           acceptableVariants: Array.isArray(parsed.acceptableVariants) ? parsed.acceptableVariants : []
         };
+      } else if (resolvedType === 'error_correction_input') {
+        return {
+          ...baseResult,
+          faultySentence: parsed.faultySentence || 'She has visited the historical museum yesterday afternoon.',
+          idealAnswer: (parsed.idealAnswer || 'She visited the historical museum yesterday afternoon.').trim(),
+          acceptableVariants: Array.isArray(parsed.acceptableVariants) ? parsed.acceptableVariants : ['visited']
+        };
+      } else if (resolvedType === 'sentence_unscramble') {
+        const chunks = Array.isArray(parsed.shuffledChunks) && parsed.shuffledChunks.length >= 4
+          ? parsed.shuffledChunks
+          : ['to submit', 'before Friday noon', 'reminded the staff', 'the project report', 'the manager'];
+        return {
+          ...baseResult,
+          shuffledChunks: chunks,
+          correctSentence: parsed.correctSentence || 'The manager reminded the staff to submit the project report before Friday noon.'
+        };
+      } else if (resolvedType === 'open_cloze') {
+        const rawSentence = parsed.promptSentence || 'The team succeeded ___ completing the audit ahead of schedule.';
+        const sentenceWithGap = rawSentence.includes('___') ? rawSentence : `${rawSentence} ___`;
+        return {
+          ...baseResult,
+          promptSentence: sentenceWithGap,
+          idealAnswer: (parsed.idealAnswer || 'in').trim().toLowerCase(),
+          acceptableVariants: Array.isArray(parsed.acceptableVariants) ? parsed.acceptableVariants.map(v => String(v).trim().toLowerCase()) : []
+        };
       } else { // multiple_choice
         const opts = Array.isArray(parsed.options) && parsed.options.length >= 4
           ? parsed.options.slice(0, 4)
@@ -436,12 +544,13 @@ ${jsonSchemaExample}`;
       }
     } catch (err) {
       console.error(`[GEMINI Micro-Exercise Error para ${resolvedType}]:`, err && err.message ? err.message : err);
-      // Fallback seguro según el resolvedType solicitado
+      // Fallback seguro según el resolvedType solicitado y polaridad
       if (resolvedType === 'spot_the_error') {
         return {
           exerciseId,
           type: 'spot_the_error',
           category,
+          contrastPolarity: polarity,
           instruction: 'Encuentra y pulsa el segmento que contiene el error:',
           promptSentence: 'Although he worked very hardly all week, he failed to meet the project deadline.',
           segments: ['Although he worked', 'very hardly all week,', 'he failed to meet', 'the project deadline.'],
@@ -454,6 +563,7 @@ ${jsonSchemaExample}`;
           exerciseId,
           type: 'key_word_transformation',
           category,
+          contrastPolarity: polarity,
           instruction: 'Completa la segunda frase usando la palabra en mayúsculas para que signifique lo mismo que la primera:',
           baseSentence: 'The task was so demanding that none of the delegates could finish it.',
           keyWord: 'SUCH',
@@ -462,11 +572,51 @@ ${jsonSchemaExample}`;
           acceptableVariants: ['such a demanding assignment', 'such a demanding project'],
           feedbackExplanation: 'Se transforma "so + adjetivo" a la estructura compleja "such + a/an + adjetivo + sustantivo".'
         };
+      } else if (resolvedType === 'error_correction_input') {
+        return {
+          exerciseId,
+          type: 'error_correction_input',
+          category,
+          contrastPolarity: polarity,
+          instruction: 'Encuentra el error en la frase y escribe la corrección adecuada:',
+          faultySentence: polarity === 'contrast'
+            ? 'She is going to the fitness center every single morning.'
+            : 'She has arrived in London two days ago.',
+          idealAnswer: polarity === 'contrast'
+            ? 'She goes to the fitness center every single morning.'
+            : 'She arrived in London two days ago.',
+          acceptableVariants: polarity === 'contrast' ? ['goes'] : ['arrived'],
+          feedbackExplanation: 'Para acciones habituales se usa Present Simple; con fechas pasadas concretas se usa Past Simple.'
+        };
+      } else if (resolvedType === 'sentence_unscramble') {
+        return {
+          exerciseId,
+          type: 'sentence_unscramble',
+          category,
+          contrastPolarity: polarity,
+          instruction: 'Ordena los bloques para formar la oración gramaticalmente correcta:',
+          shuffledChunks: ['to submit', 'before Friday noon', 'reminded the staff', 'the project report', 'the manager'],
+          correctSentence: 'The manager reminded the staff to submit the project report before Friday noon.',
+          feedbackExplanation: 'Orden natural: Sujeto + verbo + complemento de persona + infinitivo con "to".'
+        };
+      } else if (resolvedType === 'open_cloze') {
+        return {
+          exerciseId,
+          type: 'open_cloze',
+          category,
+          contrastPolarity: polarity,
+          instruction: 'Escribe la única palabra exacta que completa el hueco:',
+          promptSentence: 'The team succeeded ___ completing the audit ahead of schedule.',
+          idealAnswer: 'in',
+          acceptableVariants: ['in'],
+          feedbackExplanation: 'El verbo "succeed" rige la preposición "in".'
+        };
       } else {
         return {
           exerciseId,
           type: 'multiple_choice',
           category,
+          contrastPolarity: polarity,
           instruction: 'Elige la opción más adecuada para completar la frase:',
           promptSentence: 'Despite the tight deadline, the engineering team ___ to finish the prototype.',
           options: ['managed', 'achieved', 'succeeded', 'could'],

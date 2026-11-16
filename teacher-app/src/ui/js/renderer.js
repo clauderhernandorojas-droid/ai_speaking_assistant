@@ -1079,10 +1079,13 @@ function addSurgicalCard(item) {
       </button>
       <div class="exercise-control-group">
         <select class="exercise-type-select" title="Formato del ejercicio">
-          <option value="auto">Auto (CEFR)</option>
-          <option value="multiple_choice">Opción</option>
+          <option value="auto">Auto (Rotación IA)</option>
+          <option value="multiple_choice">Opción Múltiple</option>
           <option value="spot_the_error">Detectar Error</option>
           <option value="key_word_transformation">Transformar C1</option>
+          <option value="error_correction_input">Corregir Frase</option>
+          <option value="sentence_unscramble">Ordenar Frase</option>
+          <option value="open_cloze">Open Cloze</option>
         </select>
         <button type="button" class="btn-guided btn-guided-exercise" title="Generar un micro-ejercicio interactivo con IA sobre esta regla">
           <span class="btn-text">⚡ Ejercicio IA</span>
@@ -1096,7 +1099,10 @@ function addSurgicalCard(item) {
     <!-- Mini vista previa del Micro-Ejercicio en vivo -->
     <div class="card-exercise-panel hidden" data-exercise-id="">
       <div class="exercise-panel-top">
-        <span class="exercise-live-badge">⚡ Micro-Ejercicio en Vivo</span>
+        <div class="exercise-panel-top-left">
+          <span class="exercise-live-badge">⚡ Micro-Ejercicio en Vivo</span>
+          <span class="exercise-polarity-badge"></span>
+        </div>
         <span class="exercise-panel-instruction"></span>
       </div>
       <p class="exercise-panel-sentence"></p>
@@ -1115,9 +1121,40 @@ function addSurgicalCard(item) {
   const btnRefresh = card.querySelector('.btn-guided-refresh');
   const typeSelect = card.querySelector('.exercise-type-select');
 
+  card.dataset.exerciseAttempt = '0';
+  card.dataset.lastExerciseType = '';
   if (typeSelect) {
     card.dataset.selectedExerciseType = typeSelect.value || 'auto';
   }
+
+  // Función auxiliar para calcular rotación intercalada de tipo y polaridad
+  const getNextExerciseParams = () => {
+    const rawVal = card.dataset.selectedExerciseType || (typeSelect ? typeSelect.value : 'auto');
+    const attemptIndex = parseInt(card.dataset.exerciseAttempt || '0', 10);
+    const contrastPolarity = (attemptIndex % 2 === 0) ? 'target' : 'contrast';
+    const lastType = card.dataset.lastExerciseType || '';
+
+    let chosenType = rawVal !== 'auto' ? rawVal : null;
+    if (!chosenType || chosenType === 'auto') {
+      const normLevel = (state.targetLevel || 'B1').toUpperCase().trim();
+      const isHighLevel = ['B2', 'C1', 'C2'].includes(normLevel);
+      const isUpgrade = (category || '').toLowerCase().includes('upgrade') || (category || '').toLowerCase() === 'c1';
+
+      const highPool = ['key_word_transformation', 'open_cloze', 'error_correction_input', 'spot_the_error', 'sentence_unscramble', 'multiple_choice'];
+      const basePool = ['multiple_choice', 'sentence_unscramble', 'spot_the_error', 'open_cloze', 'error_correction_input'];
+      const pool = (isUpgrade || isHighLevel) ? highPool : basePool;
+
+      // Filtrar para que NUNCA repita el formato inmediatamente anterior
+      const candidatePool = pool.filter(t => t !== lastType);
+      const activePool = candidatePool.length > 0 ? candidatePool : pool;
+      chosenType = activePool[attemptIndex % activePool.length];
+    }
+
+    card.dataset.exerciseAttempt = String(attemptIndex + 1);
+    card.dataset.lastExerciseType = chosenType;
+
+    return { chosenType, contrastPolarity, attemptIndex };
+  };
 
   btnBroadcast.addEventListener('click', async () => {
     await handleToggleBroadcastCard({
@@ -1139,8 +1176,7 @@ function addSurgicalCard(item) {
   });
 
   btnExercise.addEventListener('click', async () => {
-    const rawVal = card.dataset.selectedExerciseType || (typeSelect ? typeSelect.value : 'auto');
-    const selectedType = rawVal !== 'auto' ? rawVal : null;
+    const { chosenType, contrastPolarity, attemptIndex } = getNextExerciseParams();
     await handleToggleExerciseCard({
       card,
       cardId,
@@ -1148,14 +1184,15 @@ function addSurgicalCard(item) {
       studentQuote: studentResponse,
       surgicalCorrection,
       explanation,
-      preferredType: selectedType,
+      preferredType: chosenType,
+      contrastPolarity,
+      attemptIndex,
       isRefresh: false
     });
   });
 
   btnRefresh.addEventListener('click', async () => {
-    const rawVal = card.dataset.selectedExerciseType || (typeSelect ? typeSelect.value : 'auto');
-    const selectedType = rawVal !== 'auto' ? rawVal : null;
+    const { chosenType, contrastPolarity, attemptIndex } = getNextExerciseParams();
     await handleToggleExerciseCard({
       card,
       cardId,
@@ -1163,7 +1200,9 @@ function addSurgicalCard(item) {
       studentQuote: studentResponse,
       surgicalCorrection,
       explanation,
-      preferredType: selectedType,
+      preferredType: chosenType,
+      contrastPolarity,
+      attemptIndex,
       isRefresh: true
     });
   });
@@ -1171,11 +1210,9 @@ function addSurgicalCard(item) {
   if (typeSelect) {
     typeSelect.addEventListener('change', async () => {
       card.dataset.selectedExerciseType = typeSelect.value;
-      const rawVal = card.dataset.selectedExerciseType;
-      const selectedType = rawVal && rawVal !== 'auto' ? rawVal : null;
-
-      // Si la tarjeta ya tiene el ejercicio activo abierto, regenerar y emitir de inmediato con el nuevo tipo
+      // Si la tarjeta ya tiene el ejercicio activo abierto, regenerar y emitir de inmediato
       if (state.activeExerciseCardId === cardId) {
+        const { chosenType, contrastPolarity, attemptIndex } = getNextExerciseParams();
         await handleToggleExerciseCard({
           card,
           cardId,
@@ -1183,7 +1220,9 @@ function addSurgicalCard(item) {
           studentQuote: studentResponse,
           surgicalCorrection,
           explanation,
-          preferredType: selectedType,
+          preferredType: chosenType,
+          contrastPolarity,
+          attemptIndex,
           isRefresh: true
         });
       }
@@ -1322,7 +1361,7 @@ async function handleRevealAnswerCard({ card, cardId, surgicalCorrection, explan
 /**
  * Genera y transmite un micro-ejercicio interactivo con IA para esta tarjeta
  */
-async function handleToggleExerciseCard({ card, cardId, category, studentQuote, surgicalCorrection, explanation, preferredType = null, isRefresh = false }) {
+async function handleToggleExerciseCard({ card, cardId, category, studentQuote, surgicalCorrection, explanation, preferredType = null, contrastPolarity = 'target', attemptIndex = 0, isRefresh = false }) {
   const isCurrentActive = state.activeExerciseCardId === cardId;
   const btnExercise = card.querySelector('.btn-guided-exercise');
   const btnRefresh = card.querySelector('.btn-guided-refresh');
@@ -1400,6 +1439,8 @@ async function handleToggleExerciseCard({ card, cardId, category, studentQuote, 
         explanation,
         targetLevel: state.targetLevel || 'B1',
         preferredType,
+        contrastPolarity,
+        attemptIndex,
         seed: randomSeed
       });
     }
@@ -1428,6 +1469,13 @@ async function handleToggleExerciseCard({ card, cardId, category, studentQuote, 
       panel.dataset.exerciseId = exercise.exerciseId;
       const instructionEl = panel.querySelector('.exercise-panel-instruction');
       if (instructionEl) instructionEl.textContent = exercise.instruction || '';
+
+      const polarityBadge = panel.querySelector('.exercise-polarity-badge');
+      if (polarityBadge) {
+        const isContrast = exercise.contrastPolarity === 'contrast';
+        polarityBadge.className = `exercise-polarity-badge ${isContrast ? 'polarity-contrast' : 'polarity-target'}`;
+        polarityBadge.textContent = isContrast ? '⚖️ Contraste' : '🎯 Regla Objetivo';
+      }
 
       const sentenceEl = panel.querySelector('.exercise-panel-sentence');
       const optionsEl = panel.querySelector('.exercise-panel-options');
@@ -1463,6 +1511,42 @@ async function handleToggleExerciseCard({ card, cardId, category, studentQuote, 
                 <span class="preview-corr-label">Respuesta Modelo:</span>
                 <span class="preview-corr-val">${exercise.idealAnswer}</span>
               </div>
+            </div>
+          `;
+        }
+      } else if (exercise.type === 'error_correction_input') {
+        if (sentenceEl) {
+          sentenceEl.innerHTML = `<strong>Frase con error:</strong> <em>"${exercise.faultySentence}"</em>`;
+        }
+        if (optionsEl) {
+          optionsEl.innerHTML = `
+            <div class="exercise-panel-correction">
+              <span class="preview-corr-label">Corrección Esperada:</span>
+              <span class="preview-corr-val">${exercise.idealAnswer}</span>
+            </div>
+          `;
+        }
+      } else if (exercise.type === 'sentence_unscramble') {
+        if (sentenceEl) {
+          sentenceEl.innerHTML = `<strong>Oración armada:</strong> <em>${exercise.correctSentence}</em>`;
+        }
+        if (optionsEl) {
+          optionsEl.innerHTML = `
+            <div class="exercise-panel-unscramble-preview">
+              ${(exercise.shuffledChunks || []).map(chunk => `<span class="preview-unscramble-chip">${chunk}</span>`).join(' ')}
+            </div>
+          `;
+        }
+      } else if (exercise.type === 'open_cloze') {
+        if (sentenceEl) {
+          const sentenceWithHighlight = (exercise.promptSentence || '').replace('___', '<strong class="blank-highlight">___</strong>');
+          sentenceEl.innerHTML = sentenceWithHighlight;
+        }
+        if (optionsEl) {
+          optionsEl.innerHTML = `
+            <div class="exercise-panel-correction">
+              <span class="preview-corr-label">Palabra Clave:</span>
+              <span class="preview-corr-val">[ ${exercise.idealAnswer} ]</span>
             </div>
           `;
         }

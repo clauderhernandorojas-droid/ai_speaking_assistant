@@ -36,6 +36,7 @@ const btnCloseGuidedModal = document.getElementById('btn-close-guided-modal');
 // Elementos de Micro-Ejercicios con IA
 const exerciseModal = document.getElementById('exercise-modal');
 const exerciseCategoryBadge = document.getElementById('exercise-category-badge');
+const exercisePolarityTag = document.getElementById('exercise-polarity-tag');
 const exerciseInstructionText = document.getElementById('exercise-instruction-text');
 const exerciseMcContainer = document.getElementById('exercise-mc-container');
 const exercisePromptSentence = document.getElementById('exercise-prompt-sentence');
@@ -49,6 +50,28 @@ const exerciseTransformTemplate = document.getElementById('exercise-transform-te
 const exerciseTransformForm = document.getElementById('exercise-transform-form');
 const exerciseTextInput = document.getElementById('exercise-text-input');
 const btnSubmitExercise = document.getElementById('btn-submit-exercise');
+
+// Formato 4: Error Correction Input
+const exerciseCorrectionContainer = document.getElementById('exercise-correction-container');
+const exerciseCorrectionFaulty = document.getElementById('exercise-correction-faulty');
+const exerciseCorrectionForm = document.getElementById('exercise-correction-form');
+const exerciseCorrectionInput = document.getElementById('exercise-correction-input');
+const btnSubmitCorrection = document.getElementById('btn-submit-correction');
+
+// Formato 5: Sentence Unscramble
+const exerciseUnscrambleContainer = document.getElementById('exercise-unscramble-container');
+const exerciseUnscrambleResult = document.getElementById('exercise-unscramble-result');
+const exerciseUnscrambleBank = document.getElementById('exercise-unscramble-bank');
+const btnClearUnscramble = document.getElementById('btn-clear-unscramble');
+const btnSubmitUnscramble = document.getElementById('btn-submit-unscramble');
+
+// Formato 6: Open Cloze
+const exerciseClozeContainer = document.getElementById('exercise-cloze-container');
+const exerciseClozeSentence = document.getElementById('exercise-cloze-sentence');
+const exerciseClozeForm = document.getElementById('exercise-cloze-form');
+const exerciseClozeInput = document.getElementById('exercise-cloze-input');
+const btnSubmitCloze = document.getElementById('btn-submit-cloze');
+
 const exerciseFeedbackContainer = document.getElementById('exercise-feedback-container');
 const exerciseFeedbackTitle = document.getElementById('exercise-feedback-title');
 const exerciseFeedbackSolution = document.getElementById('exercise-feedback-solution');
@@ -56,6 +79,7 @@ const exerciseFeedbackText = document.getElementById('exercise-feedback-text');
 const btnCloseExerciseModal = document.getElementById('btn-close-exercise-modal');
 
 let currentStudentExercise = null;
+let currentUnscrambleSelected = [];
 
 const CATEGORY_NAMES = {
   grammar: 'Gramática',
@@ -264,10 +288,16 @@ function handleMicroExerciseEvent(payload) {
       guidedSolutionContainer.classList.add('hidden');
     }
 
-    // 1. Badge de Categoría
+    // 1. Badge de Categoría y Polaridad
     const cat = (payload.category || 'grammar').toLowerCase();
     exerciseCategoryBadge.textContent = CATEGORY_NAMES[cat] || payload.category || 'Ejercicio';
     exerciseCategoryBadge.className = `guided-badge cat-${cat}`;
+
+    if (exercisePolarityTag) {
+      const isContrast = payload.contrastPolarity === 'contrast';
+      exercisePolarityTag.className = `exercise-polarity-tag ${isContrast ? 'polarity-contrast' : 'polarity-target'}`;
+      exercisePolarityTag.textContent = isContrast ? '⚖️ Contraste' : '🎯 Regla Objetivo';
+    }
 
     // 2. Instrucción breve
     exerciseInstructionText.textContent = payload.instruction || 'Resuelve el siguiente ejercicio interactivo:';
@@ -280,16 +310,25 @@ function handleMicroExerciseEvent(payload) {
     exerciseFeedbackTitle.className = 'exercise-feedback-title';
     exerciseFeedbackText.textContent = '';
 
-    // 4. Ocultar todos los sub-contenedores
+    // 4. Ocultar todos los sub-contenedores (6 formatos)
     exerciseMcContainer.classList.add('hidden');
     exerciseSpotContainer.classList.add('hidden');
     exerciseTransformContainer.classList.add('hidden');
+    if (exerciseCorrectionContainer) exerciseCorrectionContainer.classList.add('hidden');
+    if (exerciseUnscrambleContainer) exerciseUnscrambleContainer.classList.add('hidden');
+    if (exerciseClozeContainer) exerciseClozeContainer.classList.add('hidden');
 
     // 5. Renderizar según formato
     if (payload.type === 'spot_the_error') {
       renderSpotTheError(payload);
     } else if (payload.type === 'key_word_transformation') {
       renderKeyWordTransformation(payload);
+    } else if (payload.type === 'error_correction_input') {
+      renderErrorCorrectionInput(payload);
+    } else if (payload.type === 'sentence_unscramble') {
+      renderSentenceUnscramble(payload);
+    } else if (payload.type === 'open_cloze') {
+      renderOpenCloze(payload);
     } else {
       renderMultipleChoice(payload);
     }
@@ -482,6 +521,231 @@ exerciseTransformForm.addEventListener('submit', (e) => {
     answeredAt: Date.now()
   });
 });
+
+// FORMATO 4: ERROR CORRECTION INPUT
+function renderErrorCorrectionInput(exercise) {
+  if (!exerciseCorrectionContainer) return;
+  exerciseCorrectionContainer.classList.remove('hidden');
+
+  if (exerciseCorrectionFaulty) {
+    exerciseCorrectionFaulty.textContent = exercise.faultySentence || '';
+  }
+  if (exerciseCorrectionInput) {
+    exerciseCorrectionInput.value = '';
+    exerciseCorrectionInput.disabled = false;
+  }
+  if (btnSubmitCorrection) {
+    btnSubmitCorrection.disabled = false;
+    btnSubmitCorrection.textContent = 'Enviar Corrección';
+  }
+  setTimeout(() => exerciseCorrectionInput && exerciseCorrectionInput.focus(), 150);
+}
+
+if (exerciseCorrectionForm) {
+  exerciseCorrectionForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (!currentStudentExercise || currentStudentExercise.type !== 'error_correction_input') return;
+
+    const rawAnswer = exerciseCorrectionInput.value.trim();
+    if (!rawAnswer) return;
+
+    exerciseCorrectionInput.disabled = true;
+    btnSubmitCorrection.disabled = true;
+
+    const normInput = normalizeAnswerText(rawAnswer);
+    const normIdeal = normalizeAnswerText(currentStudentExercise.idealAnswer);
+    const normVariants = (currentStudentExercise.acceptableVariants || []).map(normalizeAnswerText);
+
+    // Válido si coincide con la frase completa o con la parte/variante corregida
+    const isCorrect = normInput === normIdeal || normVariants.includes(normInput) || (normIdeal.includes(normInput) && normInput.length >= 3);
+
+    if (isCorrect) {
+      exerciseFeedbackTitle.textContent = '¡Excelente! Corrección gramatical precisa.';
+      exerciseFeedbackTitle.className = 'exercise-feedback-title correct';
+    } else {
+      exerciseFeedbackTitle.textContent = 'Intento Incorrecto';
+      exerciseFeedbackTitle.className = 'exercise-feedback-title incorrect';
+    }
+
+    exerciseFeedbackSolution.innerHTML = `Corrección esperada: <strong>${currentStudentExercise.idealAnswer}</strong>`;
+    exerciseFeedbackSolution.classList.remove('hidden');
+    exerciseFeedbackText.textContent = currentStudentExercise.feedbackExplanation || '';
+    exerciseFeedbackContainer.classList.remove('hidden');
+
+    supabaseService.sendMicroExerciseAnswer({
+      exerciseId: currentStudentExercise.exerciseId,
+      exerciseType: 'error_correction_input',
+      selectedText: rawAnswer,
+      correctText: currentStudentExercise.idealAnswer,
+      isCorrect,
+      answeredAt: Date.now()
+    });
+  });
+}
+
+// FORMATO 5: SENTENCE UNSCRAMBLE
+function renderSentenceUnscramble(exercise) {
+  if (!exerciseUnscrambleContainer) return;
+  exerciseUnscrambleContainer.classList.remove('hidden');
+  currentUnscrambleSelected = [];
+
+  if (exerciseUnscrambleResult) {
+    exerciseUnscrambleResult.textContent = 'Pulsa los bloques en orden...';
+    exerciseUnscrambleResult.style.color = '#94a3b8';
+  }
+  if (btnSubmitUnscramble) {
+    btnSubmitUnscramble.disabled = true;
+  }
+
+  if (exerciseUnscrambleBank) {
+    exerciseUnscrambleBank.innerHTML = '';
+    const chunks = Array.isArray(exercise.shuffledChunks) ? exercise.shuffledChunks : [];
+    chunks.forEach((chunk, index) => {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'unscramble-chip';
+      chip.dataset.index = index;
+      chip.textContent = chunk;
+
+      chip.addEventListener('click', () => {
+        if (chip.classList.contains('chip-used')) return;
+        chip.classList.add('chip-used');
+        currentUnscrambleSelected.push({ index, text: chunk });
+        updateUnscrambleDisplay(exercise);
+      });
+
+      exerciseUnscrambleBank.appendChild(chip);
+    });
+  }
+}
+
+function updateUnscrambleDisplay(exercise) {
+  if (!exerciseUnscrambleResult) return;
+  if (currentUnscrambleSelected.length === 0) {
+    exerciseUnscrambleResult.textContent = 'Pulsa los bloques en orden...';
+    exerciseUnscrambleResult.style.color = '#94a3b8';
+    if (btnSubmitUnscramble) btnSubmitUnscramble.disabled = true;
+    return;
+  }
+
+  const assembled = currentUnscrambleSelected.map(c => c.text).join(' ');
+  exerciseUnscrambleResult.textContent = assembled;
+  exerciseUnscrambleResult.style.color = '#f8fafc';
+
+  const totalChunks = (exercise.shuffledChunks || []).length;
+  if (btnSubmitUnscramble) {
+    btnSubmitUnscramble.disabled = currentUnscrambleSelected.length !== totalChunks;
+  }
+}
+
+if (btnClearUnscramble) {
+  btnClearUnscramble.addEventListener('click', () => {
+    if (!currentStudentExercise || currentStudentExercise.type !== 'sentence_unscramble') return;
+    currentUnscrambleSelected = [];
+    if (exerciseUnscrambleBank) {
+      exerciseUnscrambleBank.querySelectorAll('.unscramble-chip').forEach(c => c.classList.remove('chip-used'));
+    }
+    updateUnscrambleDisplay(currentStudentExercise);
+  });
+}
+
+if (btnSubmitUnscramble) {
+  btnSubmitUnscramble.addEventListener('click', () => {
+    if (!currentStudentExercise || currentStudentExercise.type !== 'sentence_unscramble') return;
+
+    btnSubmitUnscramble.disabled = true;
+    if (btnClearUnscramble) btnClearUnscramble.disabled = true;
+
+    const assembledText = currentUnscrambleSelected.map(c => c.text).join(' ');
+    const normAssembled = normalizeAnswerText(assembledText);
+    const normTarget = normalizeAnswerText(currentStudentExercise.correctSentence);
+
+    const isCorrect = normAssembled === normTarget;
+
+    if (isCorrect) {
+      exerciseFeedbackTitle.textContent = '¡Perfecto! Has ordenado la frase correctamente.';
+      exerciseFeedbackTitle.className = 'exercise-feedback-title correct';
+    } else {
+      exerciseFeedbackTitle.textContent = 'Orden Incorrecto';
+      exerciseFeedbackTitle.className = 'exercise-feedback-title incorrect';
+    }
+
+    exerciseFeedbackSolution.innerHTML = `Oración correcta: <strong>${currentStudentExercise.correctSentence}</strong>`;
+    exerciseFeedbackSolution.classList.remove('hidden');
+    exerciseFeedbackText.textContent = currentStudentExercise.feedbackExplanation || '';
+    exerciseFeedbackContainer.classList.remove('hidden');
+
+    supabaseService.sendMicroExerciseAnswer({
+      exerciseId: currentStudentExercise.exerciseId,
+      exerciseType: 'sentence_unscramble',
+      selectedText: assembledText,
+      correctText: currentStudentExercise.correctSentence,
+      isCorrect,
+      answeredAt: Date.now()
+    });
+  });
+}
+
+// FORMATO 6: OPEN CLOZE
+function renderOpenCloze(exercise) {
+  if (!exerciseClozeContainer) return;
+  exerciseClozeContainer.classList.remove('hidden');
+
+  if (exerciseClozeSentence) {
+    const rawSentence = exercise.promptSentence || '___';
+    exerciseClozeSentence.innerHTML = rawSentence.replace('___', '<span class="prompt-blank">___</span>');
+  }
+  if (exerciseClozeInput) {
+    exerciseClozeInput.value = '';
+    exerciseClozeInput.disabled = false;
+  }
+  if (btnSubmitCloze) {
+    btnSubmitCloze.disabled = false;
+    btnSubmitCloze.textContent = 'Comprobar';
+  }
+  setTimeout(() => exerciseClozeInput && exerciseClozeInput.focus(), 150);
+}
+
+if (exerciseClozeForm) {
+  exerciseClozeForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    if (!currentStudentExercise || currentStudentExercise.type !== 'open_cloze') return;
+
+    const rawAnswer = (exerciseClozeInput.value || '').trim();
+    if (!rawAnswer) return;
+
+    exerciseClozeInput.disabled = true;
+    btnSubmitCloze.disabled = true;
+
+    const normInput = normalizeAnswerText(rawAnswer);
+    const normIdeal = normalizeAnswerText(currentStudentExercise.idealAnswer);
+    const normVariants = (currentStudentExercise.acceptableVariants || []).map(normalizeAnswerText);
+
+    const isCorrect = normInput === normIdeal || normVariants.includes(normInput);
+
+    if (isCorrect) {
+      exerciseFeedbackTitle.textContent = '¡Correcto! Palabra precisa identificada.';
+      exerciseFeedbackTitle.className = 'exercise-feedback-title correct';
+    } else {
+      exerciseFeedbackTitle.textContent = 'Palabra Incorrecta';
+      exerciseFeedbackTitle.className = 'exercise-feedback-title incorrect';
+    }
+
+    exerciseFeedbackSolution.innerHTML = `Palabra correcta: <strong>${currentStudentExercise.idealAnswer}</strong>`;
+    exerciseFeedbackSolution.classList.remove('hidden');
+    exerciseFeedbackText.textContent = currentStudentExercise.feedbackExplanation || '';
+    exerciseFeedbackContainer.classList.remove('hidden');
+
+    supabaseService.sendMicroExerciseAnswer({
+      exerciseId: currentStudentExercise.exerciseId,
+      exerciseType: 'open_cloze',
+      selectedText: rawAnswer,
+      correctText: currentStudentExercise.idealAnswer,
+      isCorrect,
+      answeredAt: Date.now()
+    });
+  });
+}
 
 // 6. Cierre local de modales por el alumno
 if (btnCloseGuidedModal) {

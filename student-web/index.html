@@ -182,6 +182,7 @@
             <span id="exercise-category-badge" class="guided-badge">Gramática</span>
           </div>
           <div class="guided-top-right">
+            <span id="exercise-polarity-tag" class="exercise-polarity-tag">🎯 Objetivo</span>
             <span class="guided-tag">⚡ Micro-Ejercicio IA</span>
             <button type="button" id="btn-close-exercise-modal" class="modal-close-btn" title="Cerrar ventana">✕</button>
           </div>
@@ -234,6 +235,67 @@
               />
               <button type="submit" id="btn-submit-exercise" class="btn btn-primary btn-submit-exercise">
                 Enviar Respuesta
+              </button>
+            </form>
+          </div>
+
+          <!-- FORMATO 4: ERROR CORRECTION INPUT (Oración con error sutil y corrección) -->
+          <div id="exercise-correction-container" class="exercise-correction-container hidden">
+            <div class="exercise-sentence-box correction-sentence-box">
+              <span class="transform-box-label">Frase con un error:</span>
+              <p id="exercise-correction-faulty" class="exercise-faulty-sentence"></p>
+            </div>
+            <form id="exercise-correction-form" class="exercise-input-group">
+              <input
+                type="text"
+                id="exercise-correction-input"
+                class="exercise-text-input"
+                placeholder="Escribe la corrección aquí..."
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button type="submit" id="btn-submit-correction" class="btn btn-primary btn-submit-exercise">
+                Enviar Corrección
+              </button>
+            </form>
+          </div>
+
+          <!-- FORMATO 5: SENTENCE UNSCRAMBLE (Bloques interactivos para ordenar) -->
+          <div id="exercise-unscramble-container" class="exercise-unscramble-container hidden">
+            <div class="unscramble-result-box">
+              <span class="transform-box-label">Tu frase armada:</span>
+              <p id="exercise-unscramble-result" class="unscramble-result-text">Pulsa los bloques en orden...</p>
+            </div>
+            <div id="exercise-unscramble-bank" class="unscramble-bank">
+              <!-- Bloques generados dinámicamente -->
+            </div>
+            <div class="unscramble-actions">
+              <button type="button" id="btn-clear-unscramble" class="btn btn-secondary btn-clear-unscramble">
+                ↺ Reiniciar
+              </button>
+              <button type="button" id="btn-submit-unscramble" class="btn btn-primary btn-submit-exercise" disabled>
+                Comprobar Orden
+              </button>
+            </div>
+          </div>
+
+          <!-- FORMATO 6: OPEN CLOZE (Oración con hueco para 1 sola palabra) -->
+          <div id="exercise-cloze-container" class="exercise-cloze-container hidden">
+            <div class="exercise-sentence-box">
+              <p id="exercise-cloze-sentence" class="exercise-prompt-sentence"></p>
+            </div>
+            <form id="exercise-cloze-form" class="exercise-input-group cloze-input-group">
+              <input
+                type="text"
+                id="exercise-cloze-input"
+                class="exercise-text-input exercise-cloze-input"
+                placeholder="Escribe la única palabra exacta..."
+                autocomplete="off"
+                spellcheck="false"
+                maxlength="30"
+              />
+              <button type="submit" id="btn-submit-cloze" class="btn btn-primary btn-submit-exercise">
+                Comprobar
               </button>
             </form>
           </div>

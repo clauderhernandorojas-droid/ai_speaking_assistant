@@ -877,3 +877,121 @@ input:focus {
   font-weight: 600;
 }
 
+/* Polaridad del ejercicio en Student Web */
+.exercise-polarity-tag {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 9999px;
+  letter-spacing: 0.02em;
+}
+
+.exercise-polarity-tag.polarity-target {
+  background: rgba(16, 185, 129, 0.18);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.exercise-polarity-tag.polarity-contrast {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+/* FORMATO 4: ERROR CORRECTION INPUT */
+.correction-sentence-box {
+  border-left-color: #f59e0b;
+}
+
+.exercise-faulty-sentence {
+  font-size: 1rem;
+  color: #f8fafc;
+  line-height: 1.45;
+  margin: 4px 0 0;
+  font-style: italic;
+}
+
+/* FORMATO 5: SENTENCE UNSCRAMBLE */
+.exercise-unscramble-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.unscramble-result-box {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(168, 85, 247, 0.35);
+  border-radius: 8px;
+  padding: 12px 14px;
+  min-height: 52px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.unscramble-result-text {
+  font-size: 1rem;
+  color: #f8fafc;
+  line-height: 1.45;
+  margin: 0;
+  min-height: 24px;
+}
+
+.unscramble-bank {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0;
+}
+
+.unscramble-chip {
+  background: #1f2937;
+  border: 1px solid #374151;
+  color: #f3f4f6;
+  font-size: 0.9rem;
+  font-weight: 500;
+  padding: 8px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.unscramble-chip:hover:not(:disabled) {
+  background: #374151;
+  border-color: #a855f7;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+}
+
+.unscramble-chip.chip-used {
+  opacity: 0.35;
+  pointer-events: none;
+  background: #111827;
+  border-color: #1f2937;
+  text-decoration: line-through;
+}
+
+.unscramble-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.btn-clear-unscramble {
+  padding: 8px 14px;
+  font-size: 0.84rem;
+}
+
+/* FORMATO 6: OPEN CLOZE */
+.cloze-input-group {
+  max-width: 480px;
+}
+
+.exercise-cloze-input {
+  max-width: 260px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+

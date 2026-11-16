@@ -401,6 +401,13 @@
   font-size: 0.72rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   padding-bottom: 6px;
+  gap: 8px;
+}
+
+.exercise-panel-top-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .exercise-live-badge {
@@ -408,6 +415,44 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.exercise-polarity-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  letter-spacing: 0.02em;
+}
+
+.exercise-polarity-badge.polarity-target {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.exercise-polarity-badge.polarity-contrast {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.exercise-panel-unscramble-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.preview-unscramble-chip {
+  font-size: 0.76rem;
+  padding: 3px 8px;
+  background: rgba(168, 85, 247, 0.15);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  color: #e9d5ff;
+  border-radius: 6px;
 }
 
 .exercise-panel-instruction {
