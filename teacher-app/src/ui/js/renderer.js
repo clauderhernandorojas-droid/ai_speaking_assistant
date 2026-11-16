@@ -912,7 +912,7 @@ function exportSessionReportHTML() {
           ${exerciseBodyHtml}
 
           ${ex.studentAnswer ? `
-          <div style="margin-top: 10px; font-size: 0.85rem; color: #c9d1d9;">
+          <div class="review-target-answer" style="margin-top: 10px; font-size: 0.85rem; color: #c9d1d9;">
             <strong style="color: #8b949e; text-transform: uppercase; font-size: 0.75rem;">Respuesta del Alumno:</strong> 
             <span style="font-weight: 600; color: ${ex.isCorrect ? '#3fb950' : '#f85149'};">"${ex.studentAnswer}"</span>
           </div>` : ''}
@@ -1000,7 +1000,7 @@ function exportSessionReportHTML() {
       body { background: #fff !important; color: #000 !important; padding: 10px !important; }
       .report-wrapper { box-shadow: none !important; border: none !important; padding: 0 !important; max-width: 100% !important; }
       .btn-review-mode, .review-notice-banner { display: none !important; }
-      .review-target-answer { filter: none !important; }
+      .review-target-answer { filter: none !important; -webkit-filter: none !important; user-select: auto !important; opacity: 1 !important; }
     }
   </style>
 </head>
