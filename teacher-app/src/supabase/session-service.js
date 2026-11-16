@@ -66,6 +66,110 @@ class TeacherSessionService {
   }
 
   /**
+   * Prepara la sala en Supabase en modo espera ('waiting') y suscribe el canal Realtime
+   * de inmediato para que el alumno pueda unirse antes de que el docente pulse Iniciar Sesión.
+   */
+  async initRoom({ sessionCode, studentName, studentLevel = 'B1', durationMinutes = 10 }) {
+    if (!this.client) {
+      this.initClient();
+    }
+
+    const code = sessionCode.toUpperCase().trim();
+    this.currentSession = {
+      sessionCode: code,
+      studentName: studentName || 'Estudiante',
+      studentLevel,
+      durationMinutes,
+      status: 'waiting',
+      startedAt: null
+    };
+
+    this.audioChunks = [];
+
+    // 1. Sincronizar en la tabla 'sessions' con estado 'waiting'
+    if (this.client) {
+      try {
+        console.log('[Supabase Session] Registrando sala en espera:', { sessionCode: code });
+        const { error } = await this.client
+          .from('sessions')
+          .upsert({
+            session_code: code,
+            student_name: this.currentSession.studentName,
+            student_level: this.currentSession.studentLevel,
+            duration_minutes: this.currentSession.durationMinutes,
+            status: 'waiting',
+            started_at: new Date().toISOString()
+          }, { onConflict: 'session_code' });
+
+        if (error) {
+          console.warn('[Supabase Session] Advertencia al registrar sala en espera:', error.message);
+        } else {
+          console.log('[Supabase Session] Sala en espera registrada exitosamente:', code);
+        }
+      } catch (err) {
+        console.warn('[Supabase Session] Error registrando sala en espera:', err.message);
+      }
+    }
+
+    // 2. Suscribir al canal de Realtime para escuchar eventos del estudiante antes del inicio
+    const channelName = `session:${code}`;
+    if (this.client) {
+      // Si ya está suscrito a este mismo canal, conservarlo
+      if (this.channel && this.channel.topic === `realtime:${channelName}`) {
+        console.log('[Supabase Realtime] Canal en espera ya conectado:', channelName);
+        return { success: true, sessionCode: code };
+      }
+
+      if (this.channel) {
+        try {
+          this.client.removeChannel(this.channel);
+        } catch (_) {}
+        this.channel = null;
+      }
+
+      this.channel = this.client.channel(channelName, {
+        config: { broadcast: { self: false } }
+      });
+
+      this.channel
+        .on('broadcast', { event: 'student:joined' }, (payload) => {
+          console.log('[Supabase Realtime] Alumno conectado a sala en espera:', payload.payload);
+          this.eventListeners.onStudentJoined(payload.payload);
+        })
+        .on('broadcast', { event: 'student:audio_chunk' }, (payload) => {
+          const chunkData = payload.payload;
+          if (chunkData && chunkData.data) {
+            this.audioChunks.push(chunkData);
+            this.eventListeners.onAudioChunk({
+              sequence: chunkData.sequence,
+              totalChunks: this.audioChunks.length,
+              mimeType: chunkData.mimeType
+            });
+          }
+        })
+        .on('broadcast', { event: 'student:mute_change' }, (payload) => {
+          console.log('[Supabase Realtime] Cambio de Mute:', payload.payload);
+          this.eventListeners.onMuteChange(payload.payload);
+        })
+        .on('broadcast', { event: 'student:left' }, (payload) => {
+          console.log('[Supabase Realtime] Alumno abandonó la sala en espera');
+          this.eventListeners.onStudentLeft(payload.payload);
+        })
+        .on('broadcast', { event: 'micro_exercise_answer' }, (payload) => {
+          console.log('[Supabase Realtime] Respuesta de alumno recibida:', payload.payload);
+          this.eventListeners.onMicroExerciseAnswer(payload.payload);
+        })
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            console.log(`[Supabase Realtime] Canal en espera listo y suscrito a ${channelName}`);
+          }
+        });
+    }
+
+    return { success: true, sessionCode: code };
+  }
+
+  /**
    * Crea o actualiza la sesión en Supabase y suscribe al canal de Broadcast.
    */
   async startSession({ sessionCode, studentName, studentLevel = 'B1', durationMinutes = 10 }) {
@@ -73,20 +177,22 @@ class TeacherSessionService {
       this.initClient();
     }
 
+    const code = sessionCode.toUpperCase().trim();
     this.currentSession = {
-      sessionCode: sessionCode.toUpperCase().trim(),
+      sessionCode: code,
       studentName: studentName || 'Estudiante',
       studentLevel,
       durationMinutes,
+      status: 'active',
       startedAt: Date.now()
     };
 
     this.audioChunks = [];
 
-    // 1. Sincronizar en la tabla 'sessions' de Supabase
+    // 1. Sincronizar en la tabla 'sessions' de Supabase con status 'active'
     if (this.client) {
       try {
-        console.log('[Supabase] Intentando guardar sesión:', { 
+        console.log('[Supabase] Activando sesión:', { 
           sessionCode: this.currentSession.sessionCode, 
           studentLevel: this.currentSession.studentLevel, 
           durationMinutes: this.currentSession.durationMinutes 
@@ -108,7 +214,7 @@ class TeacherSessionService {
           console.error('[Supabase ERROR detallado]:', JSON.stringify(error, null, 2));
           throw new Error(error.message || error.details || error.hint || 'Error al guardar en Supabase');
         } else {
-          console.log('[Supabase ÉXITO] Sesión guardada:', data);
+          console.log('[Supabase ÉXITO] Sesión activa guardada:', data);
         }
       } catch (err) {
         console.error('[Supabase ERROR al guardar sesión]:', err.message);
@@ -120,12 +226,35 @@ class TeacherSessionService {
       throw new Error(errorMsg);
     }
 
-    // 2. Conectar y suscribirse al nuevo canal de Broadcast para la sala activa
     const channelName = `session:${this.currentSession.sessionCode}`;
+
+    // Función auxiliar para emitir teacher:session_start al estudiante
+    const emitSessionStart = () => {
+      if (this.channel) {
+        this.channel.send({
+          type: 'broadcast',
+          event: 'teacher:session_start',
+          payload: {
+            durationMinutes,
+            startedAt: this.currentSession.startedAt
+          }
+        });
+        console.log(`[Supabase Realtime] Evento teacher:session_start emitido a ${channelName}`);
+      }
+    };
+
+    // 2. Si el canal ya está suscrito exactamente a este channelName (modo espera previo), REUTILIZARLO
+    if (this.channel && this.channel.topic === `realtime:${channelName}`) {
+      console.log('[Supabase Realtime] Reutilizando canal en espera ya conectado:', channelName);
+      emitSessionStart();
+      return { success: true, sessionCode: this.currentSession.sessionCode };
+    }
+
+    // Si es un canal distinto, limpiar el anterior y suscribir el nuevo
     if (this.client) {
       if (this.channel) {
         try {
-          console.log('[Supabase Realtime] Limpiando pantalla del alumno y suscripción previa antes de iniciar nueva sala...');
+          console.log('[Supabase Realtime] Limpiando pantalla del alumno y canal previo...');
           await this.channel.send({
             type: 'broadcast',
             event: 'guided_correction',
@@ -178,15 +307,7 @@ class TeacherSessionService {
         .subscribe((status) => {
           if (status === 'SUBSCRIBED') {
             console.log(`[Supabase Realtime] Docente suscrito exitosamente a ${channelName}`);
-            // Notificar al estudiante que el docente inició la sesión
-            this.channel.send({
-              type: 'broadcast',
-              event: 'teacher:session_start',
-              payload: {
-                durationMinutes,
-                startedAt: this.currentSession.startedAt
-              }
-            });
+            emitSessionStart();
           }
         });
     }

@@ -188,6 +188,16 @@ ipcMain.handle('ai:generateMicroExercise', async (_event, params) => {
 // CANALES IPC DE SESIÓN EN TIEMPO REAL (SUPABASE BRIDGE)
 // ==============================================================================
 
+ipcMain.handle('session:initRoom', async (event, sessionData) => {
+  try {
+    return await sessionService.initRoom(sessionData);
+  } catch (err) {
+    console.error('[MAIN session:initRoom ERROR]', err);
+    const msg = err && err.message ? err.message : (typeof err === 'object' ? JSON.stringify(err) : String(err));
+    throw new Error(msg);
+  }
+});
+
 ipcMain.handle('session:start', async (event, sessionData) => {
   try {
     return await sessionService.startSession(sessionData);
