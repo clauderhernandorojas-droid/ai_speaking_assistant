@@ -9,6 +9,7 @@ export class AudioCaptureService {
     this.timeslice = options.timeslice || 2000; // 2 segundos por fragmento
     this.onChunk = options.onChunk || (() => {});
     this.onVolume = options.onVolume || (() => {});
+    this.deviceId = options.deviceId || null;
     
     this.mediaStream = null;
     this.mediaRecorder = null;
@@ -19,24 +20,133 @@ export class AudioCaptureService {
   }
 
   /**
-   * Solicita acceso al micrófono del navegador con cancelación de ruido.
+   * Solicita acceso al micrófono del navegador (o al deviceId especificado) con cancelación de ruido.
    */
-  async start() {
+  async start(deviceId = null) {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       throw new Error('Tu navegador no soporta captura de micrófono.');
     }
 
+    if (deviceId) {
+      this.deviceId = deviceId;
+    }
+
+    const audioConstraints = {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true
+    };
+
+    if (this.deviceId) {
+      audioConstraints.deviceId = { exact: this.deviceId };
+    }
+
     this.mediaStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true
-      },
+      audio: audioConstraints,
       video: false
     });
 
     this.setupAudioAnalysis(this.mediaStream);
     this.setupMediaRecorder(this.mediaStream);
+  }
+
+  /**
+   * Cambia el micrófono activo durante la sesión sin perder la conexión.
+   */
+  async setDevice(newDeviceId) {
+    if (this.deviceId === newDeviceId && this.mediaStream) return;
+    this.deviceId = newDeviceId;
+
+    const wasActive = !!this.mediaStream;
+    if (wasActive) {
+      this.stop();
+      await this.start(newDeviceId);
+    }
+  }
+
+  /**
+   * Enumera los micrófonos de entrada de audio disponibles.
+   */
+  static async enumerateMicrophones() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+      return [];
+    }
+
+    try {
+      let devices = await navigator.mediaDevices.enumerateDevices();
+      let audioInputs = devices.filter(d => d.kind === 'audioinput');
+      const hasLabels = audioInputs.some(d => d.label && d.label.trim().length > 0);
+
+      // Si los labels vienen vacíos (permiso aún no concedido), solicitar acceso temporal
+      if (!hasLabels && navigator.mediaDevices.getUserMedia) {
+        try {
+          const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          devices = await navigator.mediaDevices.enumerateDevices();
+          audioInputs = devices.filter(d => d.kind === 'audioinput');
+          tempStream.getTracks().forEach(t => t.stop());
+        } catch (_) {}
+      }
+
+      return audioInputs.map((d, index) => ({
+        deviceId: d.deviceId,
+        label: d.label || `Micrófono ${index + 1}`
+      }));
+    } catch (err) {
+      console.warn('[AudioCaptureService] Error al listar dispositivos:', err);
+      return [];
+    }
+  }
+
+  /**
+   * Crea un monitor de audio ligero para probar el volumen antes de unirse.
+   */
+  static async createAudioPreview(deviceId, onVolumeChange) {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return null;
+
+    const constraints = {
+      audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+      video: false
+    };
+
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) {
+      return {
+        stop: () => stream.getTracks().forEach(t => t.stop())
+      };
+    }
+
+    const ctx = new AudioContextClass();
+    const source = ctx.createMediaStreamSource(stream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    source.connect(analyser);
+
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+    let frameId = null;
+
+    const check = () => {
+      analyser.getByteFrequencyData(dataArray);
+      let sum = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        sum += dataArray[i];
+      }
+      const avg = sum / dataArray.length;
+      if (typeof onVolumeChange === 'function') {
+        onVolumeChange(avg);
+      }
+      frameId = requestAnimationFrame(check);
+    };
+
+    check();
+
+    return {
+      stop: () => {
+        if (frameId) cancelAnimationFrame(frameId);
+        stream.getTracks().forEach(t => t.stop());
+        if (ctx.state !== 'closed') ctx.close();
+      }
+    };
   }
 
   /**

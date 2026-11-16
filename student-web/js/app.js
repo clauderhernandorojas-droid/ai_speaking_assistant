@@ -10,6 +10,13 @@ const studentNameInput = document.getElementById('student-name');
 const btnJoin = document.getElementById('btn-join');
 const joinError = document.getElementById('join-error');
 
+// Dispositivos de audio y medidor de voz en tiempo real
+const micSelect = document.getElementById('mic-select');
+const btnRefreshMics = document.getElementById('btn-refresh-mics');
+const micTestLevel = document.getElementById('mic-test-level');
+const micTestLabel = document.getElementById('mic-test-label');
+const sessionMicSelect = document.getElementById('session-mic-select');
+
 const displayRoomCode = document.getElementById('display-room-code');
 const sessionStatusBadge = document.getElementById('session-status-badge');
 const visualizerContainer = document.getElementById('visualizer-container');
@@ -89,23 +96,117 @@ const CATEGORY_NAMES = {
   fluency: 'Fluidez'
 };
 
-// Instancias de servicios
+// Instancias de servicios y estado de audio
 const supabaseService = new StudentSupabaseService();
 let audioService = null;
+let activePreviewMonitor = null;
+let selectedDeviceId = '';
 
-// 1. Leer parámetros URL si existen (ej. ?code=EFL-123)
-window.addEventListener('DOMContentLoaded', () => {
+// 1. Leer parámetros URL y cargar dispositivos de micrófono en el arranque
+window.addEventListener('DOMContentLoaded', async () => {
   const params = new URLSearchParams(window.location.search);
   const codeParam = params.get('code') || params.get('session');
   if (codeParam) {
     sessionCodeInput.value = codeParam.toUpperCase().trim();
   }
+
+  await loadMicrophones();
 });
 
 // Auto-mayúsculas para el código de sesión
 sessionCodeInput.addEventListener('input', (e) => {
   e.target.value = e.target.value.toUpperCase();
 });
+
+// Carga y enumera los micrófonos físicos en los selectores
+async function loadMicrophones() {
+  if (!micSelect) return;
+  const mics = await AudioCaptureService.enumerateMicrophones();
+  micSelect.innerHTML = '';
+  if (sessionMicSelect) sessionMicSelect.innerHTML = '';
+
+  if (mics.length === 0) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = 'Sin micrófonos detectados';
+    micSelect.appendChild(opt);
+    if (sessionMicSelect) sessionMicSelect.appendChild(opt.cloneNode(true));
+    return;
+  }
+
+  mics.forEach((mic, i) => {
+    const opt = document.createElement('option');
+    opt.value = mic.deviceId;
+    opt.textContent = mic.label || `Micrófono ${i + 1}`;
+    micSelect.appendChild(opt);
+    if (sessionMicSelect) sessionMicSelect.appendChild(opt.cloneNode(true));
+  });
+
+  // Conservar selección previa si sigue existiendo o elegir el primero
+  if (!selectedDeviceId || !mics.some(m => m.deviceId === selectedDeviceId)) {
+    selectedDeviceId = mics[0].deviceId;
+  }
+  micSelect.value = selectedDeviceId;
+  if (sessionMicSelect) sessionMicSelect.value = selectedDeviceId;
+
+  // Iniciar monitor de prueba en tiempo real
+  startPreviewMonitor(selectedDeviceId);
+}
+
+// Monitor visual de prueba en tiempo real para verificar la entrada antes de unirse
+async function startPreviewMonitor(deviceId) {
+  if (activePreviewMonitor) {
+    activePreviewMonitor.stop();
+    activePreviewMonitor = null;
+  }
+
+  try {
+    activePreviewMonitor = await AudioCaptureService.createAudioPreview(deviceId, (level) => {
+      if (!micTestLevel) return;
+      // Normalizar nivel (0 - 100)
+      const pct = Math.min(Math.round((level / 60) * 100), 100);
+      micTestLevel.style.width = `${pct}%`;
+
+      if (micTestLabel) {
+        if (pct > 8) {
+          micTestLabel.textContent = '¡Señal de voz detectada! Micrófono captando audio.';
+          micTestLabel.classList.add('active');
+        } else {
+          micTestLabel.textContent = 'Prueba de micrófono: di algo para verificar señal...';
+          micTestLabel.classList.remove('active');
+        }
+      }
+    });
+  } catch (err) {
+    console.warn('[Audio] No se pudo iniciar monitor de prueba:', err);
+    if (micTestLabel) micTestLabel.textContent = 'Permiso de micrófono no otorgado';
+  }
+}
+
+if (micSelect) {
+  micSelect.addEventListener('change', () => {
+    selectedDeviceId = micSelect.value;
+    if (sessionMicSelect) sessionMicSelect.value = selectedDeviceId;
+    startPreviewMonitor(selectedDeviceId);
+  });
+}
+
+if (btnRefreshMics) {
+  btnRefreshMics.addEventListener('click', async () => {
+    await loadMicrophones();
+  });
+}
+
+if (sessionMicSelect) {
+  sessionMicSelect.addEventListener('change', async () => {
+    selectedDeviceId = sessionMicSelect.value;
+    if (micSelect) micSelect.value = selectedDeviceId;
+    if (audioService) {
+      await audioService.setDevice(selectedDeviceId);
+      console.log('[Student Audio] Micrófono cambiado durante sesión a:', selectedDeviceId);
+    }
+  });
+}
 
 // 2. Manejo de formulario de ingreso
 joinForm.addEventListener('submit', async (e) => {
@@ -127,10 +228,21 @@ joinForm.addEventListener('submit', async (e) => {
     // Validar sesión en Supabase
     await supabaseService.validateSession(sessionCode);
 
+    // Detener monitor de prueba previo antes de iniciar la captura oficial
+    if (activePreviewMonitor) {
+      activePreviewMonitor.stop();
+      activePreviewMonitor = null;
+    }
+
+    if (micSelect && micSelect.value) {
+      selectedDeviceId = micSelect.value;
+    }
+
     // Inicializar captura de audio con filtro de silencios por RMS y energía
     let currentChunkLevels = [];
 
     audioService = new AudioCaptureService({
+      deviceId: selectedDeviceId,
       timeslice: 2000,
       onChunk: (base64Chunk, mimeType) => {
         const samples = currentChunkLevels;
@@ -151,20 +263,23 @@ joinForm.addEventListener('submit', async (e) => {
           maxRms = Math.max(...samples.map(s => (typeof s === 'object' && s.rms ? s.rms : 0)));
         }
 
-        // Umbrales de silencio: descartar si no hubo energía vocal por encima del piso de ruido
-        const SILENCE_AVG_THRESHOLD = 3.5;
-        const SILENCE_PEAK_THRESHOLD = 7.0;
-        const SILENCE_RMS_THRESHOLD = 0.02;
+        // Estimar bytes de audio reales recibidos en el chunk Base64
+        const rawByteEstimate = Math.round((base64Chunk.length * 3) / 4);
 
-        const isSilent = (avgLevel < SILENCE_AVG_THRESHOLD && maxLevel < SILENCE_PEAK_THRESHOLD) ||
-                         (maxRms > 0 && avgRms < SILENCE_RMS_THRESHOLD && maxRms < 0.035);
-
-        if (isSilent) {
-          console.log(`[AudioCapture] Segmento descartado por silencio (avg: ${avgLevel.toFixed(1)}, peak: ${maxLevel}, rms: ${avgRms.toFixed(3)})`);
+        // Descartar si el contenedor está completamente vacío de frames de audio (< 450 bytes)
+        if (rawByteEstimate < 450) {
+          console.log(`[AudioCapture] Chunk descartado por contenedor vacío (${rawByteEstimate} bytes)`);
           return;
         }
 
-        console.log(`[AudioCapture] Transmitiendo segmento con voz (avg: ${avgLevel.toFixed(1)}, peak: ${maxLevel}, rms: ${avgRms.toFixed(3)})`);
+        // Descartar únicamente si hubo silencio absoluto / digital (sin voz)
+        const isDeadSilence = avgLevel < 1.5 && maxLevel < 4.0 && (avgRms < 0.01);
+        if (isDeadSilence) {
+          console.log(`[AudioCapture] Segmento descartado por silencio absoluto (bytes: ${rawByteEstimate}, avg: ${avgLevel.toFixed(1)}, peak: ${maxLevel}, rms: ${avgRms.toFixed(3)})`);
+          return;
+        }
+
+        console.log(`[AudioCapture] Transmitiendo segmento con voz (bytes: ${rawByteEstimate}, avg: ${avgLevel.toFixed(1)}, peak: ${maxLevel}, rms: ${avgRms.toFixed(3)})`);
         supabaseService.sendAudioChunk(base64Chunk, mimeType);
       },
       onVolume: (level, rms = 0) => {
@@ -173,7 +288,7 @@ joinForm.addEventListener('submit', async (e) => {
       }
     });
 
-    await audioService.start();
+    await audioService.start(selectedDeviceId);
 
     // Unirse al canal de Realtime
     await supabaseService.joinSessionChannel(sessionCode, studentName, handleTeacherEvent);
@@ -873,6 +988,10 @@ function handleVolumeFeedback(level) {
 
 // 8. Limpieza al salir o recargar la página
 async function cleanupSession() {
+  if (activePreviewMonitor) {
+    activePreviewMonitor.stop();
+    activePreviewMonitor = null;
+  }
   if (audioService) {
     audioService.stop();
     audioService = null;
@@ -903,9 +1022,15 @@ async function cleanupSession() {
   sessionScreen.classList.remove('active');
   joinScreen.classList.add('active');
   visualizerContainer.classList.remove('recording', 'muted');
+
+  // Reactivar monitor de prueba al volver a la pantalla de inicio
+  if (selectedDeviceId) {
+    startPreviewMonitor(selectedDeviceId);
+  }
 }
 
 window.addEventListener('beforeunload', () => {
+  if (activePreviewMonitor) activePreviewMonitor.stop();
   if (audioService) audioService.stop();
   if (supabaseService) supabaseService.leave();
 });

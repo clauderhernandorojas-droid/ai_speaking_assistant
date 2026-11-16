@@ -166,8 +166,17 @@ class GeminiService {
         {
           parts: [
             {
-              text: `Transcribe the following audio recording verbatim. Output only the transcribed text in English without commentary. Keep all grammatical errors, stuttering, and hesitation sounds intact.
-CRITICAL SILENCE AND NOISE RULE: If the audio contains only silence, background noise, breathing, static, or no intelligible human words in English, output EXCLUSIVELY [SILENCE]. NEVER invent, complete, hallucinate, or assume speech when there is no clear human speech.`
+              text: `You are an expert verbatim English audio transcriber.
+Transcribe the following audio recording verbatim. Output ONLY the transcribed text in English without commentary.
+Keep all grammatical errors, stuttering, hesitations, and false starts intact.
+
+ACCENT AND VOLUME INSTRUCTIONS:
+- Transcribe ALL spoken English, including quiet speech, low volume, non-native accents, and Spanish phonetic interference (e.g. pronouncing "eschool", "I sink", "goed", "yesterday I go").
+- Never judge or drop speech because of accent or grammatical errors. If human speech is present, transcribe what you hear literally.
+
+SILENCE RULE:
+- Output EXCLUSIVELY [SILENCE] ONLY if the audio contains 100% dead silence, background noise, or static with ABSOLUTELY ZERO spoken words.
+- If ANY words or attempts at speaking English are heard, transcribe them and do NOT output [SILENCE].`
             },
             {
               inlineData: {

@@ -58,6 +58,27 @@
           />
         </div>
 
+        <div class="field">
+          <label for="mic-select">Micrófono de Entrada</label>
+          <div class="mic-select-row">
+            <select id="mic-select" name="micSelect">
+              <option value="">Detectando micrófonos...</option>
+            </select>
+            <button type="button" id="btn-refresh-mics" class="btn-icon-subtle" title="Actualizar lista de micrófonos">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+              </svg>
+            </button>
+          </div>
+          <!-- Medidor visual de voz en tiempo real antes de unirse -->
+          <div class="mic-test-container">
+            <div class="mic-test-bar-bg">
+              <div id="mic-test-level" class="mic-test-level"></div>
+            </div>
+            <span id="mic-test-label" class="mic-test-label">Prueba de micrófono: di algo para verificar señal</span>
+          </div>
+        </div>
+
         <button type="submit" id="btn-join" class="btn btn-primary">
           <span>Unirse a la Sesión</span>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -104,6 +125,18 @@
 
         <h2 id="mic-status-label" class="status-label">Micrófono Activo</h2>
         <p id="mic-status-sub" class="status-sub">Habla con naturalidad. Tu audio se transmite a tu profesor.</p>
+        
+        <!-- SELECTOR DE MICRÓFONO EN SESIÓN -->
+        <div class="session-mic-bar">
+          <label for="session-mic-select" class="session-mic-label">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+            </svg>
+            Micrófono:
+          </label>
+          <select id="session-mic-select" class="session-mic-select"></select>
+        </div>
       </section>
 
       <!-- CONTROLES BÁSICOS DE HARDWARE -->

@@ -11,6 +11,8 @@ if (typeof globalThis.WebSocket === 'undefined') {
 
 const { createClient } = require('@supabase/supabase-js');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
 const speechCleaner = require('../ai/speech-cleaner');
 const ieltsEngine = require('../ai/ielts-engine');
 const geminiService = require('../ai/gemini-service');
@@ -387,6 +389,24 @@ class TeacherSessionService {
         const fullAudioBuffer = Buffer.concat(buffers);
         const mimeType = (sortedChunks[0]?.mimeType || 'audio/webm').split(';')[0];
         console.log(`[Audio Pipeline] Concatenados ${sortedChunks.length} fragmentos en un archivo de audio unificado de ${fullAudioBuffer.length} bytes (${mimeType})`);
+
+        // Diagnóstico auditivo: guardar archivo de audio en la carpeta temp de Electron
+        let tempDir = os.tmpdir();
+        try {
+          const electron = require('electron');
+          const electronApp = electron.app || electron.remote?.app;
+          if (electronApp && typeof electronApp.getPath === 'function') {
+            tempDir = electronApp.getPath('temp');
+          }
+        } catch (_) {}
+
+        const debugAudioPath = path.join(tempDir, 'last_session_debug.webm');
+        try {
+          fs.writeFileSync(debugAudioPath, fullAudioBuffer);
+          console.log(`[Audio Pipeline] 🎙️ Audio de sesión guardado para diagnóstico en: ${debugAudioPath} (${fullAudioBuffer.length} bytes)`);
+        } catch (fsErr) {
+          console.warn('[Audio Pipeline] No se pudo escribir last_session_debug.webm:', fsErr.message);
+        }
 
         if (apiKey) {
           console.log('[Audio Pipeline] Enviando audio real a Gemini para transcripción verbatim...');

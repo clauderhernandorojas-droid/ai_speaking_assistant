@@ -107,7 +107,7 @@ label {
   letter-spacing: 0.05em;
 }
 
-input {
+input, select {
   background: #1f2937;
   border: 1px solid #374151;
   color: var(--text-main);
@@ -118,9 +118,109 @@ input {
   transition: var(--transition);
 }
 
-input:focus {
+input:focus, select:focus {
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+}
+
+select {
+  cursor: pointer;
+  width: 100%;
+}
+
+.mic-select-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.btn-icon-subtle {
+  background: #1f2937;
+  border: 1px solid #374151;
+  color: var(--text-muted);
+  border-radius: 10px;
+  width: 48px;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: var(--transition);
+}
+
+.btn-icon-subtle:hover {
+  background: #374151;
+  color: var(--text-main);
+  border-color: var(--primary);
+}
+
+.mic-test-container {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 4px;
+}
+
+.mic-test-bar-bg {
+  width: 100%;
+  height: 8px;
+  background: #111827;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid #374151;
+}
+
+.mic-test-level {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(90deg, #10b981 0%, #eab308 70%, #ef4444 100%);
+  border-radius: 4px;
+  transition: width 0.08s ease;
+}
+
+.mic-test-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  transition: color 0.2s ease;
+}
+
+.mic-test-label.active {
+  color: #10b981;
+  font-weight: 500;
+}
+
+.session-mic-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 6px 12px;
+  background: rgba(31, 41, 55, 0.6);
+  border-radius: 8px;
+  border: 1px solid rgba(55, 65, 81, 0.6);
+  width: 100%;
+  max-width: 320px;
+  box-sizing: border-box;
+}
+
+.session-mic-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.session-mic-select {
+  padding: 5px 8px;
+  font-size: 0.78rem;
+  border-radius: 6px;
+  background: #111827;
+  border: 1px solid #374151;
+  color: var(--text-main);
+  flex: 1;
 }
 
 #session-code {
