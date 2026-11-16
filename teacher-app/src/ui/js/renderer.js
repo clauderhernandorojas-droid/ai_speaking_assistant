@@ -23,6 +23,7 @@ const state = {
   revealedGuidedCardId: null,
   activeExerciseCardId: null,
   currentExercise: null,
+  sessionExercises: [],
   feedbackCounts: {
     grammar: 0,
     vocabulary: 0,
@@ -506,6 +507,7 @@ async function proceedToStartNewSession() {
   });
   state.hasEvaluatedSession = false;
   state.isDemoData = false;
+  state.sessionExercises = [];
 
   // Limpiar campo de observaciones del docente para la nueva sesión
   const teacherObsEl = document.getElementById('teacher-observations');
@@ -818,14 +820,117 @@ function exportSessionReportHTML() {
           <div style="background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px 16px; margin-bottom: 14px;">
             ${context ? `<div style="font-size: 0.8rem; color: #8b949e; margin-bottom: 8px;"><strong>Contexto Docente:</strong> <span style="font-style: italic;">"${context}"</span></div>` : ''}
             <div style="margin-bottom: 8px; line-height: 1.5;"><strong style="color: #f85149; font-size: 0.85rem; text-transform: uppercase;">Respuesta del Alumno:</strong> <div style="color: #f0f6fc; margin-top: 2px;">${studentResp}</div></div>
-            <div style="margin-bottom: 8px; line-height: 1.5;"><strong style="color: #3fb950; font-size: 0.85rem; text-transform: uppercase;">Corrección Quirúrgica:</strong> <div style="color: #f0f6fc; margin-top: 2px;">${fix}</div></div>
-            ${explanation ? `<div style="background: #0d1117; padding: 8px 12px; border-radius: 6px; font-size: 0.85rem; color: #c9d1d9; margin-top: 8px; margin-bottom: 8px; border-left: 3px solid #8957e5;">${explanation}</div>` : ''}
+            <div class="review-target-answer" style="margin-bottom: 8px; line-height: 1.5;">
+              <strong style="color: #3fb950; font-size: 0.85rem; text-transform: uppercase;">Corrección Quirúrgica:</strong>
+              <div style="color: #f0f6fc; margin-top: 2px;">${fix}</div>
+              ${explanation ? `<div style="background: #0d1117; padding: 8px 12px; border-radius: 6px; font-size: 0.85rem; color: #c9d1d9; margin-top: 8px; margin-bottom: 8px; border-left: 3px solid #8957e5;">${explanation}</div>` : ''}
+            </div>
             ${ieltsDesc ? `<div style="font-size: 0.78rem; color: #d29922; font-weight: 600; margin-top: 8px; padding-top: 6px; border-top: 1px solid #21262d;">${ieltsDesc}</div>` : ''}
           </div>`;
       });
       cardsHtml += `</section>`;
     }
   });
+
+  // Sección de Práctica Interactiva Realizada en Sesión (si hubo ejercicios)
+  let exercisesHtml = '';
+  if (state.sessionExercises && state.sessionExercises.length > 0) {
+    const FORMAT_TITLES = {
+      multiple_choice: 'Opción Múltiple',
+      spot_the_error: 'Detectar Error',
+      key_word_transformation: 'Key Word Transformation (C1)',
+      error_correction_input: 'Corrección de Frase',
+      sentence_unscramble: 'Ordenar Frase',
+      open_cloze: 'Open Cloze'
+    };
+
+    const CAT_LABELS = {
+      grammar: 'Gramática',
+      vocabulary: 'Vocabulario',
+      pronunciation: 'Pronunciación',
+      upgrade_c1: 'Upgrade C1',
+      fluency: 'Fluidez'
+    };
+
+    let itemsHtml = '';
+    state.sessionExercises.forEach((ex, idx) => {
+      const typeLabel = FORMAT_TITLES[ex.type] || ex.type;
+      const catLabel = CAT_LABELS[ex.category] || ex.category || 'Práctica';
+      const isContrast = ex.contrastPolarity === 'contrast';
+      const polarityBadge = isContrast
+        ? '<span style="background: rgba(245, 158, 11, 0.18); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 9999px;">⚖️ Contraste</span>'
+        : '<span style="background: rgba(16, 185, 129, 0.18); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 9999px;">🎯 Regla Objetivo</span>';
+
+      let studentStatusBadge = '<span style="background: rgba(110, 118, 129, 0.2); color: #8b949e; border: 1px solid #30363d; font-size: 0.72rem; font-weight: 600; padding: 2px 8px; border-radius: 9999px;">⏳ No respondido</span>';
+      if (ex.isCorrect === true) {
+        studentStatusBadge = '<span style="background: rgba(46, 160, 67, 0.2); color: #3fb950; border: 1px solid rgba(46, 160, 67, 0.4); font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 9999px;">✓ Correcto</span>';
+      } else if (ex.isCorrect === false) {
+        studentStatusBadge = '<span style="background: rgba(248, 81, 73, 0.2); color: #f85149; border: 1px solid rgba(248, 81, 73, 0.4); font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 9999px;">✗ Por reforzar</span>';
+      }
+
+      let exerciseBodyHtml = '';
+      let solutionHtml = '';
+
+      if (ex.type === 'spot_the_error') {
+        const segs = (ex.segments || []).map((s, sIdx) => `<span style="display: inline-block; margin: 2px 4px; padding: 4px 8px; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; font-size: 0.88rem;"><strong>[${sIdx + 1}]</strong> ${s}</span>`).join(' ');
+        exerciseBodyHtml = `<div style="margin: 8px 0;">${segs}</div>`;
+        solutionHtml = `Segmento con error: <strong>[${(ex.errorSegmentIndex || 0) + 1}]</strong> &rarr; Corrección: <strong style="color: #3fb950;">${ex.correctedSegment || ''}</strong>`;
+      } else if (ex.type === 'key_word_transformation') {
+        exerciseBodyHtml = `
+          <div style="font-style: italic; color: #8b949e; margin-bottom: 4px;">"${ex.baseSentence || ''}"</div>
+          <div style="margin-bottom: 6px;"><span style="background: rgba(168, 85, 247, 0.2); color: #c084fc; font-weight: 800; padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(168, 85, 247, 0.4); font-size: 0.85rem;">${ex.keyWord || ''}</span> <span style="color: #f0f6fc; margin-left: 6px;">${(ex.targetSentenceTemplate || '').replace('___', '<strong style="color: #c084fc; border-bottom: 2px dashed #c084fc;">___</strong>')}</span></div>`;
+        solutionHtml = `Transformación modelo: <strong style="color: #3fb950;">${ex.idealAnswer || ''}</strong>`;
+      } else if (ex.type === 'error_correction_input') {
+        exerciseBodyHtml = `<div style="font-style: italic; color: #f0f6fc; margin: 6px 0;">"${ex.faultySentence || ''}"</div>`;
+        solutionHtml = `Corrección esperada: <strong style="color: #3fb950;">${ex.idealAnswer || ''}</strong>`;
+      } else if (ex.type === 'sentence_unscramble') {
+        const chunks = (ex.shuffledChunks || []).map(c => `<span style="display: inline-block; margin: 2px 4px; padding: 3px 8px; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; font-size: 0.84rem; color: #c084fc;">${c}</span>`).join(' ');
+        exerciseBodyHtml = `<div style="margin: 6px 0;">${chunks}</div>`;
+        solutionHtml = `Oración correcta: <strong style="color: #3fb950;">${ex.correctSentence || ''}</strong>`;
+      } else if (ex.type === 'open_cloze') {
+        exerciseBodyHtml = `<div style="color: #f0f6fc; font-size: 0.95rem; margin: 6px 0;">${(ex.promptSentence || '').replace('___', '<strong style="color: #c084fc; border-bottom: 2px dashed #c084fc;">___</strong>')}</div>`;
+        solutionHtml = `Palabra precisa: <strong style="color: #3fb950;">${ex.idealAnswer || ''}</strong>`;
+      } else { // multiple_choice
+        const sentence = (ex.promptSentence || '').replace('___', '<strong style="color: #c084fc; border-bottom: 2px dashed #c084fc;">___</strong>');
+        const opts = (ex.options || []).map((o, oIdx) => `<span style="display: inline-block; margin: 2px 6px; padding: 3px 8px; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; font-size: 0.84rem; color: #c9d1d9;">${String.fromCharCode(65 + oIdx)}) ${o}</span>`).join(' ');
+        exerciseBodyHtml = `<div style="color: #f0f6fc; font-size: 0.95rem; margin: 6px 0;">${sentence}</div><div style="margin-top: 4px;">${opts}</div>`;
+        solutionHtml = `Opción correcta: <strong style="color: #3fb950;">${ex.options && typeof ex.correctIndex === 'number' ? ex.options[ex.correctIndex] : ''}</strong>`;
+      }
+
+      itemsHtml += `
+        <div style="background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; margin-bottom: 14px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; border-bottom: 1px solid #21262d; padding-bottom: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-weight: 700; color: #c084fc; font-size: 0.82rem; text-transform: uppercase;">#${idx + 1} ${typeLabel}</span>
+              ${polarityBadge}
+              <span style="font-size: 0.72rem; color: #8b949e; background: #0d1117; padding: 2px 6px; border-radius: 4px; border: 1px solid #30363d;">${catLabel}</span>
+            </div>
+            ${studentStatusBadge}
+          </div>
+
+          <div style="font-size: 0.82rem; color: #8b949e; font-style: italic; margin-bottom: 6px;">${ex.instruction || ''}</div>
+          ${exerciseBodyHtml}
+
+          ${ex.studentAnswer ? `
+          <div style="margin-top: 10px; font-size: 0.85rem; color: #c9d1d9;">
+            <strong style="color: #8b949e; text-transform: uppercase; font-size: 0.75rem;">Respuesta del Alumno:</strong> 
+            <span style="font-weight: 600; color: ${ex.isCorrect ? '#3fb950' : '#f85149'};">"${ex.studentAnswer}"</span>
+          </div>` : ''}
+
+          <div class="review-target-answer" style="margin-top: 10px; background: rgba(16, 185, 129, 0.08); border-left: 3px solid #238636; padding: 10px 14px; border-radius: 4px;">
+            <div style="font-size: 0.88rem; color: #e6edf3;">${solutionHtml}</div>
+            ${ex.feedbackExplanation ? `<div style="font-size: 0.8rem; color: #8b949e; margin-top: 4px;">${ex.feedbackExplanation}</div>` : ''}
+          </div>
+        </div>`;
+    });
+
+    exercisesHtml = `
+      <h2 style="color: #f0f6fc; border-bottom: 2px solid #a855f7; padding-bottom: 8px; margin-top: 36px; font-size: 1.25rem; display: flex; align-items: center; justify-content: space-between;">
+        <span>Práctica Interactiva Realizada en Sesión (${state.sessionExercises.length} Ejercicio${state.sessionExercises.length === 1 ? '' : 's'})</span>
+        <span style="font-size: 0.78rem; font-weight: 600; color: #c084fc; background: rgba(168, 85, 247, 0.15); padding: 2px 10px; border-radius: 12px; border: 1px solid rgba(168, 85, 247, 0.3);">Micro-Ejercicios IA</span>
+      </h2>
+      ${itemsHtml}`;
+  }
 
   const fullReportHtml = `<!DOCTYPE html>
 <html lang="es">
@@ -837,6 +942,55 @@ function exportSessionReportHTML() {
     .report-wrapper { max-width: 900px; margin: 0 auto; background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 36px; box-shadow: 0 12px 30px rgba(0,0,0,0.5); }
     h1 { color: #f0f6fc; margin: 0 0 6px 0; font-size: 1.6rem; font-weight: 700; }
     .header-sub { color: #8b949e; margin: 0 0 20px 0; font-size: 0.95rem; }
+    .btn-review-mode {
+      background: #238636;
+      color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 8px;
+      padding: 9px 18px;
+      font-size: 0.88rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .btn-review-mode:hover {
+      background: #2ea043;
+      transform: translateY(-1px);
+    }
+    .btn-review-mode.active {
+      background: #8957e5;
+    }
+    .review-notice-banner {
+      display: none;
+      background: rgba(137, 87, 229, 0.15);
+      border: 1px solid rgba(137, 87, 229, 0.4);
+      color: #d2a8ff;
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      margin-bottom: 20px;
+      animation: fadeIn 0.2s ease;
+    }
+    body.review-mode-active .review-notice-banner {
+      display: block !important;
+    }
+    body.review-mode-active .review-target-answer {
+      filter: blur(7px);
+      user-select: none;
+      transition: filter 0.2s ease;
+      cursor: pointer;
+    }
+    body.review-mode-active .review-target-answer:hover {
+      filter: blur(0px) !important;
+      user-select: auto;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
     .meta-card { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; background: #0d1117; padding: 16px; border-radius: 8px; border: 1px solid #30363d; margin-bottom: 28px; }
     .meta-field strong { display: block; color: #8b949e; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
     .meta-field span { color: #f0f6fc; font-weight: 600; font-size: 1rem; }
@@ -845,13 +999,26 @@ function exportSessionReportHTML() {
     @media print {
       body { background: #fff !important; color: #000 !important; padding: 10px !important; }
       .report-wrapper { box-shadow: none !important; border: none !important; padding: 0 !important; max-width: 100% !important; }
+      .btn-review-mode, .review-notice-banner { display: none !important; }
+      .review-target-answer { filter: none !important; }
     }
   </style>
 </head>
 <body>
   <div class="report-wrapper">
-    <h1>Reporte Pedagógico de Evaluación Oral EFL / IELTS</h1>
-    <div class="header-sub">Speaking Assistant &bull; Rúbrica IELTS Band Descriptors</div>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+      <div>
+        <h1>Reporte Pedagógico de Evaluación Oral EFL / IELTS</h1>
+        <div class="header-sub">Speaking Assistant &bull; Rúbrica IELTS Band Descriptors</div>
+      </div>
+      <button id="toggle-review-mode-btn" class="btn-review-mode" onclick="toggleReviewMode()">
+        👁️ Modo Repaso (Ocultar Respuestas)
+      </button>
+    </div>
+
+    <div id="review-notice-banner" class="review-notice-banner">
+      <strong>Modo Repaso Activado:</strong> Las soluciones y correcciones quirúrgicas están ocultas. Intenta resolverlas mentalmente o en voz alta y pasa el cursor por encima de cada bloque para verificar la respuesta modelo.
+    </div>
 
     <div class="meta-card">
       <div class="meta-field"><strong>Estudiante</strong><span>${studentName}</span></div>
@@ -868,10 +1035,28 @@ function exportSessionReportHTML() {
     <h2 style="color: #f0f6fc; border-bottom: 2px solid #30363d; padding-bottom: 8px; margin-top: 36px; font-size: 1.25rem;">Retroalimentación Quirúrgica (${totalCardsCount} Observaciones)</h2>
     ${cardsHtml}
 
+    ${exercisesHtml}
+
     <footer style="margin-top: 48px; border-top: 1px solid #30363d; padding-top: 18px; color: #6e7681; font-size: 0.8rem; text-align: center;">
       Generado automáticamente por Antigravity EFL Speaking Coach &bull; Archivo pedagógico del docente
     </footer>
   </div>
+
+  <script>
+    function toggleReviewMode() {
+      const isReview = document.body.classList.toggle('review-mode-active');
+      const btn = document.getElementById('toggle-review-mode-btn');
+      if (btn) {
+        if (isReview) {
+          btn.classList.add('active');
+          btn.innerHTML = '🔓 Salir de Modo Repaso (Mostrar Respuestas)';
+        } else {
+          btn.classList.remove('active');
+          btn.innerHTML = '👁️ Modo Repaso (Ocultar Respuestas)';
+        }
+      }
+    }
+  </script>
 </body>
 </html>`;
 
@@ -1580,6 +1765,41 @@ async function handleToggleExerciseCard({ card, cardId, category, studentQuote, 
         ...exercise
       });
     }
+
+    // Registrar en memoria para el reporte pedagógico de sesión
+    if (!state.sessionExercises) state.sessionExercises = [];
+    const existingIndex = state.sessionExercises.findIndex(ex => ex.exerciseId === exercise.exerciseId);
+    const exerciseRecord = {
+      exerciseId: exercise.exerciseId,
+      type: exercise.type,
+      contrastPolarity: exercise.contrastPolarity || 'target',
+      category: exercise.category || category,
+      instruction: exercise.instruction || '',
+      promptSentence: exercise.promptSentence || '',
+      options: exercise.options || [],
+      correctIndex: exercise.correctIndex,
+      segments: exercise.segments || [],
+      errorSegmentIndex: exercise.errorSegmentIndex,
+      correctedSegment: exercise.correctedSegment || '',
+      baseSentence: exercise.baseSentence || '',
+      keyWord: exercise.keyWord || '',
+      targetSentenceTemplate: exercise.targetSentenceTemplate || '',
+      faultySentence: exercise.faultySentence || '',
+      shuffledChunks: exercise.shuffledChunks || [],
+      correctSentence: exercise.correctSentence || '',
+      idealAnswer: exercise.idealAnswer || '',
+      acceptableVariants: exercise.acceptableVariants || [],
+      feedbackExplanation: exercise.feedbackExplanation || '',
+      studentAnswer: null,
+      isCorrect: null,
+      answeredAt: null
+    };
+
+    if (existingIndex >= 0) {
+      state.sessionExercises[existingIndex] = { ...state.sessionExercises[existingIndex], ...exerciseRecord };
+    } else {
+      state.sessionExercises.push(exerciseRecord);
+    }
   } catch (err) {
     console.error('[Micro-Ejercicio Error]:', err.message);
     if (btnExercise) {
@@ -1599,6 +1819,16 @@ async function handleToggleExerciseCard({ card, cardId, category, studentQuote, 
 function handleStudentExerciseAnswer(answer) {
   console.log('[Micro-Ejercicio] Respuesta del alumno recibida en UI:', answer);
   if (!answer || !answer.exerciseId) return;
+
+  // Actualizar en el registro de sesión para el reporte pedagógico
+  if (state.sessionExercises) {
+    const targetEx = state.sessionExercises.find(ex => ex.exerciseId === answer.exerciseId);
+    if (targetEx) {
+      targetEx.studentAnswer = answer.selectedText || '';
+      targetEx.isCorrect = Boolean(answer.isCorrect);
+      targetEx.answeredAt = answer.answeredAt || Date.now();
+    }
+  }
 
   const panel = document.querySelector(`.card-exercise-panel[data-exercise-id="${answer.exerciseId}"]`);
   if (!panel) return;
@@ -1623,6 +1853,32 @@ function handleStudentExerciseAnswer(answer) {
       statusBar.className = 'exercise-status-bar status-wrong';
       const ideal = answer.correctText ? ` (Modelo: <strong>"${answer.correctText}"</strong>)` : '';
       statusBar.innerHTML = `<span>✗ Escribió: <strong>"${answer.selectedText}"</strong>${ideal}</span>`;
+    }
+  } else if (answer.exerciseType === 'error_correction_input') {
+    if (answer.isCorrect) {
+      statusBar.className = 'exercise-status-bar status-correct';
+      statusBar.innerHTML = `<span>✓ Corrección correcta: <strong>"${answer.selectedText}"</strong></span>`;
+    } else {
+      statusBar.className = 'exercise-status-bar status-wrong';
+      const ideal = answer.correctText ? ` (Modelo: <strong>"${answer.correctText}"</strong>)` : '';
+      statusBar.innerHTML = `<span>✗ Propuso: <strong>"${answer.selectedText}"</strong>${ideal}</span>`;
+    }
+  } else if (answer.exerciseType === 'sentence_unscramble') {
+    if (answer.isCorrect) {
+      statusBar.className = 'exercise-status-bar status-correct';
+      statusBar.innerHTML = `<span>✓ Orden sintáctico perfecto</span>`;
+    } else {
+      statusBar.className = 'exercise-status-bar status-wrong';
+      statusBar.innerHTML = `<span>✗ Orden incorrecto: <strong>"${answer.selectedText}"</strong></span>`;
+    }
+  } else if (answer.exerciseType === 'open_cloze') {
+    if (answer.isCorrect) {
+      statusBar.className = 'exercise-status-bar status-correct';
+      statusBar.innerHTML = `<span>✓ Palabra precisa: <strong>"${answer.selectedText}"</strong></span>`;
+    } else {
+      statusBar.className = 'exercise-status-bar status-wrong';
+      const correctInfo = answer.correctText ? ` (Esperada: <strong>"${answer.correctText}"</strong>)` : '';
+      statusBar.innerHTML = `<span>✗ Escribió: <strong>"${answer.selectedText}"</strong>${correctInfo}</span>`;
     }
   } else {
     if (answer.isCorrect) {
