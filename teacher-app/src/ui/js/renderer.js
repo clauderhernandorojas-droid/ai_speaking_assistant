@@ -21,6 +21,7 @@ const state = {
   roomCode: generateRoomCode(),
   get sessionCode() { return this.roomCode; },
   set sessionCode(val) { this.roomCode = val; },
+  lastEvaluatedSessionCode: null,
   isRoomInitialized: false,
   studentConnected: false,
   activeGuidedCardId: null,
@@ -1096,35 +1097,11 @@ async function proceedToStartNewSession() {
   if (btnExportReport) btnExportReport.disabled = true;
   if (btnReanalyze) btnReanalyze.disabled = true;
 
-  // 2. Gestión inteligente del código de sala:
-  // - Si venimos de una clase previa ya evaluada, limpiar pantalla del alumno y generar NUEVO código.
-  // - Si es la sala inicial generada al arrancar la app, REUTILIZAR ese mismo código intacto.
-  if (isStartingAfterPreviousClass) {
-    const previousCode = state.roomCode;
-    if (previousCode && window.electronAPI) {
-      try {
-        if (typeof window.electronAPI.broadcastGuidedCorrection === 'function') {
-          window.electronAPI.broadcastGuidedCorrection({ action: 'hide', sessionCode: previousCode }).catch(() => {});
-        }
-        if (typeof window.electronAPI.broadcastMicroExercise === 'function') {
-          window.electronAPI.broadcastMicroExercise({ action: 'hide_exercise', sessionCode: previousCode }).catch(() => {});
-        }
-      } catch (_) {}
-    }
-
-    state.roomCode = generateRoomCode();
-    roomCodeDisplay.textContent = state.roomCode;
-    state.studentConnected = false;
-    if (studentConnectionPill) {
-      studentConnectionPill.textContent = 'Estudiante Desconectado';
-      studentConnectionPill.className = 'connection-pill disconnected';
-    }
-    console.log('[UI] Nuevo código de sala generado tras finalizar sesión previa:', state.roomCode);
-  } else {
-    // Reutilizar la sala existente en espera generada al abrir la aplicación
-    roomCodeDisplay.textContent = state.roomCode;
-    console.log('[UI] Reutilizando código de sala inicial en espera (código sin cambios):', state.roomCode);
-  }
+  // 2. Conservar estrictamente el código de sala activo visible en la barra superior
+  // NUNCA generar código nuevo al pulsar "Iniciar Sesión" para que coincida exactamente
+  // con el que el estudiante ya ingresó en la sala de espera.
+  roomCodeDisplay.textContent = state.roomCode;
+  console.log('[UI] Iniciando sesión conservando código de sala activo:', state.roomCode);
 
   // 3. Reiniciar temporizador al valor seleccionado
   state.secondsRemaining = state.durationMinutes * 60;
@@ -1203,6 +1180,9 @@ async function stopSession() {
   recordingPulse.classList.add('hidden');
   transcriptStatus.textContent = 'Procesando Evaluación...';
 
+  // Guardar el código de la sesión recién concluida para permitir proyecciones post-sesión
+  state.lastEvaluatedSessionCode = state.roomCode;
+
   // Detener sesión en Supabase y recibir análisis consolidado
   if (window.electronAPI && typeof window.electronAPI.stopRealtimeSession === 'function') {
     try {
@@ -1222,6 +1202,16 @@ async function stopSession() {
     btnToggleSession.disabled = false;
     sessionBtnText.textContent = 'Iniciar Sesión';
   }
+
+  // Generar automáticamente nuevo código para la próxima clase
+  state.roomCode = generateRoomCode();
+  roomCodeDisplay.textContent = state.roomCode;
+  state.studentConnected = false;
+  if (studentConnectionPill) {
+    studentConnectionPill.textContent = 'Estudiante Desconectado';
+    studentConnectionPill.className = 'connection-pill disconnected';
+  }
+  console.log('[UI] Nuevo código de sala generado tras finalizar sesión (stopSession):', state.roomCode);
 }
 
 /**
@@ -2016,11 +2006,14 @@ function renderModelSpeechTab(modelSpeech) {
         btnProject.querySelector('.btn-text').textContent = 'Proyectar Discurso';
       }
 
+      const targetSessionCode = state.lastEvaluatedSessionCode || state.sessionCode;
+      console.log(`[ModelSpeech] Emitiendo proyección (${willProject ? 'show' : 'hide'}) hacia sala:`, targetSessionCode);
+
       if (window.electronAPI && typeof window.electronAPI.broadcastModelSpeech === 'function') {
         try {
           await window.electronAPI.broadcastModelSpeech({
-            action: willProject ? 'show_model_speech' : 'hide',
-            sessionCode: state.sessionCode,
+            action: willProject ? 'show' : 'hide',
+            sessionCode: targetSessionCode,
             modelSpeech: willProject ? modelSpeech : null
           });
         } catch (err) {
@@ -2384,7 +2377,7 @@ async function handleToggleBroadcastCard({ card, cardId, category, teacherContex
       try {
         await window.electronAPI.broadcastGuidedCorrection({
           action: 'hide',
-          sessionCode: state.sessionCode,
+          sessionCode: state.lastEvaluatedSessionCode || state.sessionCode,
           cardId
         });
       } catch (err) {
@@ -2443,7 +2436,7 @@ async function handleToggleBroadcastCard({ card, cardId, category, teacherContex
 
         await window.electronAPI.broadcastGuidedCorrection({
           action: 'show_prompt',
-          sessionCode: state.sessionCode,
+          sessionCode: state.lastEvaluatedSessionCode || state.sessionCode,
           cardId,
           category,
           teacherContext: safeCtx,
@@ -2481,7 +2474,7 @@ async function handleRevealAnswerCard({ card, cardId, surgicalCorrection, explan
 
       await window.electronAPI.broadcastGuidedCorrection({
         action: 'reveal_answer',
-        sessionCode: state.sessionCode,
+        sessionCode: state.lastEvaluatedSessionCode || state.sessionCode,
         cardId,
         surgicalCorrection,
         explanation,
@@ -2524,7 +2517,7 @@ async function handleToggleExerciseCard({ card, cardId, category, studentQuote, 
       try {
         await window.electronAPI.broadcastMicroExercise({
           action: 'hide_exercise',
-          sessionCode: state.sessionCode,
+          sessionCode: state.lastEvaluatedSessionCode || state.sessionCode,
           exerciseId
         });
       } catch (err) {
@@ -2722,7 +2715,7 @@ async function handleToggleExerciseCard({ card, cardId, category, studentQuote, 
     if (window.electronAPI && typeof window.electronAPI.broadcastMicroExercise === 'function') {
       await window.electronAPI.broadcastMicroExercise({
         action: 'show_exercise',
-        sessionCode: state.sessionCode,
+        sessionCode: state.lastEvaluatedSessionCode || state.sessionCode,
         ...exercise,
         contrastiveCapsule: exercise.contrastiveCapsule || contrastiveCapsule || null
       });

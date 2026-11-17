@@ -88,6 +88,10 @@ export class StudentSupabaseService {
       .on('broadcast', { event: 'micro_exercise' }, (payload) => {
         if (onTeacherEvent) onTeacherEvent('micro_exercise', payload.payload);
       })
+      .on('broadcast', { event: 'model_speech' }, (payload) => {
+        console.log('[ModelSpeech] Recibido en alumno (raw payload):', payload);
+        if (onTeacherEvent) onTeacherEvent('model_speech', payload.payload);
+      })
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           // Notificar al docente que el alumno se unió

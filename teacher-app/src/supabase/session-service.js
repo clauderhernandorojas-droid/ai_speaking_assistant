@@ -22,6 +22,7 @@ class TeacherSessionService {
     this.client = null;
     this.channel = null;
     this.currentSession = null;
+    this.lastCompletedSessionCode = '';
     this.audioChunks = []; // Historial de chunks/bloques recibidos
     this.transcriptionQueue = []; // Cola secuencial de bloques WebM para transcripción
     this.processedStoragePaths = new Set(); // Registro de rutas para evitar duplicados entre sesiones
@@ -634,6 +635,9 @@ class TeacherSessionService {
     // 5. Preparar la transcripción verbatim acumulada y el resumen de sesión
     const sessionSummary = await this.processReceivedAudioSession(actualOptions);
 
+    // Guardar código de sesión finalizada para permitir proyecciones post-sesión (Model Speech, etc.)
+    this.lastCompletedSessionCode = this.currentSession?.sessionCode || this.lastCompletedSessionCode || '';
+
     // Limpieza obligatoria y estricta de estado tras stopSession
     this.audioChunks = [];
     this.transcriptionQueue = [];
@@ -726,7 +730,7 @@ class TeacherSessionService {
    * para la función de Autocorrección Guiada en student-web.
    */
   async broadcastGuidedCorrection(payload = {}) {
-    const sessionCode = (payload.sessionCode || this.currentSession?.sessionCode || '').toUpperCase().trim();
+    const sessionCode = (payload.sessionCode || this.currentSession?.sessionCode || this.lastCompletedSessionCode || '').toUpperCase().trim();
     if (!sessionCode) {
       console.warn('[Supabase Realtime] No hay sessionCode para broadcastGuidedCorrection');
       return { success: false, error: 'No active session code' };
@@ -736,28 +740,29 @@ class TeacherSessionService {
       this.initClient();
     }
 
-    // Si el canal no está inicializado o fue cerrado, reconectar a la sala
-    if (!this.channel && this.client) {
-      const channelName = `session:${sessionCode}`;
+    const channelName = `session:${sessionCode}`;
+    let targetChannel = (this.channel && this.channel.topic === `realtime:${channelName}`) ? this.channel : null;
+
+    if (!targetChannel && this.client) {
       console.log(`[Supabase Realtime] Suscribiendo al canal ${channelName} para broadcastGuidedCorrection...`);
-      this.channel = this.client.channel(channelName, {
+      targetChannel = this.client.channel(channelName, {
         config: { broadcast: { self: false } }
       });
       await new Promise((resolve) => {
-        this.channel.subscribe((status) => {
+        targetChannel.subscribe((status) => {
           if (status === 'SUBSCRIBED') resolve();
         });
         setTimeout(resolve, 1500);
       });
     }
 
-    if (!this.channel) {
+    if (!targetChannel) {
       return { success: false, error: 'No channel available' };
     }
 
     try {
       console.log('[Supabase Realtime] Emitiendo guided_correction:', payload.action, payload.cardId);
-      await this.channel.send({
+      await targetChannel.send({
         type: 'broadcast',
         event: 'guided_correction',
         payload
@@ -774,7 +779,7 @@ class TeacherSessionService {
    * para la función de Micro-Ejercicios Interactivos en student-web.
    */
   async broadcastMicroExercise(payload = {}) {
-    const sessionCode = (payload.sessionCode || this.currentSession?.sessionCode || '').toUpperCase().trim();
+    const sessionCode = (payload.sessionCode || this.currentSession?.sessionCode || this.lastCompletedSessionCode || '').toUpperCase().trim();
     if (!sessionCode) {
       console.warn('[Supabase Realtime] No hay sessionCode para broadcastMicroExercise');
       return { success: false, error: 'No active session code' };
@@ -784,32 +789,33 @@ class TeacherSessionService {
       this.initClient();
     }
 
-    // Si el canal no está inicializado o fue cerrado, reconectar a la sala
-    if (!this.channel && this.client) {
-      const channelName = `session:${sessionCode}`;
+    const channelName = `session:${sessionCode}`;
+    let targetChannel = (this.channel && this.channel.topic === `realtime:${channelName}`) ? this.channel : null;
+
+    if (!targetChannel && this.client) {
       console.log(`[Supabase Realtime] Suscribiendo al canal ${channelName} para broadcastMicroExercise...`);
-      this.channel = this.client.channel(channelName, {
+      targetChannel = this.client.channel(channelName, {
         config: { broadcast: { self: false } }
       });
-      this.channel.on('broadcast', { event: 'micro_exercise_answer' }, (p) => {
+      targetChannel.on('broadcast', { event: 'micro_exercise_answer' }, (p) => {
         console.log('[Supabase Realtime] Respuesta de alumno recibida:', p.payload);
         this.eventListeners.onMicroExerciseAnswer(p.payload);
       });
       await new Promise((resolve) => {
-        this.channel.subscribe((status) => {
+        targetChannel.subscribe((status) => {
           if (status === 'SUBSCRIBED') resolve();
         });
         setTimeout(resolve, 1500);
       });
     }
 
-    if (!this.channel) {
+    if (!targetChannel) {
       return { success: false, error: 'No channel available' };
     }
 
     try {
       console.log('[Supabase Realtime] Emitiendo micro_exercise:', payload.action, payload.exerciseId);
-      await this.channel.send({
+      await targetChannel.send({
         type: 'broadcast',
         event: 'micro_exercise',
         payload
@@ -826,9 +832,9 @@ class TeacherSessionService {
    * para proyectar la reformulación completa del discurso en student-web.
    */
   async broadcastModelSpeech(payload = {}) {
-    const sessionCode = (payload.sessionCode || this.currentSession?.sessionCode || '').toUpperCase().trim();
+    const sessionCode = (payload.sessionCode || this.currentSession?.sessionCode || this.lastCompletedSessionCode || '').toUpperCase().trim();
     if (!sessionCode) {
-      console.warn('[Supabase Realtime] No hay sessionCode para broadcastModelSpeech');
+      console.warn('[ModelSpeech] No hay sessionCode para broadcastModelSpeech');
       return { success: false, error: 'No active session code' };
     }
 
@@ -836,35 +842,38 @@ class TeacherSessionService {
       this.initClient();
     }
 
-    // Si el canal no está inicializado o fue cerrado, reconectar a la sala
-    if (!this.channel && this.client) {
-      const channelName = `session:${sessionCode}`;
-      console.log(`[Supabase Realtime] Suscribiendo al canal ${channelName} para broadcastModelSpeech...`);
-      this.channel = this.client.channel(channelName, {
+    const channelName = `session:${sessionCode}`;
+    let targetChannel = (this.channel && this.channel.topic === `realtime:${channelName}`) ? this.channel : null;
+
+    if (!targetChannel && this.client) {
+      console.log(`[ModelSpeech] Suscribiendo al canal ${channelName} para broadcastModelSpeech...`);
+      targetChannel = this.client.channel(channelName, {
         config: { broadcast: { self: false } }
       });
       await new Promise((resolve) => {
-        this.channel.subscribe((status) => {
+        targetChannel.subscribe((status) => {
           if (status === 'SUBSCRIBED') resolve();
         });
         setTimeout(resolve, 1500);
       });
     }
 
-    if (!this.channel) {
+    if (!targetChannel) {
+      console.warn('[ModelSpeech] Error: No channel available para broadcastModelSpeech');
       return { success: false, error: 'No channel available' };
     }
 
     try {
-      console.log('[Supabase Realtime] Emitiendo model_speech:', payload.action);
-      await this.channel.send({
+      console.log(`[ModelSpeech] Emitiendo ${payload.action || 'show'} hacia ${channelName}...`);
+      await targetChannel.send({
         type: 'broadcast',
         event: 'model_speech',
         payload
       });
+      console.log('[ModelSpeech] Evento emitido exitosamente');
       return { success: true };
     } catch (err) {
-      console.error('[Supabase Realtime] Error emitiendo model_speech:', err.message);
+      console.error('[ModelSpeech] Error emitiendo model_speech:', err.message);
       return { success: false, error: err.message };
     }
   }

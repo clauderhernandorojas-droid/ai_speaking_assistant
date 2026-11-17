@@ -455,9 +455,10 @@ function handleGuidedCorrectionEvent(payload) {
 
 // 5.2 Manejador de Discurso Modelo (Reformulación Completa) en tiempo real
 function handleModelSpeechEvent(payload) {
+  console.log('[ModelSpeech] Recibido en alumno:', payload);
   if (!payload || !payload.action) return;
 
-  if (payload.action === 'show_model_speech') {
+  if (payload.action === 'show' || payload.action === 'show_model_speech') {
     // Ocultar otros modales si estuvieran abiertos
     if (guidedModal) {
       guidedModal.classList.add('hidden');
@@ -500,7 +501,7 @@ function handleModelSpeechEvent(payload) {
     if (modelSpeechModal) {
       modelSpeechModal.classList.remove('hidden');
     }
-  } else if (payload.action === 'hide') {
+  } else if (payload.action === 'hide' || payload.action === 'hide_model_speech') {
     if (modelSpeechModal) {
       modelSpeechModal.classList.add('hidden');
     }

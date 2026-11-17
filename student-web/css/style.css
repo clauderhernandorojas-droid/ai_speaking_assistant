@@ -457,10 +457,12 @@ select {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: 16px;
   z-index: 1000;
   opacity: 1;
   transition: opacity 0.25s ease;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .guided-modal.hidden {
@@ -475,8 +477,23 @@ select {
   width: 100%;
   max-width: 440px;
   padding: 24px 22px;
+  padding-bottom: 24px;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(59, 130, 246, 0.2);
   animation: guidedCardEnter 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  max-height: 85dvh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
+}
+
+#guided-modal .guided-card,
+#exercise-modal .guided-card,
+#model-speech-modal .guided-card {
+  max-height: 85dvh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 24px;
+  box-sizing: border-box;
 }
 
 @keyframes guidedCardEnter {
@@ -749,12 +766,13 @@ select {
 .capsule-columns {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: 12px;
 }
 
-@media (max-width: 520px) {
+@media (max-width: 640px) {
   .capsule-columns {
     grid-template-columns: 1fr;
+    gap: 12px;
   }
 }
 
@@ -1219,5 +1237,40 @@ select {
   max-width: 260px;
   font-weight: 600;
   letter-spacing: 0.03em;
+}
+
+/* ==============================================================================
+   RESPONSIVE DESIGN PARA PANTALLAS MÓVILES (<= 640px)
+   ============================================================================== */
+@media (max-width: 640px) {
+  .guided-modal {
+    padding: 12px 10px;
+    align-items: flex-start;
+  }
+
+  .guided-card {
+    padding: 20px 16px 28px;
+    max-height: 85dvh;
+    border-radius: 12px;
+  }
+
+  #guided-modal .guided-card,
+  #exercise-modal .guided-card,
+  #model-speech-modal .guided-card {
+    max-height: 85dvh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 28px;
+  }
+
+  .exercise-modal-card,
+  .model-speech-modal-card {
+    max-width: 100% !important;
+  }
+
+  .capsule-columns {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
 }
 
