@@ -190,6 +190,58 @@ select {
   font-weight: 500;
 }
 
+/* ==============================================================================
+   MEDIDOR DE SEÑAL DE MICRÓFONO EN SESIÓN ACTIVA (VU METER)
+   ============================================================================== */
+.session-vu-meter-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  max-width: 280px;
+  margin: 12px auto 2px;
+}
+
+.session-vu-meter-bar-bg {
+  width: 100%;
+  height: 8px;
+  background: #111827;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid #374151;
+}
+
+.session-vu-meter-level {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(90deg, #10b981 0%, #eab308 70%, #ef4444 100%);
+  border-radius: 4px;
+  transition: width 0.08s ease;
+}
+
+.session-vu-meter-level.muted {
+  background: #374151 !important;
+  width: 0% !important;
+}
+
+.session-vu-meter-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  transition: color 0.2s ease;
+  text-align: center;
+}
+
+.session-vu-meter-label.active {
+  color: #10b981;
+  font-weight: 500;
+}
+
+.session-vu-meter-label.muted {
+  color: #ef4444;
+  font-style: italic;
+}
+
 .session-mic-bar {
   display: flex;
   align-items: center;

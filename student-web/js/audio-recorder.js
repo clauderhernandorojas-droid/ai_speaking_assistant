@@ -10,7 +10,8 @@ export class AudioCaptureService {
     this.silenceTimeoutMs = options.silenceTimeoutMs || 1800;  // 1.8s de silencio continuo tras haber detectado voz
     this.audioBitsPerSecond = options.audioBitsPerSecond || 24000; // 24 kbps: calidad de voz cristalina ultraligera
     this.onChunk = options.onChunk || (() => {});
-    this.onVolume = options.onVolume || (() => {});
+    this.onVolumeChange = options.onVolumeChange || options.onVolume || (() => {});
+    this.onVolume = this.onVolumeChange;
     this.deviceId = options.deviceId || null;
     
     this.mediaStream = null;
@@ -323,7 +324,9 @@ export class AudioCaptureService {
       lastTime = now;
 
       if (!this.analyser || this.isMuted || !this.isActive) {
-        this.onVolume(0, 0);
+        if (typeof this.onVolumeChange === 'function') {
+          this.onVolumeChange(0, 0);
+        }
       } else {
         // Nivel de energía en frecuencias (0 - 255)
         this.analyser.getByteFrequencyData(freqArray);
@@ -342,8 +345,10 @@ export class AudioCaptureService {
         }
         const rms = Math.sqrt(sumSquares / timeArray.length);
 
-        // Feedback visual para el visualizador
-        this.onVolume(average, rms);
+        // Feedback visual en tiempo real para visualizador y VU meter
+        if (typeof this.onVolumeChange === 'function') {
+          this.onVolumeChange(average, rms);
+        }
 
         // VAD Adaptativo por Piso de Ruido Dinámico
         const dynamicThreshold = Math.max(0.005, this.noiseFloor * 2.8);
@@ -413,6 +418,9 @@ export class AudioCaptureService {
     });
 
     if (this.isMuted) {
+      if (typeof this.onVolumeChange === 'function') {
+        this.onVolumeChange(0, 0);
+      }
       // Detiene y cierra el bloque actual (se enviará en onstop solo si tenía voz previa)
       if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
         this.cycleBlock('mute');
@@ -432,6 +440,9 @@ export class AudioCaptureService {
    */
   async stop() {
     this.isActive = false;
+    if (typeof this.onVolumeChange === 'function') {
+      this.onVolumeChange(0, 0);
+    }
 
     if (this.blockTimer) {
       clearTimeout(this.blockTimer);

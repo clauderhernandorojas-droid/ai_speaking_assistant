@@ -29,6 +29,10 @@ const btnToggleMute = document.getElementById('btn-toggle-mute');
 const muteButtonText = document.getElementById('mute-button-text');
 const btnLeaveSession = document.getElementById('btn-leave-session');
 
+// Medidor visual de señal en sesión activa (VU Meter)
+const sessionVuMeterLevel = document.getElementById('session-vu-meter-level');
+const sessionVuMeterLabel = document.getElementById('session-vu-meter-label');
+
 // Elementos de Autocorrección Guiada
 const guidedModal = document.getElementById('guided-modal');
 const guidedCategoryBadge = document.getElementById('guided-category-badge');
@@ -276,7 +280,7 @@ joinForm.addEventListener('submit', async (e) => {
         console.log(`[AudioCapture] Bloque listo para subir a Storage (${blob.size} bytes, voz: ${Math.round(metrics?.activeSpeechMs || 0)}ms, peakRms: ${metrics?.peakRms?.toFixed(3) || 0}, noiseFloor: ${metrics?.noiseFloorAtEnd?.toFixed(4) || 0})`);
         await supabaseService.uploadAudioSegment(blob, mimeType);
       },
-      onVolume: (level, _rms = 0) => {
+      onVolumeChange: (level, _rms = 0) => {
         handleVolumeFeedback(level);
       }
     });
@@ -291,6 +295,16 @@ joinForm.addEventListener('submit', async (e) => {
     joinScreen.classList.remove('active');
     sessionScreen.classList.add('active');
     visualizerContainer.classList.add('recording');
+
+    // Inicializar medidor en sesión activa
+    if (sessionVuMeterLevel) {
+      sessionVuMeterLevel.style.width = '0%';
+      sessionVuMeterLevel.classList.remove('muted');
+    }
+    if (sessionVuMeterLabel) {
+      sessionVuMeterLabel.textContent = 'Señal de micrófono activa';
+      sessionVuMeterLabel.classList.remove('muted', 'active');
+    }
 
   } catch (error) {
     console.error('Error al unirse:', error);
@@ -321,6 +335,18 @@ btnToggleMute.addEventListener('click', () => {
     visualizerContainer.classList.add('muted');
     micStatusLabel.textContent = 'Micrófono Silenciado';
     micStatusSub.textContent = 'Tu profesor no puede escucharte mientras esté silenciado.';
+    micStatusCircle.style.transform = 'scale(1)';
+
+    // Forzar visualmente el medidor VU a 0% e inactivo/gris
+    if (sessionVuMeterLevel) {
+      sessionVuMeterLevel.style.width = '0%';
+      sessionVuMeterLevel.classList.add('muted');
+    }
+    if (sessionVuMeterLabel) {
+      sessionVuMeterLabel.textContent = 'Micrófono en Mute (Señal desactivada)';
+      sessionVuMeterLabel.classList.add('muted');
+      sessionVuMeterLabel.classList.remove('active');
+    }
   } else {
     btnToggleMute.classList.remove('muted');
     muteButtonText.textContent = 'Silenciar';
@@ -330,6 +356,15 @@ btnToggleMute.addEventListener('click', () => {
     visualizerContainer.classList.remove('muted');
     micStatusLabel.textContent = 'Micrófono Activo';
     micStatusSub.textContent = 'Habla con naturalidad. Tu audio se transmite a tu profesor.';
+
+    // Restaurar estado activo del medidor VU
+    if (sessionVuMeterLevel) {
+      sessionVuMeterLevel.classList.remove('muted');
+    }
+    if (sessionVuMeterLabel) {
+      sessionVuMeterLabel.textContent = 'Señal de micrófono activa';
+      sessionVuMeterLabel.classList.remove('muted');
+    }
   }
 });
 
@@ -1096,9 +1131,35 @@ if (btnCloseModelSpeechModal) {
   });
 }
 
-// 7. Retroalimentación visual sutil basada en volumen
+// 7. Retroalimentación visual en tiempo real basada en volumen (VU meter y círculo central)
 function handleVolumeFeedback(level) {
-  if (!audioService || audioService.isMuted) return;
+  if (!audioService || audioService.isMuted) {
+    if (sessionVuMeterLevel) {
+      sessionVuMeterLevel.style.width = '0%';
+    }
+    micStatusCircle.style.transform = 'scale(1)';
+    return;
+  }
+
+  // Normalizar nivel (0 - 100%) idéntico al monitor de prueba de micrófono previo
+  const pct = Math.min(Math.round((level / 60) * 100), 100);
+
+  if (sessionVuMeterLevel) {
+    sessionVuMeterLevel.style.width = `${pct}%`;
+    sessionVuMeterLevel.classList.remove('muted');
+  }
+
+  if (sessionVuMeterLabel) {
+    sessionVuMeterLabel.classList.remove('muted');
+    if (pct > 8) {
+      sessionVuMeterLabel.textContent = '¡Captando voz! Señal clara';
+      sessionVuMeterLabel.classList.add('active');
+    } else {
+      sessionVuMeterLabel.textContent = 'Señal de micrófono activa';
+      sessionVuMeterLabel.classList.remove('active');
+    }
+  }
+
   // level oscila típicamente entre 0 y 120 para voz hablada
   const scale = Math.min(1.0 + (level / 150), 1.3);
   micStatusCircle.style.transform = `scale(${scale})`;
@@ -1106,6 +1167,9 @@ function handleVolumeFeedback(level) {
 
 // 8. Limpieza al salir o recargar la página
 async function cleanupSession() {
+  if (sessionVuMeterLevel) {
+    sessionVuMeterLevel.style.width = '0%';
+  }
   if (activePreviewMonitor) {
     activePreviewMonitor.stop();
     activePreviewMonitor = null;
