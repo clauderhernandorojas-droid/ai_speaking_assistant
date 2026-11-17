@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   closeRealtimeSession: () => ipcRenderer.invoke('session:closeRoom'),
   broadcastGuidedCorrection: (payload) => ipcRenderer.invoke('session:broadcastGuidedCorrection', payload),
   broadcastMicroExercise: (payload) => ipcRenderer.invoke('session:broadcastMicroExercise', payload),
+  broadcastModelSpeech: (payload) => ipcRenderer.invoke('session:broadcastModelSpeech', payload),
 
   // Escuchadores de Eventos del Estudiante y Sesión
   onStudentJoined: (callback) => ipcRenderer.on('session:studentJoined', (_event, data) => callback(data)),

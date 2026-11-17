@@ -29,12 +29,15 @@ const state = {
   currentExercise: null,
   sessionExercises: [],
   sessionTranscript: '',
+  currentModelSpeech: null,
+  isModelSpeechProjected: false,
   feedbackCounts: {
     grammar: 0,
     vocabulary: 0,
     pronunciation: 0,
     upgrade_c1: 0,
-    fluency: 0
+    fluency: 0,
+    model_speech: 0
   }
 };
 
@@ -66,6 +69,9 @@ const transcriptFeed = document.getElementById('transcript-feed');
 const transcriptEmptyState = document.getElementById('transcript-empty-state');
 const recordingPulse = document.getElementById('recording-pulse');
 const transcriptStatus = document.getElementById('transcript-status');
+const btnReanalyze = document.getElementById('btn-reanalyze');
+const reanalyzeBtnLabel = document.getElementById('reanalyze-btn-label');
+const reanalyzeSpinner = document.getElementById('reanalyze-spinner');
 const btnExportReport = document.getElementById('btn-export-report');
 const exportBtnLabel = document.getElementById('export-btn-label');
 
@@ -513,6 +519,130 @@ if (btnExportReport) {
   });
 }
 
+// Botón para re-analizar la transcripción visible actual con Gemini
+if (btnReanalyze) {
+  btnReanalyze.addEventListener('click', async () => {
+    if (btnReanalyze.disabled || state.isSessionActive) return;
+
+    // 1. Extraer transcripción visible actual
+    const turns = document.querySelectorAll('#transcript-feed .transcript-turn');
+    let teacherContext = '';
+    let studentUtterance = '';
+
+    turns.forEach(turn => {
+      const isTeacher = turn.classList.contains('turn-teacher');
+      const contentEl = turn.querySelector('.turn-content');
+      const text = (contentEl ? contentEl.textContent : turn.textContent).trim();
+      if (isTeacher) {
+        teacherContext = (teacherContext + ' ' + text).trim();
+      } else {
+        studentUtterance = (studentUtterance + ' ' + text).trim();
+      }
+    });
+
+    if (!studentUtterance && state.sessionTranscript) {
+      studentUtterance = state.sessionTranscript.trim();
+    }
+
+    if (!studentUtterance) {
+      alert('No hay transcripción del estudiante visible para re-analizar.');
+      return;
+    }
+
+    // 2. Estado de carga visual
+    btnReanalyze.disabled = true;
+    btnReanalyze.classList.add('is-analyzing');
+    if (reanalyzeBtnLabel) reanalyzeBtnLabel.textContent = 'Analizando...';
+    if (transcriptStatus) transcriptStatus.textContent = 'Re-analizando con Gemini (Tolerancia 35s)...';
+
+    try {
+      console.log('[Renderer] Ejecutando Re-análisis sobre texto:', studentUtterance.slice(0, 100));
+      const targetLevel = state.targetLevel || (state.currentStudent?.default_level) || 'B1';
+      const evalResult = await window.electronAPI.evaluateUtterance({
+        teacherContext,
+        studentUtterance,
+        studentLevel: targetLevel
+      });
+
+      let newCards = [];
+      let newModelSpeech = null;
+
+      if (Array.isArray(evalResult)) {
+        newCards = evalResult;
+      } else if (evalResult && typeof evalResult === 'object') {
+        newCards = evalResult.feedbackCards || [];
+        newModelSpeech = evalResult.modelSpeech || null;
+      }
+
+      // 3. Limpiar tarjetas anteriores y contadores
+      tabPanes.forEach(pane => {
+        if (pane.dataset.tab !== 'model_speech') pane.innerHTML = '';
+      });
+      state.activeGuidedCardId = null;
+      state.revealedGuidedCardId = null;
+      state.activeExerciseCardId = null;
+      state.currentExercise = null;
+      Object.keys(state.feedbackCounts).forEach(cat => {
+        state.feedbackCounts[cat] = 0;
+        updateBadgeCounter(cat);
+      });
+
+      // 4. Renderizar nuevas tarjetas
+      newCards.forEach(card => {
+        let rawCat = (card.category || '').toLowerCase().trim();
+        let category = 'grammar';
+        if (rawCat.includes('gramm') || rawCat.includes('syntax')) category = 'grammar';
+        else if (rawCat.includes('vocab') || rawCat.includes('colloc') || rawCat.includes('lexic')) category = 'vocabulary';
+        else if (rawCat.includes('pronun') || rawCat.includes('phon')) category = 'pronunciation';
+        else if (rawCat.includes('upgrade') || rawCat.includes('c1')) category = 'upgrade_c1';
+        else if (rawCat.includes('fluen') || rawCat.includes('cohes')) category = 'fluency';
+
+        let severity = card.severity;
+        if (!severity) {
+          if (category === 'upgrade_c1') severity = 'upgrade';
+          else if (category === 'vocabulary' || category === 'fluency') severity = 'refinement';
+          else severity = 'basic_error';
+        }
+
+        const tCtx = card.teacherContext || card.teacher_context || card.context || '';
+        const sResp = card.studentResponse || card.student_response || card.studentUtterance || card.original || card.response || '';
+        const sCorr = card.surgicalCorrection || card.surgical_correction || card.correction || card.solution || '';
+        const expl = card.explanation || card.reason || card.notes || '';
+        const crit = card.ieltsCriterion || card.ielts_criterion || card.criterion || card.band || 'IELTS Band Descriptors';
+        const contrastiveCapsule = card.contrastiveCapsule || null;
+
+        addSurgicalCard({
+          category,
+          severity,
+          teacherContext: tCtx,
+          studentResponse: sResp,
+          surgicalCorrection: sCorr,
+          explanation: expl,
+          ieltsCriterion: crit,
+          contrastiveCapsule
+        });
+      });
+
+      // 5. Renderizar discurso modelo reformulado
+      state.currentModelSpeech = newModelSpeech;
+      renderModelSpeechTab(newModelSpeech);
+
+      state.hasEvaluatedSession = true;
+      state.isDemoData = false;
+      if (btnExportReport) btnExportReport.disabled = false;
+      if (transcriptStatus) transcriptStatus.textContent = `Re-análisis completado (${newCards.length} tarjetas)`;
+    } catch (err) {
+      console.error('[Renderer] Error en re-análisis:', err);
+      if (transcriptStatus) transcriptStatus.textContent = 'Error al re-analizar';
+      alert(`Error al re-analizar con Gemini: ${err.message || err}`);
+    } finally {
+      btnReanalyze.disabled = false;
+      btnReanalyze.classList.remove('is-analyzing');
+      if (reanalyzeBtnLabel) reanalyzeBtnLabel.textContent = 'Re-analizar';
+    }
+  });
+}
+
 // Detecta si hay datos de una sesión anterior en pantalla
 function hasPreviousSessionData() {
   if (state.hasEvaluatedSession) return true;
@@ -581,13 +711,16 @@ async function proceedToStartNewSession() {
   state.isDemoData = false;
   state.sessionExercises = [];
   state.sessionTranscript = '';
+  state.currentModelSpeech = null;
+  state.isModelSpeechProjected = false;
 
   // Limpiar campo de observaciones del docente para la nueva sesión
   const teacherObsEl = document.getElementById('teacher-observations');
   if (teacherObsEl) teacherObsEl.value = '';
 
-  // Deshabilitar botón de exportar reporte mientras no haya resultados evaluados
+  // Deshabilitar botones mientras no haya resultados evaluados
   if (btnExportReport) btnExportReport.disabled = true;
+  if (btnReanalyze) btnReanalyze.disabled = true;
 
   // 2. Gestión inteligente del código de sala:
   // - Si venimos de una clase previa ya evaluada, limpiar pantalla del alumno y generar NUEVO código.
@@ -733,8 +866,9 @@ function handleSessionCompleted(summary) {
   sessionTimer.classList.remove('running');
   recordingPulse.classList.add('hidden');
 
-  // Habilitar botón de exportación de reporte
+  // Habilitar botón de exportación de reporte y botón de re-análisis
   if (btnExportReport) btnExportReport.disabled = false;
+  if (btnReanalyze) btnReanalyze.disabled = false;
 
   // 1. Desplegar transcripción verbatim en el panel izquierdo
   if (summary.cleanDialogueTurns && summary.cleanDialogueTurns.length > 0) {
@@ -796,7 +930,13 @@ function handleSessionCompleted(summary) {
     });
   });
 
-  // 4. Guardar sesión y tarjetas en SQLite local (en segundo plano y sin bloquear la UI)
+  // 4. Renderizar discurso modelo reformulado si está presente
+  if (summary.modelSpeech) {
+    state.currentModelSpeech = summary.modelSpeech;
+    renderModelSpeechTab(summary.modelSpeech);
+  }
+
+  // 5. Guardar sesión y tarjetas en SQLite local (en segundo plano y sin bloquear la UI)
   if (window.electronAPI && typeof window.electronAPI.createSession === 'function') {
     window.electronAPI.createSession({
       studentId: state.currentStudent?.id || 1,
@@ -1067,6 +1207,42 @@ function exportSessionReportHTML() {
       ${itemsHtml}`;
   }
 
+  // Sección de Discurso Modelo y Reformulación Completa
+  let modelSpeechHtml = '';
+  if (state.currentModelSpeech) {
+    const ms = state.currentModelSpeech;
+    const bullets = (ms.keyImprovements || []).map(b => `
+      <li style="display: flex; align-items: flex-start; gap: 8px; margin-bottom: 8px; font-size: 0.88rem; color: #c9d1d9;">
+        <span style="color: #58a6ff; font-weight: bold; margin-top: 1px;">✓</span>
+        <span>${escapeHtml(b)}</span>
+      </li>
+    `).join('');
+
+    modelSpeechHtml = `
+      <h2 style="color: #f0f6fc; border-bottom: 2px solid #a855f7; padding-bottom: 8px; margin-top: 36px; font-size: 1.25rem; display: flex; align-items: center; justify-content: space-between;">
+        <span>Complete Speech Reformulation (Model Discourse)</span>
+        <span style="font-size: 0.78rem; font-weight: 600; color: #c084fc; background: rgba(168, 85, 247, 0.15); padding: 2px 10px; border-radius: 12px; border: 1px solid rgba(168, 85, 247, 0.3);">Target Level: ${escapeHtml(studentLevel)}</span>
+      </h2>
+
+      <div style="background: #161b22; border: 1px solid #30363d; border-left: 4px solid #3fb950; border-radius: 8px; padding: 16px; margin-bottom: 14px;">
+        <div style="font-size: 0.75rem; font-weight: 700; color: #3fb950; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">Natural Corrected Version (Accurate & Fluent)</div>
+        <div style="font-size: 0.95rem; line-height: 1.6; color: #f0f6fc;">${escapeHtml(ms.naturalCorrected || '')}</div>
+      </div>
+
+      <div style="background: #161b22; border: 1px solid #30363d; border-left: 4px solid #a855f7; border-radius: 8px; padding: 16px; margin-bottom: 14px;">
+        <div style="font-size: 0.75rem; font-weight: 700; color: #c084fc; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">Target Level Version (${escapeHtml(studentLevel)} Sophisticated Upgrade)</div>
+        <div style="font-size: 0.95rem; line-height: 1.6; color: #f0f6fc;">${escapeHtml(ms.targetUpgrade || '')}</div>
+      </div>
+
+      ${bullets ? `
+      <div style="background: rgba(88, 166, 255, 0.06); border: 1px solid rgba(88, 166, 255, 0.25); border-radius: 8px; padding: 14px 18px; margin-bottom: 20px;">
+        <div style="font-size: 0.85rem; font-weight: 700; color: #58a6ff; margin-bottom: 8px;">Key Pedagogical Improvements:</div>
+        <ul style="list-style: none; padding: 0; margin: 0;">${bullets}</ul>
+      </div>
+      ` : ''}
+    `;
+  }
+
   const fullReportHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1171,6 +1347,8 @@ function exportSessionReportHTML() {
     ${cardsHtml}
 
     ${exercisesHtml}
+
+    ${modelSpeechHtml}
 
     <footer style="margin-top: 48px; border-top: 1px solid #30363d; padding-top: 18px; color: #6e7681; font-size: 0.8rem; text-align: center;">
       Automatically generated by Antigravity EFL Speaking Coach &bull; Teacher's Pedagogical Record
@@ -1309,6 +1487,10 @@ function setupEventListeners() {
 function updateBadgeCounter(category) {
   const counterEl = document.getElementById(`counter-${category}`);
   if (counterEl) {
+    if (category === 'model_speech') {
+      counterEl.textContent = state.currentModelSpeech ? '★' : '0';
+      return;
+    }
     counterEl.textContent = state.feedbackCounts[category] || 0;
     const tabBtn = document.querySelector(`.tab-btn[data-tab="${category}"]`);
     if (tabBtn && state.feedbackCounts[category] > 0) {
@@ -1316,6 +1498,105 @@ function updateBadgeCounter(category) {
       if (category === 'upgrade_c1') tabBtn.classList.add('has-items');
     }
   }
+}
+
+/**
+ * Renderiza la reformulación del discurso completo en la pestaña "Modelo"
+ */
+function renderModelSpeechTab(modelSpeech) {
+  const targetPane = document.getElementById('tab-pane-model_speech');
+  if (!targetPane) return;
+
+  targetPane.innerHTML = '';
+
+  if (!modelSpeech) {
+    targetPane.innerHTML = `
+      <div style="text-align: center; color: var(--text-muted); padding: 40px 20px; font-style: italic;">
+        No hay discurso modelo disponible aún. Finaliza una sesión o haz clic en "Re-analizar" para generarlo.
+      </div>
+    `;
+    return;
+  }
+
+  const normLevel = (state.targetLevel || (state.currentStudent?.default_level) || 'B1').toUpperCase().trim();
+  const bullets = (modelSpeech.keyImprovements || []).map(imp => `
+    <li>
+      <span class="improvement-bullet-dot">✓</span>
+      <span>${escapeHtml(imp)}</span>
+    </li>
+  `).join('');
+
+  const container = document.createElement('div');
+  container.className = 'model-speech-container';
+  container.innerHTML = `
+    <div class="model-speech-top-bar">
+      <div class="model-speech-title-group">
+        <h3><span>★</span> Discurso Modelo & Reformulación Completa</h3>
+        <span class="model-speech-subtitle">Reescritura pedagógica integral alineada a CEFR ${normLevel}</span>
+      </div>
+      <button type="button" id="btn-project-model-speech" class="btn-project-model ${state.isModelSpeechProjected ? 'active' : ''}" title="Proyectar esta reformulación completa en la pantalla del alumno">
+        <span class="guided-dot"></span>
+        <span class="btn-text">${state.isModelSpeechProjected ? 'Ocultar Discurso' : 'Proyectar Discurso'}</span>
+      </button>
+    </div>
+
+    <!-- 1. Versión Corregida Natural -->
+    <div class="model-speech-card card-corrected">
+      <div class="model-card-header">
+        <span class="model-card-badge badge-corrected">Versión Corregida (Natural & Fluida)</span>
+        <span style="font-size: 0.72rem; color: #8b949e;">Mantiene ideas exactas del alumno</span>
+      </div>
+      <div class="model-card-text">${escapeHtml(modelSpeech.naturalCorrected || '')}</div>
+    </div>
+
+    <!-- 2. Versión Nivel Objetivo (Upgrade) -->
+    <div class="model-speech-card card-upgrade">
+      <div class="model-card-header">
+        <span class="model-card-badge badge-upgrade">Versión Nivel Objetivo (${normLevel} Upgrade)</span>
+        <span style="font-size: 0.72rem; color: #c084fc; font-weight: 600;">Discurso ejecutivo avanzado</span>
+      </div>
+      <div class="model-card-text">${escapeHtml(modelSpeech.targetUpgrade || '')}</div>
+    </div>
+
+    <!-- 3. Mejoras Clave -->
+    <div class="model-improvements-card">
+      <h4 class="improvements-title"><span>✦</span> 3 Mejoras Clave Realizadas:</h4>
+      <ul class="improvements-list">
+        ${bullets || '<li><span>Mejoras pedagógicas aplicadas a gramática y colocaciones.</span></li>'}
+      </ul>
+    </div>
+  `;
+
+  const btnProject = container.querySelector('#btn-project-model-speech');
+  if (btnProject) {
+    btnProject.addEventListener('click', async () => {
+      const willProject = !state.isModelSpeechProjected;
+      state.isModelSpeechProjected = willProject;
+
+      if (willProject) {
+        btnProject.classList.add('active');
+        btnProject.querySelector('.btn-text').textContent = 'Ocultar Discurso';
+      } else {
+        btnProject.classList.remove('active');
+        btnProject.querySelector('.btn-text').textContent = 'Proyectar Discurso';
+      }
+
+      if (window.electronAPI && typeof window.electronAPI.broadcastModelSpeech === 'function') {
+        try {
+          await window.electronAPI.broadcastModelSpeech({
+            action: willProject ? 'show_model_speech' : 'hide',
+            sessionCode: state.sessionCode,
+            modelSpeech: willProject ? modelSpeech : null
+          });
+        } catch (err) {
+          console.warn('[ModelSpeech] Error al emitir broadcastModelSpeech:', err.message);
+        }
+      }
+    });
+  }
+
+  targetPane.appendChild(container);
+  updateBadgeCounter('model_speech');
 }
 
 // ==============================================================================
@@ -1720,11 +2001,18 @@ async function handleToggleBroadcastCard({ card, cardId, category, teacherContex
       btnReveal.querySelector('.btn-text').textContent = 'Revelar Respuesta';
     }
 
-    // Enviar evento show_prompt SIN surgicalCorrection ni explanation
+    // Enviar evento show_prompt SIN surgicalCorrection ni explanation (incluye contrastiveCapsule oculto)
     if (window.electronAPI && typeof window.electronAPI.broadcastGuidedCorrection === 'function') {
       try {
         const rawCtx = (teacherContext || '').trim();
         const safeCtx = (rawCtx === 'Pregunta o contexto oral' || rawCtx.toLowerCase().includes('tell me about your experience') || rawCtx === 'Speaking turn') ? '' : rawCtx;
+
+        let contrastiveCapsule = null;
+        if (card && card.dataset.contrastiveCapsule) {
+          try {
+            contrastiveCapsule = JSON.parse(card.dataset.contrastiveCapsule);
+          } catch (e) {}
+        }
 
         await window.electronAPI.broadcastGuidedCorrection({
           action: 'show_prompt',
@@ -1732,7 +2020,8 @@ async function handleToggleBroadcastCard({ card, cardId, category, teacherContex
           cardId,
           category,
           teacherContext: safeCtx,
-          studentQuote
+          studentQuote,
+          contrastiveCapsule
         });
       } catch (err) {
         console.warn('[Autocorrección] Error al emitir show_prompt:', err.message);
@@ -1756,12 +2045,20 @@ async function handleRevealAnswerCard({ card, cardId, surgicalCorrection, explan
 
   if (window.electronAPI && typeof window.electronAPI.broadcastGuidedCorrection === 'function') {
     try {
+      let contrastiveCapsule = null;
+      if (card && card.dataset.contrastiveCapsule) {
+        try {
+          contrastiveCapsule = JSON.parse(card.dataset.contrastiveCapsule);
+        } catch (e) {}
+      }
+
       await window.electronAPI.broadcastGuidedCorrection({
         action: 'reveal_answer',
         sessionCode: state.sessionCode,
         cardId,
         surgicalCorrection,
-        explanation
+        explanation,
+        contrastiveCapsule
       });
     } catch (err) {
       console.warn('[Autocorrección] Error al emitir reveal_answer:', err.message);
@@ -1999,8 +2296,8 @@ async function handleToggleExerciseCard({ card, cardId, category, studentQuote, 
       await window.electronAPI.broadcastMicroExercise({
         action: 'show_exercise',
         sessionCode: state.sessionCode,
-        contrastiveCapsule: exercise.contrastiveCapsule || contrastiveCapsule || null,
-        ...exercise
+        ...exercise,
+        contrastiveCapsule: exercise.contrastiveCapsule || contrastiveCapsule || null
       });
     }
 
@@ -2260,6 +2557,19 @@ function loadSampleDemoData() {
     ieltsCriterion: 'FC: Band 7.0 (Flexible use of cohesive devices to develop a clear line of thought)',
     contrastiveCapsule: null
   });
+
+  // 6. Pestaña Modelo (Discurso Modelo y Reformulación Completa)
+  if (btnReanalyze) btnReanalyze.disabled = false;
+  state.currentModelSpeech = {
+    naturalCorrected: 'Well, last year I worked on a project with a very tight deadline. My team and I needed to coordinate many tasks, but the client was changing the requirements constantly. I convened a meeting to outline the potential pitfalls to them. If we had followed their plan, we would have lost a lot of time and money.',
+    targetUpgrade: 'During the previous year, I orchestrated a high-stakes project subject to rigorous deadlines. Our team had to manage multiple deliverables simultaneously, while the client continually revised project specifications on a daily basis. To mitigate these risks, I convened a formal review to outline the potential pitfalls and protect our bottom line.',
+    keyImprovements: [
+      'Maintained consistent past simple narration without accidental present tense shifts.',
+      'Replaced literal Spanish phrasings with standard business collocations ("on a daily basis").',
+      'Structured logical transitions with clear discourse markers instead of fragmented fillers.'
+    ]
+  };
+  renderModelSpeechTab(state.currentModelSpeech);
 }
 
 // Limpieza definitiva al cerrar la ventana del docente

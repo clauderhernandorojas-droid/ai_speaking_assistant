@@ -61,10 +61,14 @@ class IELTSEngine {
           studentLevel,
           categories: activeCategories
         });
-        if (Array.isArray(aiResults) && aiResults.length > 0) {
+        if (aiResults && (Array.isArray(aiResults.feedbackCards) || Array.isArray(aiResults))) {
+          const cards = Array.isArray(aiResults) ? aiResults : (aiResults.feedbackCards || []);
           console.log('[IELTS Engine] Evaluación completada en:', Date.now() - startTime, 'ms');
-          console.log(`[IELTS Engine] Gemini retornó ${aiResults.length} tarjetas de evaluación pedagógica.`);
-          return aiResults;
+          console.log(`[IELTS Engine] Gemini retornó ${cards.length} tarjetas de evaluación pedagógica.`);
+          return {
+            feedbackCards: cards,
+            modelSpeech: aiResults.modelSpeech || this.generateFallbackModelSpeech(studentUtterance, studentLevel)
+          };
         }
       } catch (err) {
         console.error('[GEMINI ERROR DETALLADO]:', err.message || err);
@@ -78,9 +82,46 @@ class IELTSEngine {
     }
 
     // Motor de reglas heurísticas y pedagógicas de respaldo (Garantiza funcionamiento offline/MVP)
-    const fallbackResults = this.runHeuristicAnalysis(teacherContext, studentUtterance, studentLevel, activeCategories);
+    const fallbackCards = this.runHeuristicAnalysis(teacherContext, studentUtterance, studentLevel, activeCategories);
     console.log('[IELTS Engine] Evaluación completada en:', Date.now() - startTime, 'ms (Modo Respaldo Local)');
-    return fallbackResults;
+    return {
+      feedbackCards: fallbackCards,
+      modelSpeech: this.generateFallbackModelSpeech(studentUtterance, studentLevel)
+    };
+  }
+
+  /**
+   * Genera un discurso modelo de respaldo enriquecido con dos versiones y 3 mejoras clave.
+   */
+  generateFallbackModelSpeech(studentUtterance, studentLevel = 'B1') {
+    const raw = (studentUtterance || '').trim();
+    if (!raw) {
+      return {
+        naturalCorrected: 'Well, last year I worked on a challenging project with a tight deadline. My team and I needed to coordinate many tasks, but the client was changing the requirements constantly. I convened a meeting to outline the potential pitfalls to them. If we had followed their plan, we would have lost a lot of time and money.',
+        targetUpgrade: `During the previous year, I coordinated a critical initiative under demanding constraints. Our team had to orchestrate multiple deliverables simultaneously, while the client continually revised key specifications on a daily basis. To address these emerging challenges, I convened a formal review to outline the strategic implications.`,
+        keyImprovements: [
+          'Maintained consistent past simple narration without accidental present tense shifts.',
+          'Replaced literal Spanish phrasings with standard professional collocations ("on a daily basis").',
+          'Structured logical transitions with clear discourse markers instead of fragmented fillers.'
+        ]
+      };
+    }
+
+    // Limpiar muletillas acústicas de la transcripción cruda
+    const cleaned = raw
+      .replace(/\b(um+|uh+|er+|like|you know|so yeah)\b/gi, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+
+    return {
+      naturalCorrected: cleaned ? (cleaned.charAt(0).toUpperCase() + cleaned.slice(1)) : 'I communicated my ideas clearly and completed the objectives on schedule.',
+      targetUpgrade: `From an executive perspective, ${cleaned ? cleaned.toLowerCase().replace(/^(well|so),?\s*/i, '') : 'we executed our objectives smoothly'}. Furthermore, this demonstrated the importance of precise coordination and proactive communication under demanding conditions.`,
+      keyImprovements: [
+        'Eliminated hesitation fillers and fragmented speech starters.',
+        'Enhanced lexical precision and natural collocations suited for professional communication.',
+        'Integrated cohesive discourse markers to guide listener comprehension effortlessly.'
+      ]
+    };
   }
 
   /**
@@ -398,41 +439,72 @@ For every card in 'grammar', 'vocabulary', and 'upgrade_c1', you MUST generate a
   * "example": Natural model sentence where Form B is the right choice.
 For 'pronunciation' and 'fluency', "contrastiveCapsule" MUST be null.
 
-OUTPUT SCHEMA:
-Return a valid JSON array of objects. Category MUST be strictly lowercase: 'grammar', 'vocabulary', 'pronunciation', 'upgrade_c1', 'fluency'.
-[
-  {
-    "category": "grammar" | "vocabulary" | "pronunciation" | "upgrade_c1" | "fluency",
-    "severity": "basic_error" | "upgrade" | "refinement",
-    "teacherContext": "${cleanTeacherContext}",
-    "studentResponse": "Sentence with <span class=\\"highlight-error\\">error</span>",
-    "surgicalCorrection": "Sentence with <span class=\\"highlight-fix\\">correction</span>",
-    "explanation": "Brief surgical explanation in simple A2/B1 English (max 20 words)",
-    "ieltsCriterion": "IELTS Band Descriptor",
-    "contrastiveCapsule": {
-      "poleA": {
-        "label": "Student's form (e.g., like + -ing / to)",
-        "rule": "Short, simple A2/B1 English rule explaining when Form A IS correct",
-        "example": "Natural model sentence where Form A is the right choice"
-      },
-      "poleB": {
-        "label": "Target form (e.g., would like + to)",
-        "rule": "Short, simple A2/B1 English rule explaining when to use Form B instead",
-        "example": "Natural model sentence where Form B is the right choice"
-      }
-    } | null
-  }
-]`;
+MODEL SPEECH DIRECTIVE (COMPLETE REFORMULATION):
+In addition to feedback cards, generate a complete reformulation of the entire student's response in "modelSpeech":
+1. "naturalCorrected": Rewrite the full speech naturally, fixing all grammar errors, vocabulary inaccuracies, and hesitation fillers, while strictly preserving the student's exact ideas and message.
+2. "targetUpgrade": Re-express the same speech elevated to the student's target CEFR level (${studentLevel}), using sophisticated natural connectors, idiomatic collocations, and varied grammatical structures.
+3. "keyImprovements": An array of EXACTLY 3 short bullet points in simple A2/B1 English explaining the most impactful improvements made.
 
-    const rawCards = await geminiService.evaluateTranscript({
+OUTPUT SCHEMA:
+Return a valid JSON object with EXACTLY this structure:
+{
+  "feedbackCards": [
+    {
+      "category": "grammar" | "vocabulary" | "pronunciation" | "upgrade_c1" | "fluency",
+      "severity": "basic_error" | "upgrade" | "refinement",
+      "teacherContext": "${cleanTeacherContext}",
+      "studentResponse": "Sentence with <span class=\\"highlight-error\\">error</span>",
+      "surgicalCorrection": "Sentence with <span class=\\"highlight-fix\\">correction</span>",
+      "explanation": "Brief surgical explanation in simple A2/B1 English (max 20 words)",
+      "ieltsCriterion": "IELTS Band Descriptor",
+      "contrastiveCapsule": {
+        "poleA": {
+          "label": "Student's form",
+          "rule": "Simple A2/B1 rule when Form A is right",
+          "example": "Natural model sentence where Form A is right"
+        },
+        "poleB": {
+          "label": "Target form",
+          "rule": "Simple A2/B1 rule when to use Form B",
+          "example": "Natural model sentence where Form B is right"
+        }
+      } | null
+    }
+  ],
+  "modelSpeech": {
+    "naturalCorrected": "Full transcript rewritten naturally fixing all errors while keeping student ideas",
+    "targetUpgrade": "Same speech elevated to target level with natural connectors and phrasing",
+    "keyImprovements": [
+      "Short bullet 1 in simple A2/B1 English",
+      "Short bullet 2 in simple A2/B1 English",
+      "Short bullet 3 in simple A2/B1 English"
+    ]
+  }
+}`;
+
+    const rawResponse = await geminiService.evaluateTranscript({
       teacherContext: cleanTeacherContext,
       studentUtterance,
       studentLevel,
       systemPrompt
     });
 
+    let rawCards = [];
+    let rawModelSpeech = null;
+
+    if (Array.isArray(rawResponse)) {
+      rawCards = rawResponse;
+    } else if (rawResponse && typeof rawResponse === 'object') {
+      rawCards = Array.isArray(rawResponse.feedbackCards)
+        ? rawResponse.feedbackCards
+        : (Array.isArray(rawResponse.cards) ? rawResponse.cards : []);
+      if (rawResponse.modelSpeech && typeof rawResponse.modelSpeech === 'object') {
+        rawModelSpeech = rawResponse.modelSpeech;
+      }
+    }
+
     // Normalizar categorías, contexto docente y cápsula contrastiva
-    return (rawCards || []).map(card => {
+    const normalizedCards = (rawCards || []).map(card => {
       let cat = (card.category || '').toLowerCase().trim();
       if (cat === 'upgrade' || cat === 'upgradec1' || cat === 'c1') cat = 'upgrade_c1';
       let ctx = (card.teacherContext || cleanTeacherContext || '').trim();
@@ -482,6 +554,21 @@ Return a valid JSON array of objects. Category MUST be strictly lowercase: 'gram
         contrastiveCapsule
       };
     });
+
+    const normalizedModelSpeech = (rawModelSpeech && rawModelSpeech.naturalCorrected)
+      ? {
+          naturalCorrected: String(rawModelSpeech.naturalCorrected || '').trim(),
+          targetUpgrade: String(rawModelSpeech.targetUpgrade || '').trim(),
+          keyImprovements: Array.isArray(rawModelSpeech.keyImprovements)
+            ? rawModelSpeech.keyImprovements.map(k => String(k).trim()).filter(Boolean)
+            : []
+        }
+      : this.generateFallbackModelSpeech(studentUtterance, studentLevel);
+
+    return {
+      feedbackCards: normalizedCards,
+      modelSpeech: normalizedModelSpeech
+    };
   }
 }
 

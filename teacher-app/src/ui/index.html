@@ -124,6 +124,10 @@
           </div>
           <div class="panel-tools">
             <span class="target-level-info">Nivel Evaluado: <strong id="eval-level-label">B1</strong></span>
+            <button id="btn-reanalyze" class="btn-reanalyze" disabled title="Re-analizar la transcripción actual con Gemini">
+              <span id="reanalyze-spinner" class="reanalyze-icon">↻</span>
+              <span id="reanalyze-btn-label">Re-analizar</span>
+            </button>
             <button id="btn-export-report" class="btn-export-report" disabled title="Guardar reporte HTML de la sesión">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -135,7 +139,7 @@
           </div>
         </header>
 
-        <!-- 5 PESTAÑAS MAESTRAS -->
+        <!-- 6 PESTAÑAS MAESTRAS (INCLUYE DISCURSO MODELO) -->
         <nav class="master-tabs-nav" role="tablist">
           <button class="tab-btn active" data-tab="grammar" role="tab" aria-selected="true">
             <span class="tab-name">Gramática</span>
@@ -157,6 +161,10 @@
             <span class="tab-name">Fluidez</span>
             <span class="tab-counter" id="counter-fluency">0</span>
           </button>
+          <button class="tab-btn" data-tab="model_speech" role="tab" aria-selected="false">
+            <span class="tab-name">Modelo</span>
+            <span class="tab-counter" id="counter-model_speech">★</span>
+          </button>
         </nav>
 
         <!-- CONTENEDORES DE CONTENIDO DE CADA PESTAÑA -->
@@ -166,6 +174,7 @@
           <div id="tab-pane-pronunciation" class="tab-pane" data-tab="pronunciation"></div>
           <div id="tab-pane-upgrade_c1" class="tab-pane" data-tab="upgrade_c1"></div>
           <div id="tab-pane-fluency" class="tab-pane" data-tab="fluency"></div>
+          <div id="tab-pane-model_speech" class="tab-pane" data-tab="model_speech"></div>
         </div>
 
         <!-- OBSERVACIONES DEL DOCENTE PARA EL REPORTE -->

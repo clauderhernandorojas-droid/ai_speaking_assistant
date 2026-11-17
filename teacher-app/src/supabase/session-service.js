@@ -637,13 +637,20 @@ class TeacherSessionService {
 
     // Evaluación contra rúbricas IELTS para las 5 pestañas maestras (directo con texto verbatim)
     let feedbackCards = [];
+    let modelSpeech = null;
     if (verbatimStudentSpeech.trim().length > 0) {
       console.log('[Audio Pipeline] Ejecutando motor IELTS sobre la transcripción acumulada...');
-      feedbackCards = await ieltsEngine.evaluateUtterance({
+      const evalResult = await ieltsEngine.evaluateUtterance({
         teacherContext,
         studentUtterance: verbatimStudentSpeech,
         studentLevel
       });
+      if (Array.isArray(evalResult)) {
+        feedbackCards = evalResult;
+      } else if (evalResult && typeof evalResult === 'object') {
+        feedbackCards = evalResult.feedbackCards || [];
+        modelSpeech = evalResult.modelSpeech || null;
+      }
     } else {
       console.log('[Audio Pipeline] Transcripción vacía. No se generan tarjetas de error.');
     }
@@ -653,7 +660,8 @@ class TeacherSessionService {
     return {
       chunkCount,
       cleanDialogueTurns,
-      feedbackCards
+      feedbackCards,
+      modelSpeech
     };
   }
 
@@ -758,6 +766,54 @@ class TeacherSessionService {
   }
 
   /**
+   * Envía un evento broadcast 'model_speech' al canal activo de la sala
+   * para proyectar la reformulación completa del discurso en student-web.
+   */
+  async broadcastModelSpeech(payload = {}) {
+    const sessionCode = (payload.sessionCode || this.currentSession?.sessionCode || '').toUpperCase().trim();
+    if (!sessionCode) {
+      console.warn('[Supabase Realtime] No hay sessionCode para broadcastModelSpeech');
+      return { success: false, error: 'No active session code' };
+    }
+
+    if (!this.client) {
+      this.initClient();
+    }
+
+    // Si el canal no está inicializado o fue cerrado, reconectar a la sala
+    if (!this.channel && this.client) {
+      const channelName = `session:${sessionCode}`;
+      console.log(`[Supabase Realtime] Suscribiendo al canal ${channelName} para broadcastModelSpeech...`);
+      this.channel = this.client.channel(channelName, {
+        config: { broadcast: { self: false } }
+      });
+      await new Promise((resolve) => {
+        this.channel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') resolve();
+        });
+        setTimeout(resolve, 1500);
+      });
+    }
+
+    if (!this.channel) {
+      return { success: false, error: 'No channel available' };
+    }
+
+    try {
+      console.log('[Supabase Realtime] Emitiendo model_speech:', payload.action);
+      await this.channel.send({
+        type: 'broadcast',
+        event: 'model_speech',
+        payload
+      });
+      return { success: true };
+    } catch (err) {
+      console.error('[Supabase Realtime] Error emitiendo model_speech:', err.message);
+      return { success: false, error: err.message };
+    }
+  }
+
+  /**
    * Cierra definitivamente el canal de Realtime limpiando antes la pantalla del alumno
    */
   async closeRoomDefinitively() {
@@ -773,6 +829,11 @@ class TeacherSessionService {
           type: 'broadcast',
           event: 'micro_exercise',
           payload: { action: 'hide_exercise' }
+        });
+        await this.channel.send({
+          type: 'broadcast',
+          event: 'model_speech',
+          payload: { action: 'hide' }
         });
         if (this.client) {
           await this.client.removeChannel(this.channel);

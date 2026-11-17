@@ -710,4 +710,164 @@
   margin-top: 2px;
 }
 
+/* ==============================================================================
+   PESTAÑA MODELO: REFORMULACIÓN DEL DISCURSO COMPLETO
+   ============================================================================== */
+.model-speech-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.model-speech-top-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  background: #161b22;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 12px 16px;
+}
+
+.model-speech-title-group h3 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #f0f6fc;
+  margin: 0 0 2px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.model-speech-subtitle {
+  font-size: 0.78rem;
+  color: #8b949e;
+}
+
+.btn-project-model {
+  background: rgba(168, 85, 247, 0.15);
+  border: 1px solid rgba(168, 85, 247, 0.4);
+  color: #d8b4fe;
+  font-weight: 700;
+  font-size: 0.8rem;
+  padding: 7px 14px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+
+.btn-project-model:hover {
+  background: rgba(168, 85, 247, 0.28);
+  border-color: #a855f7;
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.btn-project-model.active {
+  background: #a855f7;
+  color: #ffffff;
+  border-color: #a855f7;
+}
+
+.model-speech-card {
+  background: #161b22;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.model-speech-card.card-corrected {
+  border-left: 4px solid #3fb950;
+}
+
+.model-speech-card.card-upgrade {
+  border-left: 4px solid #a855f7;
+}
+
+.model-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.model-card-badge {
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.badge-corrected {
+  background: rgba(63, 185, 80, 0.18);
+  color: #3fb950;
+  border: 1px solid rgba(63, 185, 80, 0.35);
+}
+
+.badge-upgrade {
+  background: rgba(168, 85, 247, 0.18);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.35);
+}
+
+.model-card-text {
+  font-size: 0.92rem;
+  line-height: 1.6;
+  color: #f0f6fc;
+}
+
+.model-improvements-card {
+  background: #161b22;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+}
+
+.improvements-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #e6edf3;
+  margin: 0 0 10px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.improvements-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.improvements-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: #c9d1d9;
+  line-height: 1.45;
+  background: rgba(13, 17, 23, 0.6);
+  padding: 8px 12px;
+  border-radius: 6px;
+  border-left: 2px solid #58a6ff;
+}
+
+.improvement-bullet-dot {
+  color: #58a6ff;
+  font-weight: 700;
+  margin-top: 1px;
+}
+
 

@@ -33,7 +33,7 @@ class GeminiService {
    * Petición HTTP nativa a Gemini con soporte IPv4 garantizado para Windows,
    * reintentos automáticos para Error 503 (High Demand) y fallback entre modelos.
    */
-  async requestGemini(endpoint, payload) {
+  async requestGemini(endpoint, payload, timeoutMs = 15000) {
     const apiKey = this.getApiKey();
     if (!apiKey) {
       throw new Error('No se encontró GEMINI_API_KEY ni GOOGLE_API_KEY en variables de entorno.');
@@ -48,7 +48,7 @@ class GeminiService {
 
       while (attempt <= max503Retries) {
         try {
-          const result = await this.executeHttpRequest(model, endpoint, payload, apiKey);
+          const result = await this.executeHttpRequest(model, endpoint, payload, apiKey, timeoutMs);
           return result;
         } catch (err) {
           lastError = err;
@@ -81,7 +81,7 @@ class GeminiService {
     throw lastError;
   }
 
-  executeHttpRequest(model, endpoint, payload, apiKey) {
+  executeHttpRequest(model, endpoint, payload, apiKey, timeoutMs = 15000) {
     return new Promise((resolve, reject) => {
       const postData = JSON.stringify(payload);
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:${endpoint}?key=${apiKey}`;
@@ -123,9 +123,9 @@ class GeminiService {
         });
       });
 
-      // Timeout rápido de 15 segundos para evitar demoras
-      req.setTimeout(15000, () => {
-        req.destroy(new Error(`Timeout de 15 segundos alcanzado al consultar Gemini (${model}).`));
+      // Timeout configurable (por defecto 15s, ampliado a 35s en evaluación pedagógica)
+      req.setTimeout(timeoutMs, () => {
+        req.destroy(new Error(`Timeout de ${Math.round(timeoutMs / 1000)} segundos alcanzado al consultar Gemini (${model}).`));
       });
 
       req.on('error', (err) => {
@@ -225,6 +225,7 @@ SILENCE RULE:
 
   /**
    * Evalúa las intervenciones con Gemini contra los Band Descriptors de IELTS
+   * con tolerancia ampliada de 35s y 1 reintento automático para evitar caídas en fallback por latencia.
    */
   async evaluateTranscript({ teacherContext, studentUtterance, studentLevel, systemPrompt }) {
     const apiKey = this.getApiKey();
@@ -241,7 +242,7 @@ TEACHER'S CONTEXT / QUESTION: "${teacherContext}"
 STUDENT'S SPOKEN RESPONSE: "${studentUtterance}"
 STUDENT TARGET CEFR LEVEL: "${studentLevel}"
 
-Analyze according to the 5 tabs and output ONLY the valid JSON array starting with [ and ending with ].`
+Analyze according to all instructions and output ONLY valid JSON without markdown wrapping.`
             }
           ]
         }
@@ -256,17 +257,30 @@ Analyze according to the 5 tabs and output ONLY the valid JSON array starting wi
       }
     };
 
-    try {
-      const result = await this.requestGemini('generateContent', payload);
-      let text = result?.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
-      // Limpiar posibles bloques markdown ```json ... ```
-      text = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
-      const parsed = JSON.parse(text);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch (err) {
-      console.error('[GEMINI ERROR DETALLADO]:', err);
-      throw err;
+    const maxAttempts = 2; // 1 intento inicial + 1 reintento automático (tolerancia 35s)
+    let lastErr = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        console.log(`[GEMINI evaluateTranscript] Intento ${attempt}/${maxAttempts} (timeout: 35s)...`);
+        const result = await this.requestGemini('generateContent', payload, 35000);
+        let text = result?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+        // Limpiar posibles bloques markdown ```json ... ```
+        text = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
+        const parsed = JSON.parse(text);
+        return parsed;
+      } catch (err) {
+        lastErr = err;
+        console.warn(`[GEMINI evaluateTranscript] Falló el intento ${attempt}/${maxAttempts}: ${err.message || err}`);
+        if (attempt < maxAttempts) {
+          console.log('[GEMINI evaluateTranscript] Esperando 1.5s antes del reintento automático...');
+          await new Promise(r => setTimeout(r, 1500));
+        }
+      }
     }
+
+    console.error('[GEMINI evaluateTranscript] Agotados los 2 intentos con 35s de tolerancia. Lanzando error para fallback offline.');
+    throw lastErr;
   }
 
   /**

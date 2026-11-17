@@ -244,6 +244,15 @@ ipcMain.handle('session:broadcastMicroExercise', async (event, payload) => {
   }
 });
 
+ipcMain.handle('session:broadcastModelSpeech', async (event, payload) => {
+  try {
+    return await sessionService.broadcastModelSpeech(payload);
+  } catch (err) {
+    console.error('[MAIN session:broadcastModelSpeech ERROR]', err);
+    throw new Error(err && err.message ? err.message : String(err));
+  }
+});
+
 ipcMain.handle('session:closeRoom', async () => {
   try {
     return await sessionService.closeRoomDefinitively();

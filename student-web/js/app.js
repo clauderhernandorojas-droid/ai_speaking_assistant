@@ -40,6 +40,15 @@ const guidedSolutionText = document.getElementById('guided-solution-text');
 const guidedExplanationText = document.getElementById('guided-explanation-text');
 const btnCloseGuidedModal = document.getElementById('btn-close-guided-modal');
 
+// Elementos de Cápsula Contrastiva en Autocorrección Guiada
+const guidedCapsuleContainer = document.getElementById('guided-capsule-container');
+const guidedPoleALabel = document.getElementById('guided-pole-a-label');
+const guidedPoleARule = document.getElementById('guided-pole-a-rule');
+const guidedPoleAExample = document.getElementById('guided-pole-a-example');
+const guidedPoleBLabel = document.getElementById('guided-pole-b-label');
+const guidedPoleBRule = document.getElementById('guided-pole-b-rule');
+const guidedPoleBExample = document.getElementById('guided-pole-b-example');
+
 // Elementos de Micro-Ejercicios con IA
 const exerciseModal = document.getElementById('exercise-modal');
 const exerciseCategoryBadge = document.getElementById('exercise-category-badge');
@@ -85,8 +94,27 @@ const exerciseFeedbackSolution = document.getElementById('exercise-feedback-solu
 const exerciseFeedbackText = document.getElementById('exercise-feedback-text');
 const btnCloseExerciseModal = document.getElementById('btn-close-exercise-modal');
 
+// Elementos de Discurso Modelo (Reformulación Completa)
+const modelSpeechModal = document.getElementById('model-speech-modal');
+const btnCloseModelSpeechModal = document.getElementById('btn-close-model-speech-modal');
+const studentModelNaturalCorrected = document.getElementById('student-model-natural-corrected');
+const studentModelTargetUpgrade = document.getElementById('student-model-target-upgrade');
+const studentModelImprovementsBox = document.getElementById('student-model-improvements-box');
+const studentModelImprovementsList = document.getElementById('student-model-improvements-list');
+
 let currentStudentExercise = null;
 let currentUnscrambleSelected = [];
+let currentGuidedCapsule = null;
+
+function escapeHtml(str) {
+  if (typeof str !== 'string') return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 const CATEGORY_NAMES = {
   grammar: 'Grammar',
@@ -333,6 +361,8 @@ async function handleTeacherEvent(eventType, payload) {
     handleGuidedCorrectionEvent(payload);
   } else if (eventType === 'micro_exercise') {
     handleMicroExerciseEvent(payload);
+  } else if (eventType === 'model_speech') {
+    handleModelSpeechEvent(payload);
   }
 }
 
@@ -341,9 +371,18 @@ function handleGuidedCorrectionEvent(payload) {
   if (!payload || !payload.action) return;
 
   if (payload.action === 'show_prompt') {
-    // Si hubiera un ejercicio activo, ocultarlo para priorizar la autocorrección guiada
+    // Si hubiera un ejercicio activo o discurso modelo, ocultarlo para priorizar la autocorrección guiada
     if (exerciseModal) {
       exerciseModal.classList.add('hidden');
+    }
+    if (modelSpeechModal) {
+      modelSpeechModal.classList.add('hidden');
+    }
+
+    // Guardar cápsula contrastiva pero mantenerla OCULTA hasta que el docente presione "Revelar"
+    currentGuidedCapsule = payload.contrastiveCapsule || null;
+    if (guidedCapsuleContainer) {
+      guidedCapsuleContainer.classList.add('hidden');
     }
 
     // 1. Badge de Categoría
@@ -385,11 +424,86 @@ function handleGuidedCorrectionEvent(payload) {
       guidedExplanationText.innerHTML = '';
       guidedExplanationText.style.display = 'none';
     }
+
+    // Revelar Cápsula Contrastiva si está disponible (exclusiva para Grammar, Vocabulary, C1 Upgrade)
+    const cap = payload.contrastiveCapsule || currentGuidedCapsule;
+    if (cap && cap.poleA && cap.poleB && guidedCapsuleContainer) {
+      if (guidedPoleALabel) guidedPoleALabel.textContent = cap.poleA.label || 'Form A';
+      if (guidedPoleARule) guidedPoleARule.textContent = cap.poleA.rule || '';
+      if (guidedPoleAExample) guidedPoleAExample.textContent = cap.poleA.example ? `"${cap.poleA.example}"` : '';
+
+      if (guidedPoleBLabel) guidedPoleBLabel.textContent = cap.poleB.label || 'Form B (Target)';
+      if (guidedPoleBRule) guidedPoleBRule.textContent = cap.poleB.rule || '';
+      if (guidedPoleBExample) guidedPoleBExample.textContent = cap.poleB.example ? `"${cap.poleB.example}"` : '';
+
+      guidedCapsuleContainer.classList.remove('hidden');
+    } else if (guidedCapsuleContainer) {
+      guidedCapsuleContainer.classList.add('hidden');
+    }
+
     guidedSolutionContainer.classList.remove('hidden');
     guidedModal.classList.remove('hidden');
   } else if (payload.action === 'hide') {
     guidedModal.classList.add('hidden');
     guidedSolutionContainer.classList.add('hidden');
+    if (guidedCapsuleContainer) {
+      guidedCapsuleContainer.classList.add('hidden');
+    }
+    currentGuidedCapsule = null;
+  }
+}
+
+// 5.2 Manejador de Discurso Modelo (Reformulación Completa) en tiempo real
+function handleModelSpeechEvent(payload) {
+  if (!payload || !payload.action) return;
+
+  if (payload.action === 'show_model_speech') {
+    // Ocultar otros modales si estuvieran abiertos
+    if (guidedModal) {
+      guidedModal.classList.add('hidden');
+      guidedSolutionContainer.classList.add('hidden');
+    }
+    if (exerciseModal) {
+      exerciseModal.classList.add('hidden');
+      exerciseFeedbackContainer.classList.add('hidden');
+    }
+
+    const model = payload.modelSpeech;
+    if (!model) return;
+
+    if (studentModelNaturalCorrected) {
+      studentModelNaturalCorrected.textContent = model.naturalCorrected || '';
+    }
+    if (studentModelTargetUpgrade) {
+      studentModelTargetUpgrade.textContent = model.targetUpgrade || '';
+    }
+    if (studentModelImprovementsList) {
+      studentModelImprovementsList.innerHTML = '';
+      const improvements = Array.isArray(model.keyImprovements) ? model.keyImprovements : [];
+      if (improvements.length > 0) {
+        improvements.forEach(item => {
+          const li = document.createElement('li');
+          li.style.display = 'flex';
+          li.style.alignItems = 'flex-start';
+          li.style.gap = '8px';
+          li.style.fontSize = '0.85rem';
+          li.style.color = '#c9d1d9';
+          li.innerHTML = `<span style="color: #58a6ff; font-weight: bold;">•</span><span>${escapeHtml(item)}</span>`;
+          studentModelImprovementsList.appendChild(li);
+        });
+        if (studentModelImprovementsBox) studentModelImprovementsBox.style.display = 'block';
+      } else {
+        if (studentModelImprovementsBox) studentModelImprovementsBox.style.display = 'none';
+      }
+    }
+
+    if (modelSpeechModal) {
+      modelSpeechModal.classList.remove('hidden');
+    }
+  } else if (payload.action === 'hide') {
+    if (modelSpeechModal) {
+      modelSpeechModal.classList.add('hidden');
+    }
   }
 }
 
@@ -400,10 +514,13 @@ function handleMicroExerciseEvent(payload) {
   if (payload.action === 'show_exercise') {
     currentStudentExercise = payload;
 
-    // Cerrar modal de autocorrección guiada si estuviera abierto
+    // Cerrar modal de autocorrección guiada o discurso modelo si estuvieran abiertos
     if (guidedModal) {
       guidedModal.classList.add('hidden');
       guidedSolutionContainer.classList.add('hidden');
+    }
+    if (modelSpeechModal) {
+      modelSpeechModal.classList.add('hidden');
     }
 
     // 0. Renderizar Cápsula Contrastiva si está presente (Grammar, Vocabulary, C1 Upgrade)
@@ -970,6 +1087,14 @@ if (btnCloseExerciseModal) {
   });
 }
 
+if (btnCloseModelSpeechModal) {
+  btnCloseModelSpeechModal.addEventListener('click', () => {
+    if (modelSpeechModal) {
+      modelSpeechModal.classList.add('hidden');
+    }
+  });
+}
+
 // 7. Retroalimentación visual sutil basada en volumen
 function handleVolumeFeedback(level) {
   if (!audioService || audioService.isMuted) return;
@@ -1006,6 +1131,9 @@ async function cleanupSession() {
     if (exerciseTextInput) {
       exerciseTextInput.value = '';
     }
+  }
+  if (modelSpeechModal) {
+    modelSpeechModal.classList.add('hidden');
   }
   currentStudentExercise = null;
   joinError.textContent = '';

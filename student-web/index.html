@@ -200,6 +200,32 @@
               <span class="guided-solution-label">Corrección Sugerida:</span>
               <div id="guided-solution-text" class="guided-solution-text"></div>
               <div id="guided-explanation-text" class="guided-explanation-text"></div>
+
+              <!-- CÁPSULA CONTRASTIVA REVELADA (SE MUESTRA ÚNICAMENTE AL REVELAR) -->
+              <div id="guided-capsule-container" class="contrastive-capsule-box hidden" style="margin-top: 14px;">
+                <div class="capsule-header">
+                  <span class="capsule-header-title">⚖️ Contrastive Focus</span>
+                  <span class="capsule-header-subtitle">Key structural difference:</span>
+                </div>
+                <div class="capsule-columns">
+                  <div class="capsule-column capsule-pole-a">
+                    <div class="capsule-pole-header">
+                      <span class="pole-tag tag-pole-a">Form A</span>
+                      <span id="guided-pole-a-label" class="pole-label"></span>
+                    </div>
+                    <p id="guided-pole-a-rule" class="pole-rule"></p>
+                    <p id="guided-pole-a-example" class="pole-example"></p>
+                  </div>
+                  <div class="capsule-column capsule-pole-b">
+                    <div class="capsule-pole-header">
+                      <span class="pole-tag tag-pole-b">Form B (Target)</span>
+                      <span id="guided-pole-b-label" class="pole-label"></span>
+                    </div>
+                    <p id="guided-pole-b-rule" class="pole-rule"></p>
+                    <p id="guided-pole-b-example" class="pole-example"></p>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -372,6 +398,39 @@
               <div id="exercise-feedback-solution" class="exercise-feedback-solution hidden"></div>
               <p id="exercise-feedback-text" class="exercise-feedback-text"></p>
             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL / PROYECCIÓN DE DISCURSO MODELO EN VIVO -->
+    <div id="model-speech-modal" class="guided-modal hidden">
+      <div class="guided-card model-speech-modal-card" style="max-width: 620px;">
+        <header class="guided-top-bar">
+          <div class="guided-badge-group">
+            <span class="guided-pulse-dot" style="background: #a855f7; box-shadow: 0 0 8px rgba(168, 85, 247, 0.6);"></span>
+            <span class="guided-badge" style="background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4);">Model Speech</span>
+          </div>
+          <div class="guided-top-right">
+            <span class="guided-tag">Complete Reformulation</span>
+            <button type="button" id="btn-close-model-speech-modal" class="modal-close-btn" title="Close window">✕</button>
+          </div>
+        </header>
+
+        <div class="guided-content">
+          <div class="model-modal-section" style="margin-bottom: 14px; background: rgba(35, 134, 54, 0.12); border-left: 4px solid #3fb950; border-radius: 8px; padding: 14px 16px;">
+            <div style="font-size: 0.72rem; font-weight: 700; color: #3fb950; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">Natural Corrected Version (Accurate & Fluent)</div>
+            <div id="student-model-natural-corrected" style="font-size: 0.95rem; line-height: 1.6; color: #f0f6fc;"></div>
+          </div>
+
+          <div class="model-modal-section" style="margin-bottom: 14px; background: rgba(168, 85, 247, 0.12); border-left: 4px solid #a855f7; border-radius: 8px; padding: 14px 16px;">
+            <div style="font-size: 0.72rem; font-weight: 700; color: #c084fc; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">Target Level Version (Sophisticated Upgrade)</div>
+            <div id="student-model-target-upgrade" style="font-size: 0.95rem; line-height: 1.6; color: #f0f6fc;"></div>
+          </div>
+
+          <div id="student-model-improvements-box" style="background: rgba(88, 166, 255, 0.08); border: 1px solid rgba(88, 166, 255, 0.25); border-radius: 8px; padding: 14px 16px;">
+            <div style="font-size: 0.8rem; font-weight: 700; color: #58a6ff; margin-bottom: 8px;">Key Pedagogical Improvements:</div>
+            <ul id="student-model-improvements-list" style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px;"></ul>
           </div>
         </div>
       </div>
