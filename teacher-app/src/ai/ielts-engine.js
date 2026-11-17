@@ -85,6 +85,7 @@ class IELTSEngine {
 
   /**
    * Motor de análisis heurístico y reglas pedagógicas para pruebas locales inmediatas.
+   * 100% en inglés simple (A2/B1) con cápsulas contrastivas obligatorias para Grammar, Vocabulary y Upgrade C1.
    */
   runHeuristicAnalysis(teacherContext, studentText, level, categories) {
     const cards = [];
@@ -104,8 +105,20 @@ class IELTSEngine {
           teacherContext: teacherContext || '',
           studentResponse: text.replace(thirdPersonMatch[0], `<span class="highlight-error">${thirdPersonMatch[0]}</span>`),
           surgicalCorrection: text.replace(thirdPersonMatch[0], `<span class="highlight-fix">${subject} ${verb}s</span>`),
-          explanation: `Concordancia sujeto-verbo en presente simple: tras la tercera persona del singular (${subject}) el verbo requiere la desinencia '-s' (${verb}s).`,
-          ieltsCriterion: 'GRA: Band 5.0 (Systemic error in 3rd person singular agreement)'
+          explanation: `Subject-verb agreement: in the present simple, add -s when one person or thing (${subject}) does the action (${verb}s).`,
+          ieltsCriterion: 'GRA: Band 5.0 (Systemic error in 3rd person singular agreement)',
+          contrastiveCapsule: {
+            poleA: {
+              label: 'Base verb (I / you / we / they)',
+              rule: 'Use the base form for I, you, we, or they in the present simple.',
+              example: 'They work together on every major project.'
+            },
+            poleB: {
+              label: 'Verb + -s (he / she / it)',
+              rule: 'Always add -s when one person (he, she, it) does the action in the present.',
+              example: `${subject} ${verb}s very diligently every day.`
+            }
+          }
         });
       }
 
@@ -122,8 +135,20 @@ class IELTSEngine {
           teacherContext: teacherContext || '',
           studentResponse: text.replace(pastNarrativeMatch[0], `<span class="highlight-error">${pastNarrativeMatch[0]}</span>`),
           surgicalCorrection: text.replace(pastNarrativeMatch[0], `<span class="highlight-fix">${subj} ${correctedV}</span>`),
-          explanation: `Inconsistencia temporal en relato de hechos pasados: se debe emplear la forma irregular en pasado ("${correctedV}"), no el presente o forma base ("${v}").`,
-          ieltsCriterion: 'GRA: Band 5.0 (Inconsistent past simple tense narrative control)'
+          explanation: `Time consistency: use the past form ("${correctedV}") when describing finished events in the past.`,
+          ieltsCriterion: 'GRA: Band 5.0 (Inconsistent past simple tense narrative control)',
+          contrastiveCapsule: {
+            poleA: {
+              label: 'Present simple (routines & habits)',
+              rule: 'Use present forms for daily routines or general facts.',
+              example: `I ${v} to the gym every Monday morning.`
+            },
+            poleB: {
+              label: 'Past simple (finished past actions)',
+              rule: 'Use past forms for actions that finished at a specific time in the past.',
+              example: `Yesterday I ${correctedV} to the meeting on time.`
+            }
+          }
         });
       }
 
@@ -136,8 +161,20 @@ class IELTSEngine {
           teacherContext: teacherContext || '',
           studentResponse: text.replace(didPastMatch[0], `<span class="highlight-error">${didPastMatch[0]}</span>`),
           surgicalCorrection: text.replace(didPastMatch[0], `<span class="highlight-fix">${didPastMatch[1]} [infinitive]</span>`),
-          explanation: `El auxiliar en pasado ("${didPastMatch[1]}") ya porta la carga temporal. El verbo léxico posterior debe ir obligatoriamente en infinitivo sin 'to'.`,
-          ieltsCriterion: 'GRA: Band 5.5 (Inappropriate past tense inflection following auxiliary did)'
+          explanation: `Auxiliary verb rule: after "${didPastMatch[1]}", the main verb must always stay in its base form.`,
+          ieltsCriterion: 'GRA: Band 5.5 (Inappropriate past tense inflection following auxiliary did)',
+          contrastiveCapsule: {
+            poleA: {
+              label: 'Past form without did (positive statements)',
+              rule: 'Use the irregular or -ed past form in positive statements.',
+              example: 'She went to the office yesterday afternoon.'
+            },
+            poleB: {
+              label: 'Did / didn\'t + base form (questions & negatives)',
+              rule: 'In questions or negatives with did, keep the main verb in its base form.',
+              example: `Did she go to the office yesterday afternoon?`
+            }
+          }
         });
       }
     }
@@ -152,8 +189,20 @@ class IELTSEngine {
           teacherContext: teacherContext || '',
           studentResponse: text.replace(/all the days/i, '<span class="highlight-error">all the days</span>'),
           surgicalCorrection: text.replace(/all the days/i, '<span class="highlight-fix">on a daily basis / every day</span>'),
-          explanation: 'Calco directo del español ("todos los días"). En inglés natural se utiliza "every day" o la locución formal "on a daily basis".',
-          ieltsCriterion: 'LR: Band 6.0 (Collocation and L1 translation interference)'
+          explanation: 'Collocation: use "every day" or "on a daily basis" to talk about regular daily routines.',
+          ieltsCriterion: 'LR: Band 6.0 (Collocation and L1 translation interference)',
+          contrastiveCapsule: {
+            poleA: {
+              label: 'all the days (literal translation)',
+              rule: 'Only use "all the days" when counting every single day in a specific limited period.',
+              example: 'We spent a week in London, and it rained all the days.'
+            },
+            poleB: {
+              label: 'every day / daily (natural frequency)',
+              rule: 'Use "every day" to say that something happens repeatedly as a habit.',
+              example: 'I practice speaking English every day before work.'
+            }
+          }
         });
       }
 
@@ -165,8 +214,20 @@ class IELTSEngine {
           teacherContext: teacherContext || '',
           studentResponse: text.replace(/make a question|made a question/i, (m) => `<span class="highlight-error">${m}</span>`),
           surgicalCorrection: text.replace(/make a question/i, '<span class="highlight-fix">ask a question</span>').replace(/made a question/i, '<span class="highlight-fix">asked a question</span>'),
-          explanation: 'Colocación errónea: en inglés las preguntas no se "hacen" (make), sino que se formulan mediante el verbo "ask" (ask a question).',
-          ieltsCriterion: 'LR: Band 5.5 (Fixed verb-noun collocation failure)'
+          explanation: 'Verb-noun collocation: in natural English, you "ask a question", you do not "make" a question.',
+          ieltsCriterion: 'LR: Band 5.5 (Fixed verb-noun collocation failure)',
+          contrastiveCapsule: {
+            poleA: {
+              label: 'make (create or produce things)',
+              rule: 'Use "make" when you build, create, or produce something tangible.',
+              example: 'I need to make a quick cup of coffee before the lecture.'
+            },
+            poleB: {
+              label: 'ask a question (inquire)',
+              rule: 'Always use the verb "ask" when you want information from someone.',
+              example: 'May I ask a question about your presentation?'
+            }
+          }
         });
       }
     }
@@ -180,17 +241,17 @@ class IELTSEngine {
           category: 'pronunciation',
           severity: 'basic_error',
           teacherContext: teacherContext || '',
-          studentResponse: `Pronunciación del pasado regular en <span class="highlight-error">"${edOverpronunciation[0]}"</span>.`,
-          surgicalCorrection: `Pronunciar con sonido consonántico final sin sílaba extra: <span class="highlight-fix">/${edOverpronunciation[0].toLowerCase() === 'watched' ? 'wɒtʃt' : 'pleɪd'}/</span>.`,
-          explanation: 'Evitar añadir una sílaba adicional /ɪd/. Solo los verbos terminados en /t/ o /d/ (ej. "needed", "started") añaden una sílaba extra.',
-          ieltsCriterion: 'PR: Band 6.0 (Phonological feature control in regular past inflections)'
+          studentResponse: `Regular past inflection in <span class="highlight-error">"${edOverpronunciation[0]}"</span>.`,
+          surgicalCorrection: `Pronounce ending consonant cleanly without extra syllable: <span class="highlight-fix">/${edOverpronunciation[0].toLowerCase() === 'watched' ? 'wɒtʃt' : 'pleɪd'}/</span>.`,
+          explanation: 'Only regular verbs ending in /t/ or /d/ sounds add an extra /ɪd/ syllable.',
+          ieltsCriterion: 'PR: Band 6.0 (Phonological feature control in regular past inflections)',
+          contrastiveCapsule: null
         });
       }
     }
 
     // 4. UPGRADE C1 (Alternativas avanzadas y parafraseo)
     if (categories.includes('upgrade_c1')) {
-      // Reemplazar frases comunes ("very difficult", "fix the problem", "a lot of")
       if (lower.includes('very difficult') || lower.includes('very hard')) {
         cards.push({
           category: 'upgrade_c1',
@@ -198,8 +259,20 @@ class IELTSEngine {
           teacherContext: teacherContext || '',
           studentResponse: text.replace(/very difficult|very hard/i, (m) => `<span class="highlight-error">${m}</span>`),
           surgicalCorrection: text.replace(/very difficult|very hard/i, '<span class="highlight-fix">a formidable challenge / exceedingly demanding</span>'),
-          explanation: 'Sustituye el intensificador plano "very" por colocaciones avanzadas de nivel C1 que transmiten precisión ejecutiva.',
-          ieltsCriterion: 'LR: Band 8.0 (Skillful use of uncommon and sophisticated lexical items)'
+          explanation: 'Replace standard "very difficult" with advanced C1 collocations for executive precision.',
+          ieltsCriterion: 'LR: Band 8.0 (Skillful use of uncommon and sophisticated lexical items)',
+          contrastiveCapsule: {
+            poleA: {
+              label: 'very difficult (standard B1 adjective)',
+              rule: 'Clear and simple description for informal or everyday conversation.',
+              example: 'The exam was very difficult, but I managed to finish.'
+            },
+            poleB: {
+              label: 'a formidable challenge (advanced C1 collocation)',
+              rule: 'Use strong nouns and collocations to sound authoritative and professional.',
+              example: 'Leading two remote teams proved to be a formidable challenge.'
+            }
+          }
         });
       } else if (lower.includes('i think that') || lower.includes('i think')) {
         cards.push({
@@ -208,24 +281,36 @@ class IELTSEngine {
           teacherContext: teacherContext || '',
           studentResponse: text.replace(/i think that|i think/i, (m) => `<span class="highlight-error">${m}</span>`),
           surgicalCorrection: text.replace(/i think that|i think/i, '<span class="highlight-fix">From my perspective, / I am strongly inclined to believe that</span>'),
-          explanation: 'Parafrasea la apertura estándar B1 hacia un registro discursivo maduro y formal con mayor peso argumentativo.',
-          ieltsCriterion: 'FC/LR: Band 7.5 (Flexible signposting and stylistic range)'
+          explanation: 'Paraphrase casual "I think" into formal signposting to give more weight to your argument.',
+          ieltsCriterion: 'FC/LR: Band 7.5 (Flexible signposting and stylistic range)',
+          contrastiveCapsule: {
+            poleA: {
+              label: 'I think (conversational B1 opener)',
+              rule: 'Quick, common way to share personal thoughts in everyday talk.',
+              example: 'I think the government should invest more in education.'
+            },
+            poleB: {
+              label: 'From my perspective (C1 academic signpost)',
+              rule: 'Use sophisticated viewpoint markers to present opinions formally.',
+              example: 'From my perspective, sustainable energy investment is imperative.'
+            }
+          }
         });
       }
     }
 
     // 5. FLUIDEZ Y COHESIÓN
     if (categories.includes('fluency')) {
-      // Detección de conectores repetitivos "and then... and so..." o coordinación plana
       if (lower.includes('and then') || lower.includes('and so') || lower.includes('and the')) {
         cards.push({
           category: 'fluency',
           severity: 'refinement',
           teacherContext: teacherContext || '',
           studentResponse: text.replace(/and then|and so|and the/i, (m) => `<span class="highlight-error">${m}</span>`),
-          surgicalCorrection: text.replace(/and then|and so|and the/i, '<span class="highlight-fix">Consequently / What is more, the</span>'),
-          explanation: 'Sustituye la coordinación secuencial básica por un marcador discursivo subordinado que otorga fluidez lógica.',
-          ieltsCriterion: 'FC: Band 7.0 (Use of a range of cohesive devices without mechanical chaining)'
+          surgicalCorrection: text.replace(/and then|and so|and the/i, '<span class="highlight-fix">Consequently, / What is more, the</span>'),
+          explanation: 'Replace repetitive "and then" with varied transition markers to connect ideas smoothly.',
+          ieltsCriterion: 'FC: Band 7.0 (Use of a range of cohesive devices without mechanical chaining)',
+          contrastiveCapsule: null
         });
       }
     }
@@ -237,10 +322,22 @@ class IELTSEngine {
         category: 'upgrade_c1',
         severity: 'upgrade',
         teacherContext: teacherContext || '',
-        studentResponse: `Discurso en registro estándar: "<span class="highlight-error">${text.slice(0, 60)}...</span>"`,
-        surgicalCorrection: `Elevar a registro C1: <span class="highlight-fix">"In retrospect, looking back at the circumstances..."</span>`,
-        explanation: 'Incorporar cláusulas de participio y estructuras complejas para demostrar sofisticación sintáctica.',
-        ieltsCriterion: 'LR/GRA: Band 7.5 - 8.0 (Stylistic flexibility and complex structures)'
+        studentResponse: `Standard spoken register: "<span class="highlight-error">${text.slice(0, 60)}...</span>"`,
+        surgicalCorrection: `Elevate to C1 register: <span class="highlight-fix">"In retrospect, looking back at the circumstances..."</span>`,
+        explanation: 'Incorporate participle clauses and complex structures to demonstrate syntactic sophistication.',
+        ieltsCriterion: 'LR/GRA: Band 7.5 - 8.0 (Stylistic flexibility and complex structures)',
+        contrastiveCapsule: {
+          poleA: {
+            label: 'Standard clause (B1/B2 coordination)',
+            rule: 'Connecting separate simple clauses with basic conjunctions like "and" or "so".',
+            example: 'I finished the report, and then I sent it to my supervisor.'
+          },
+          poleB: {
+            label: 'Participle clause (C1 structural upgrade)',
+            rule: 'Reduce one clause to an -ing or -ed phrase to express sequences cleanly.',
+            example: 'Having finished the report, I immediately sent it to my supervisor.'
+          }
+        }
       });
     }
 
@@ -249,10 +346,11 @@ class IELTSEngine {
         category: 'pronunciation',
         severity: 'basic_error',
         teacherContext: teacherContext || '',
-        studentResponse: `Articulación de acentos léxicos en oraciones compuestas.`,
-        surgicalCorrection: `Enfatizar palabras de contenido y debilitar artículos/preposiciones con <span class="highlight-fix">schwa /ə/</span>.`,
-        explanation: 'El ritmo del inglés se basa en el acento (stress-timed). Reducir palabras funcionales mejora la inteligibilidad.',
-        ieltsCriterion: 'PR: Band 6.5 (Use of phonological features and rhythm)'
+        studentResponse: `Word stress and rhythm in connected speech.`,
+        surgicalCorrection: `Stress key content words and reduce auxiliary words with <span class="highlight-fix">schwa /ə/</span>.`,
+        explanation: 'English is stress-timed: weaken function words to make your rhythm natural and easy to follow.',
+        ieltsCriterion: 'PR: Band 6.5 (Use of phonological features and rhythm)',
+        contrastiveCapsule: null
       });
     }
 
@@ -264,10 +362,14 @@ class IELTSEngine {
    */
   async callLLMEvaluation({ teacherContext, studentUtterance, studentLevel, categories }) {
     const cleanTeacherContext = (teacherContext || '').trim();
-    const systemPrompt = `You are an IELTS Speaking Examiner evaluating a CEFR ${studentLevel} student.
+    const systemPrompt = `You are a certified IELTS Speaking Examiner and EFL Master Teacher evaluating a CEFR ${studentLevel} student.
 The student utterance is a 100% verbatim transcription containing authentic pauses, repetitions, and spoken fillers (e.g., 'um', 'uh', 'you know').
 - For 'fluency': Leverage these genuine hesitations, reformulations, and linking devices to assess Fluency and Coherence.
 - For 'grammar' and 'vocabulary': Focus on systemic grammatical errors and unnatural collocations in the message, ignoring acoustic filler noise.
+
+LANGUAGE & PEDAGOGICAL CLARITY DIRECTIVE (STRICT 100% ENGLISH):
+1. 100% ENGLISH ONLY: All explanations, rules, labels, hints, and feedback MUST be written exclusively in English. NEVER use Spanish anywhere.
+2. GRADED TEACHER LANGUAGE (A2/B1 Level for explanations): Write ALL explanations and rules using simple, direct, everyday English (A2/B1 level). Avoid academic or linguistic jargon (do NOT use words like "subjunctive", "gerundive", "volition", "aspectual", "anaphoric", "deictic"). Explain like a great, friendly teacher with plain words (e.g., "for habits in general" vs "for something you want right now", or "use this for actions finished in the past"). This clarity applies universally for all levels. Only the model examples should reflect the student's target CEFR level.
 
 TEACHER CONTEXT RULE:
 - The 'teacherContext' field in every feedback card MUST contain ONLY the literal question or comment made by the teacher prior to the student's turn.
@@ -284,6 +386,18 @@ Evaluate comprehensively across these 5 tabs:
 4. 'upgrade_c1': Catch EVERY opportunity to elevate conversational/standard expressions to sophisticated C1/C2 structures (participle clauses, cleft sentences, advanced idioms, academic register). Severity: 'upgrade'.
 5. 'fluency': Catch EVERY repetitive connector ('and then', 'and so') or fragmented hesitation, replacing them with fluid discourse markers and transitions. Severity: 'refinement'.
 
+CONTRASTIVE CAPSULE RULE (MANDATORY FOR 'grammar', 'vocabulary', AND 'upgrade_c1'):
+For every card in 'grammar', 'vocabulary', and 'upgrade_c1', you MUST generate a "contrastiveCapsule" object contrasting the student's erroneous or basic form (poleA) with the target native form (poleB):
+- "poleA":
+  * "label": Short name of the student's form or opposing structure (e.g., "like + -ing / to", "Present simple", "make a question", "very difficult").
+  * "rule": Short, simple A2/B1 English rule explaining when Form A IS correct.
+  * "example": Natural model sentence where Form A is the right choice.
+- "poleB":
+  * "label": Short name of the target form (e.g., "would like + to", "Past simple", "ask a question", "a formidable challenge").
+  * "rule": Short, simple A2/B1 English rule explaining when to use Form B instead.
+  * "example": Natural model sentence where Form B is the right choice.
+For 'pronunciation' and 'fluency', "contrastiveCapsule" MUST be null.
+
 OUTPUT SCHEMA:
 Return a valid JSON array of objects. Category MUST be strictly lowercase: 'grammar', 'vocabulary', 'pronunciation', 'upgrade_c1', 'fluency'.
 [
@@ -293,8 +407,20 @@ Return a valid JSON array of objects. Category MUST be strictly lowercase: 'gram
     "teacherContext": "${cleanTeacherContext}",
     "studentResponse": "Sentence with <span class=\\"highlight-error\\">error</span>",
     "surgicalCorrection": "Sentence with <span class=\\"highlight-fix\\">correction</span>",
-    "explanation": "Brief explanation in Spanish (max 15 words)",
-    "ieltsCriterion": "IELTS Band Descriptor"
+    "explanation": "Brief surgical explanation in simple A2/B1 English (max 20 words)",
+    "ieltsCriterion": "IELTS Band Descriptor",
+    "contrastiveCapsule": {
+      "poleA": {
+        "label": "Student's form (e.g., like + -ing / to)",
+        "rule": "Short, simple A2/B1 English rule explaining when Form A IS correct",
+        "example": "Natural model sentence where Form A is the right choice"
+      },
+      "poleB": {
+        "label": "Target form (e.g., would like + to)",
+        "rule": "Short, simple A2/B1 English rule explaining when to use Form B instead",
+        "example": "Natural model sentence where Form B is the right choice"
+      }
+    } | null
   }
 ]`;
 
@@ -305,7 +431,7 @@ Return a valid JSON array of objects. Category MUST be strictly lowercase: 'gram
       systemPrompt
     });
 
-    // Normalizar categorías y contexto docente para garantizar mapeo exacto en la UI
+    // Normalizar categorías, contexto docente y cápsula contrastiva
     return (rawCards || []).map(card => {
       let cat = (card.category || '').toLowerCase().trim();
       if (cat === 'upgrade' || cat === 'upgradec1' || cat === 'c1') cat = 'upgrade_c1';
@@ -313,10 +439,47 @@ Return a valid JSON array of objects. Category MUST be strictly lowercase: 'gram
       if (ctx.toLowerCase().includes('tell me about your experience') || ctx === 'Speaking turn' || ctx === 'Pregunta o contexto oral') {
         ctx = '';
       }
+
+      // Validar cápsula contrastiva para las categorías estructurales
+      let contrastiveCapsule = null;
+      if (['grammar', 'vocabulary', 'upgrade_c1'].includes(cat)) {
+        if (card.contrastiveCapsule && card.contrastiveCapsule.poleA && card.contrastiveCapsule.poleB) {
+          contrastiveCapsule = {
+            poleA: {
+              label: String(card.contrastiveCapsule.poleA.label || 'Student Form').trim(),
+              rule: String(card.contrastiveCapsule.poleA.rule || 'When this form is correct.').trim(),
+              example: String(card.contrastiveCapsule.poleA.example || '').trim()
+            },
+            poleB: {
+              label: String(card.contrastiveCapsule.poleB.label || 'Target Form').trim(),
+              rule: String(card.contrastiveCapsule.poleB.rule || 'When to use the target form instead.').trim(),
+              example: String(card.contrastiveCapsule.poleB.example || '').trim()
+            }
+          };
+        } else {
+          // Fallback limpio si la IA omitió el objeto
+          const rawErr = (card.studentResponse || '').replace(/<[^>]+>/g, '').trim();
+          const rawFix = (card.surgicalCorrection || '').replace(/<[^>]+>/g, '').trim();
+          contrastiveCapsule = {
+            poleA: {
+              label: 'Conversational Form',
+              rule: 'Used in general or informal speaking contexts.',
+              example: rawErr || 'She works every day.'
+            },
+            poleB: {
+              label: 'Target Form',
+              rule: card.explanation || 'Accurate target structure for this specific context.',
+              example: rawFix || 'She has worked diligently on this.'
+            }
+          };
+        }
+      }
+
       return {
         ...card,
         category: cat,
-        teacherContext: ctx
+        teacherContext: ctx,
+        contrastiveCapsule
       };
     });
   }

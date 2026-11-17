@@ -212,18 +212,50 @@
         <header class="guided-top-bar">
           <div class="guided-badge-group">
             <span class="guided-pulse-dot exercise-dot"></span>
-            <span id="exercise-category-badge" class="guided-badge">Gramática</span>
+            <span id="exercise-category-badge" class="guided-badge">Grammar</span>
           </div>
           <div class="guided-top-right">
-            <span id="exercise-polarity-tag" class="exercise-polarity-tag">🎯 Objetivo</span>
-            <span class="guided-tag">⚡ Micro-Ejercicio IA</span>
-            <button type="button" id="btn-close-exercise-modal" class="modal-close-btn" title="Cerrar ventana">✕</button>
+            <span id="exercise-polarity-tag" class="exercise-polarity-tag">🎯 Target (Form B)</span>
+            <span class="guided-tag">⚡ Interactive Practice</span>
+            <button type="button" id="btn-close-exercise-modal" class="modal-close-btn" title="Close window">✕</button>
           </div>
         </header>
 
         <div class="guided-content">
+          <!-- CÁPSULA CONTRASTIVA DE ENFOQUE ESTRUCTURAL (2 COLUMNAS) -->
+          <div id="exercise-capsule-container" class="contrastive-capsule-box hidden">
+            <div class="capsule-header">
+              <span class="capsule-header-title">⚖️ Contrastive Focus</span>
+              <span class="capsule-header-subtitle">Compare both structures before answering:</span>
+            </div>
+            <div class="capsule-columns">
+              <div class="capsule-column capsule-pole-a">
+                <div class="capsule-pole-header">
+                  <span class="pole-tag tag-pole-a">Form A</span>
+                  <span id="capsule-pole-a-label" class="pole-label"></span>
+                </div>
+                <p id="capsule-pole-a-rule" class="pole-rule"></p>
+                <div class="pole-example-box">
+                  <span class="example-label">Example:</span>
+                  <p id="capsule-pole-a-example" class="pole-example"></p>
+                </div>
+              </div>
+              <div class="capsule-column capsule-pole-b">
+                <div class="capsule-pole-header">
+                  <span class="pole-tag tag-pole-b">Form B (Target)</span>
+                  <span id="capsule-pole-b-label" class="pole-label"></span>
+                </div>
+                <p id="capsule-pole-b-rule" class="pole-rule"></p>
+                <div class="pole-example-box">
+                  <span class="example-label">Example:</span>
+                  <p id="capsule-pole-b-example" class="pole-example"></p>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div class="exercise-instruction-banner">
-            <span id="exercise-instruction-text" class="exercise-instruction-text">Elige la opción correcta para completar la frase:</span>
+            <span id="exercise-instruction-text" class="exercise-instruction-text">Choose the best option to complete the sentence:</span>
           </div>
 
           <!-- FORMATO 1: MULTIPLE CHOICE (Oración con hueco ___ y 4 opciones) -->

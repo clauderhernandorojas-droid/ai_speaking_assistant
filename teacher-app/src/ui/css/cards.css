@@ -620,3 +620,94 @@
   color: #f87171;
 }
 
+/* ==============================================================================
+   CÁPSULA CONTRASTIVA DE APRENDIZAJE ESTRUCTURAL (2 COLUMNAS)
+   ============================================================================== */
+.card-contrastive-capsule {
+  margin-top: 10px;
+  background: rgba(13, 17, 23, 0.7);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+
+.capsule-title {
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #c084fc;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.capsule-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+@media (max-width: 680px) {
+  .capsule-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.capsule-col {
+  background: #161b22;
+  border-radius: 6px;
+  padding: 8px 10px;
+  border: 1px solid #30363d;
+  font-size: 0.82rem;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.capsule-col.pole-a {
+  border-left: 3px solid #d29922;
+}
+
+.capsule-col.pole-b {
+  border-left: 3px solid #3fb950;
+}
+
+.pole-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  color: #f0f6fc;
+}
+
+.pole-pill {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(210, 153, 34, 0.2);
+  color: #e3b341;
+}
+
+.pole-pill.target {
+  background: rgba(63, 185, 80, 0.2);
+  color: #56d364;
+}
+
+.pole-rule {
+  font-size: 0.8rem;
+  color: #c9d1d9;
+  line-height: 1.4;
+}
+
+.pole-ex {
+  font-size: 0.78rem;
+  color: #8b949e;
+  font-style: italic;
+  margin-top: 2px;
+}
+
+

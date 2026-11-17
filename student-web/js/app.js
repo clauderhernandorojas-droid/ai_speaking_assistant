@@ -89,11 +89,11 @@ let currentStudentExercise = null;
 let currentUnscrambleSelected = [];
 
 const CATEGORY_NAMES = {
-  grammar: 'Gramática',
-  vocabulary: 'Vocabulario',
-  pronunciation: 'Pronunciación',
-  upgrade_c1: 'Upgrade C1',
-  fluency: 'Fluidez'
+  grammar: 'Grammar',
+  vocabulary: 'Vocabulary',
+  pronunciation: 'Pronunciation',
+  upgrade_c1: 'C1 Upgrade',
+  fluency: 'Fluency'
 };
 
 // Instancias de servicios y estado de audio
@@ -406,19 +406,43 @@ function handleMicroExerciseEvent(payload) {
       guidedSolutionContainer.classList.add('hidden');
     }
 
+    // 0. Renderizar Cápsula Contrastiva si está presente (Grammar, Vocabulary, C1 Upgrade)
+    const capsuleBox = document.getElementById('exercise-capsule-container');
+    const poleALabel = document.getElementById('capsule-pole-a-label');
+    const poleARule = document.getElementById('capsule-pole-a-rule');
+    const poleAExample = document.getElementById('capsule-pole-a-example');
+    const poleBLabel = document.getElementById('capsule-pole-b-label');
+    const poleBRule = document.getElementById('capsule-pole-b-rule');
+    const poleBExample = document.getElementById('capsule-pole-b-example');
+
+    const cap = payload.contrastiveCapsule;
+    if (cap && cap.poleA && cap.poleB && capsuleBox) {
+      if (poleALabel) poleALabel.textContent = cap.poleA.label || 'Form A';
+      if (poleARule) poleARule.textContent = cap.poleA.rule || '';
+      if (poleAExample) poleAExample.textContent = cap.poleA.example ? `"${cap.poleA.example}"` : '';
+
+      if (poleBLabel) poleBLabel.textContent = cap.poleB.label || 'Form B (Target)';
+      if (poleBRule) poleBRule.textContent = cap.poleB.rule || '';
+      if (poleBExample) poleBExample.textContent = cap.poleB.example ? `"${cap.poleB.example}"` : '';
+
+      capsuleBox.classList.remove('hidden');
+    } else if (capsuleBox) {
+      capsuleBox.classList.add('hidden');
+    }
+
     // 1. Badge de Categoría y Polaridad
     const cat = (payload.category || 'grammar').toLowerCase();
-    exerciseCategoryBadge.textContent = CATEGORY_NAMES[cat] || payload.category || 'Ejercicio';
+    exerciseCategoryBadge.textContent = CATEGORY_NAMES[cat] || payload.category || 'Practice';
     exerciseCategoryBadge.className = `guided-badge cat-${cat}`;
 
     if (exercisePolarityTag) {
-      const isContrast = payload.contrastPolarity === 'contrast';
+      const isContrast = payload.contrastPolarity === 'contrast' || payload.targetPole === 'A';
       exercisePolarityTag.className = `exercise-polarity-tag ${isContrast ? 'polarity-contrast' : 'polarity-target'}`;
-      exercisePolarityTag.textContent = isContrast ? '⚖️ Contraste' : '🎯 Regla Objetivo';
+      exercisePolarityTag.textContent = isContrast ? '⚖️ Contrast (Form A)' : '🎯 Target (Form B)';
     }
 
     // 2. Instrucción breve
-    exerciseInstructionText.textContent = payload.instruction || 'Resuelve el siguiente ejercicio interactivo:';
+    exerciseInstructionText.textContent = payload.instruction || 'Choose the best option to complete the sentence:';
 
     // 3. Reiniciar contenedor de feedback
     exerciseFeedbackContainer.classList.add('hidden');
@@ -493,16 +517,16 @@ function handleSelectMultipleChoice(selectedIndex, clickedBtn, exercise) {
 
   if (isCorrect) {
     clickedBtn.classList.add('option-correct');
-    exerciseFeedbackTitle.textContent = '¡Excelente! Opción Correcta';
+    exerciseFeedbackTitle.textContent = 'Excellent! Correct Option';
     exerciseFeedbackTitle.className = 'exercise-feedback-title correct';
   } else {
     clickedBtn.classList.add('option-wrong');
     if (correctBtn) correctBtn.classList.add('option-correct');
-    exerciseFeedbackTitle.textContent = 'Respuesta Incorrecta';
+    exerciseFeedbackTitle.textContent = 'Incorrect Answer';
     exerciseFeedbackTitle.className = 'exercise-feedback-title incorrect';
   }
 
-  exerciseFeedbackSolution.innerHTML = `Opción correcta: <strong>${exercise.options[exercise.correctIndex]}</strong>`;
+  exerciseFeedbackSolution.innerHTML = `Correct option: <strong>${exercise.options[exercise.correctIndex]}</strong>`;
   exerciseFeedbackSolution.classList.remove('hidden');
   exerciseFeedbackText.textContent = exercise.feedbackExplanation || '';
   exerciseFeedbackContainer.classList.remove('hidden');
@@ -549,16 +573,16 @@ function handleSelectSpotSegment(selectedIndex, clickedBtn, exercise) {
 
   if (isCorrect) {
     clickedBtn.classList.add('option-correct');
-    exerciseFeedbackTitle.textContent = '¡Excelente! Identificaste el error con precisión.';
+    exerciseFeedbackTitle.textContent = 'Excellent! You identified the error.';
     exerciseFeedbackTitle.className = 'exercise-feedback-title correct';
   } else {
     clickedBtn.classList.add('option-wrong');
     if (errorTargetBtn) errorTargetBtn.classList.add('option-correct');
-    exerciseFeedbackTitle.textContent = 'Intento Incorrecto';
+    exerciseFeedbackTitle.textContent = 'Incorrect Attempt';
     exerciseFeedbackTitle.className = 'exercise-feedback-title incorrect';
   }
 
-  exerciseFeedbackSolution.innerHTML = `Corrección del segmento: <strong>${exercise.correctedSegment}</strong>`;
+  exerciseFeedbackSolution.innerHTML = `Segment correction: <strong>${exercise.correctedSegment}</strong>`;
   exerciseFeedbackSolution.classList.remove('hidden');
   exerciseFeedbackText.textContent = exercise.feedbackExplanation || '';
   exerciseFeedbackContainer.classList.remove('hidden');
@@ -588,7 +612,7 @@ function renderKeyWordTransformation(exercise) {
   exerciseTextInput.value = '';
   exerciseTextInput.disabled = false;
   btnSubmitExercise.disabled = false;
-  btnSubmitExercise.textContent = 'Enviar Respuesta';
+  btnSubmitExercise.textContent = 'Submit Answer';
   setTimeout(() => exerciseTextInput.focus(), 150);
 }
 
@@ -684,14 +708,14 @@ exerciseTransformForm.addEventListener('submit', (e) => {
   const isCorrect = candidates.some(cand => cand === normIdeal || normVariants.includes(cand));
 
   if (isCorrect) {
-    exerciseFeedbackTitle.textContent = '¡Brillante! Transformación sintáctica correcta.';
+    exerciseFeedbackTitle.textContent = 'Brilliant! Correct transformation.';
     exerciseFeedbackTitle.className = 'exercise-feedback-title correct';
   } else {
-    exerciseFeedbackTitle.textContent = 'Intento Incorrecto';
+    exerciseFeedbackTitle.textContent = 'Incorrect Attempt';
     exerciseFeedbackTitle.className = 'exercise-feedback-title incorrect';
   }
 
-  exerciseFeedbackSolution.innerHTML = `Respuesta modelo: <strong>${currentStudentExercise.idealAnswer}</strong>`;
+  exerciseFeedbackSolution.innerHTML = `Model answer: <strong>${currentStudentExercise.idealAnswer}</strong>`;
   exerciseFeedbackSolution.classList.remove('hidden');
   exerciseFeedbackText.textContent = currentStudentExercise.feedbackExplanation || '';
   exerciseFeedbackContainer.classList.remove('hidden');
@@ -720,7 +744,7 @@ function renderErrorCorrectionInput(exercise) {
   }
   if (btnSubmitCorrection) {
     btnSubmitCorrection.disabled = false;
-    btnSubmitCorrection.textContent = 'Enviar Corrección';
+    btnSubmitCorrection.textContent = 'Submit Correction';
   }
   setTimeout(() => exerciseCorrectionInput && exerciseCorrectionInput.focus(), 150);
 }
@@ -744,14 +768,14 @@ if (exerciseCorrectionForm) {
     const isCorrect = normInput === normIdeal || normVariants.includes(normInput) || (normIdeal.includes(normInput) && normInput.length >= 3);
 
     if (isCorrect) {
-      exerciseFeedbackTitle.textContent = '¡Excelente! Corrección gramatical precisa.';
+      exerciseFeedbackTitle.textContent = 'Excellent! Accurate grammatical correction.';
       exerciseFeedbackTitle.className = 'exercise-feedback-title correct';
     } else {
-      exerciseFeedbackTitle.textContent = 'Intento Incorrecto';
+      exerciseFeedbackTitle.textContent = 'Incorrect Attempt';
       exerciseFeedbackTitle.className = 'exercise-feedback-title incorrect';
     }
 
-    exerciseFeedbackSolution.innerHTML = `Corrección esperada: <strong>${currentStudentExercise.idealAnswer}</strong>`;
+    exerciseFeedbackSolution.innerHTML = `Expected correction: <strong>${currentStudentExercise.idealAnswer}</strong>`;
     exerciseFeedbackSolution.classList.remove('hidden');
     exerciseFeedbackText.textContent = currentStudentExercise.feedbackExplanation || '';
     exerciseFeedbackContainer.classList.remove('hidden');
@@ -774,7 +798,7 @@ function renderSentenceUnscramble(exercise) {
   currentUnscrambleSelected = [];
 
   if (exerciseUnscrambleResult) {
-    exerciseUnscrambleResult.textContent = 'Pulsa los bloques en orden...';
+    exerciseUnscrambleResult.textContent = 'Click the blocks in order...';
     exerciseUnscrambleResult.style.color = '#94a3b8';
   }
   if (btnSubmitUnscramble) {
@@ -806,7 +830,7 @@ function renderSentenceUnscramble(exercise) {
 function updateUnscrambleDisplay(exercise) {
   if (!exerciseUnscrambleResult) return;
   if (currentUnscrambleSelected.length === 0) {
-    exerciseUnscrambleResult.textContent = 'Pulsa los bloques en orden...';
+    exerciseUnscrambleResult.textContent = 'Click the blocks in order...';
     exerciseUnscrambleResult.style.color = '#94a3b8';
     if (btnSubmitUnscramble) btnSubmitUnscramble.disabled = true;
     return;
@@ -847,14 +871,14 @@ if (btnSubmitUnscramble) {
     const isCorrect = normAssembled === normTarget;
 
     if (isCorrect) {
-      exerciseFeedbackTitle.textContent = '¡Perfecto! Has ordenado la frase correctamente.';
+      exerciseFeedbackTitle.textContent = 'Perfect! You ordered the sentence correctly.';
       exerciseFeedbackTitle.className = 'exercise-feedback-title correct';
     } else {
-      exerciseFeedbackTitle.textContent = 'Orden Incorrecto';
+      exerciseFeedbackTitle.textContent = 'Incorrect Word Order';
       exerciseFeedbackTitle.className = 'exercise-feedback-title incorrect';
     }
 
-    exerciseFeedbackSolution.innerHTML = `Oración correcta: <strong>${currentStudentExercise.correctSentence}</strong>`;
+    exerciseFeedbackSolution.innerHTML = `Correct sentence: <strong>${currentStudentExercise.correctSentence}</strong>`;
     exerciseFeedbackSolution.classList.remove('hidden');
     exerciseFeedbackText.textContent = currentStudentExercise.feedbackExplanation || '';
     exerciseFeedbackContainer.classList.remove('hidden');
@@ -885,7 +909,7 @@ function renderOpenCloze(exercise) {
   }
   if (btnSubmitCloze) {
     btnSubmitCloze.disabled = false;
-    btnSubmitCloze.textContent = 'Comprobar';
+    btnSubmitCloze.textContent = 'Check Answer';
   }
   setTimeout(() => exerciseClozeInput && exerciseClozeInput.focus(), 150);
 }
@@ -908,14 +932,14 @@ if (exerciseClozeForm) {
     const isCorrect = candidates.some(cand => cand === normIdeal || normVariants.includes(cand));
 
     if (isCorrect) {
-      exerciseFeedbackTitle.textContent = '¡Correcto! Palabra precisa identificada.';
+      exerciseFeedbackTitle.textContent = 'Correct! Precise word identified.';
       exerciseFeedbackTitle.className = 'exercise-feedback-title correct';
     } else {
-      exerciseFeedbackTitle.textContent = 'Palabra Incorrecta';
+      exerciseFeedbackTitle.textContent = 'Incorrect Word';
       exerciseFeedbackTitle.className = 'exercise-feedback-title incorrect';
     }
 
-    exerciseFeedbackSolution.innerHTML = `Palabra correcta: <strong>${currentStudentExercise.idealAnswer}</strong>`;
+    exerciseFeedbackSolution.innerHTML = `Correct word: <strong>${currentStudentExercise.idealAnswer}</strong>`;
     exerciseFeedbackSolution.classList.remove('hidden');
     exerciseFeedbackText.textContent = currentStudentExercise.feedbackExplanation || '';
     exerciseFeedbackContainer.classList.remove('hidden');

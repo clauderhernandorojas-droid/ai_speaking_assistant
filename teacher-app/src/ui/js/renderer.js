@@ -782,6 +782,7 @@ function handleSessionCompleted(summary) {
     const surgicalCorrection = card.surgicalCorrection || card.surgical_correction || card.correction || card.solution || 'Corrección sugerida';
     const explanation = card.explanation || card.reason || card.notes || '';
     const ieltsCriterion = card.ieltsCriterion || card.ielts_criterion || card.criterion || card.band || 'IELTS Band Descriptors';
+    const contrastiveCapsule = card.contrastiveCapsule || null;
 
     addSurgicalCard({
       category,
@@ -790,7 +791,8 @@ function handleSessionCompleted(summary) {
       studentResponse,
       surgicalCorrection,
       explanation,
-      ieltsCriterion
+      ieltsCriterion,
+      contrastiveCapsule
     });
   });
 
@@ -825,25 +827,35 @@ function handleSessionCompleted(summary) {
   }
 }
 
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 /**
  * Exporta y descarga un reporte pedagógico independiente en formato HTML
  * con la transcripción verbatim y las tarjetas agrupadas por las 5 categorías.
  */
 function exportSessionReportHTML() {
-  const studentName = state.currentStudent?.name || 'Estudiante';
+  const studentName = state.currentStudent?.name || 'Student';
   const studentLevel = state.currentStudent?.default_level || 'B1';
   const roomCode = state.roomCode || state.sessionCode || (roomCodeDisplay ? roomCodeDisplay.textContent.trim() : 'EFL-XXX');
-  const dateStr = new Date().toLocaleString('es-ES', { dateStyle: 'full', timeStyle: 'short' });
+  const dateStr = new Date().toLocaleString('en-US', { dateStyle: 'full', timeStyle: 'short' });
 
   // Recopilar intervenciones de transcripción
   const turnElements = document.querySelectorAll('#transcript-feed .transcript-turn');
   let transcriptHtml = '';
   if (turnElements.length === 0) {
-    transcriptHtml = '<p style="color: #6e7681; font-style: italic;">Sin transcripción registrada en esta sesión.</p>';
+    transcriptHtml = '<p style="color: #6e7681; font-style: italic;">No transcript recorded for this session.</p>';
   } else {
     turnElements.forEach(el => {
       const isTeacher = el.classList.contains('turn-teacher');
-      const speaker = isTeacher ? 'Profesor' : 'Estudiante';
+      const speaker = isTeacher ? 'Teacher' : 'Student';
       const text = el.querySelector('.turn-content')?.innerHTML || el.textContent;
       transcriptHtml += `
         <div style="margin-bottom: 12px; padding: 12px 16px; border-radius: 8px; background: ${isTeacher ? '#161b22' : '#1a222d'}; border-left: 4px solid ${isTeacher ? '#388bfd' : '#238636'};">
@@ -861,7 +873,7 @@ function exportSessionReportHTML() {
     observationsHtml = `
     <div style="background: rgba(56, 139, 253, 0.08); border: 1px solid rgba(56, 139, 253, 0.3); border-left: 4px solid #388bfd; border-radius: 8px; padding: 16px 20px; margin-bottom: 28px;">
       <h3 style="color: #58a6ff; margin: 0 0 8px 0; font-size: 1.05rem; display: flex; align-items: center; gap: 8px;">
-        <span style="font-size: 1.1rem;">&#9998;</span> Observaciones Pedagógicas del Docente
+        <span style="font-size: 1.1rem;">&#9998;</span> Teacher's Pedagogical Notes
       </h3>
       <div style="color: #f0f6fc; font-size: 0.95rem; line-height: 1.6;">${formattedObs}</div>
     </div>`;
@@ -869,11 +881,11 @@ function exportSessionReportHTML() {
 
   // Recopilar tarjetas por cada una de las 5 pestañas maestras
   const categories = [
-    { id: 'grammar', title: '1. Gramática y Sintaxis (Tolerancia Cero)', color: '#388bfd' },
-    { id: 'vocabulary', title: '2. Vocabulario y Colocaciones', color: '#8957e5' },
-    { id: 'pronunciation', title: '3. Pronunciación y Fonética', color: '#da3633' },
-    { id: 'upgrade_c1', title: '4. Upgrade C1 (Sofisticación Discursiva)', color: '#d29922' },
-    { id: 'fluency', title: '5. Fluidez y Cohesión', color: '#238636' }
+    { id: 'grammar', title: '1. Grammar & Syntax (Zero Tolerance)', color: '#388bfd' },
+    { id: 'vocabulary', title: '2. Vocabulary & Collocations', color: '#8957e5' },
+    { id: 'pronunciation', title: '3. Pronunciation & Phonetics', color: '#da3633' },
+    { id: 'upgrade_c1', title: '4. C1 Upgrade (Discourse Sophistication)', color: '#d29922' },
+    { id: 'fluency', title: '5. Fluency & Cohesion', color: '#238636' }
   ];
 
   let cardsHtml = '';
@@ -888,11 +900,11 @@ function exportSessionReportHTML() {
       <section style="margin-top: 28px; margin-bottom: 20px;">
         <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid ${cat.color}; padding-bottom: 8px; margin-bottom: 14px;">
           <h3 style="color: #f0f6fc; font-size: 1.1rem; margin: 0;">${cat.title}</h3>
-          <span style="background: ${cat.color}22; color: ${cat.color}; font-weight: 700; padding: 2px 10px; border-radius: 12px; font-size: 0.8rem; border: 1px solid ${cat.color}44;">${cards.length} tarjeta${cards.length === 1 ? '' : 's'}</span>
+          <span style="background: ${cat.color}22; color: ${cat.color}; font-weight: 700; padding: 2px 10px; border-radius: 12px; font-size: 0.8rem; border: 1px solid ${cat.color}44;">${cards.length} observation${cards.length === 1 ? '' : 's'}</span>
         </div>`;
 
     if (cards.length === 0) {
-      cardsHtml += `<p style="color: #6e7681; font-size: 0.88rem; font-style: italic; margin-left: 8px;">No se registraron observaciones en esta categoría.</p></section>`;
+      cardsHtml += `<p style="color: #6e7681; font-size: 0.88rem; font-style: italic; margin-left: 8px;">No observations recorded in this category.</p></section>`;
     } else {
       cards.forEach(card => {
         const context = card.querySelector('.card-context-text')?.textContent || '';
@@ -901,12 +913,49 @@ function exportSessionReportHTML() {
         const explanation = card.querySelector('.card-explanation')?.innerHTML || '';
         const ieltsDesc = card.querySelector('.card-ielts-footer')?.textContent?.trim() || '';
 
+        let capsuleHtml = '';
+        if (card.dataset.contrastiveCapsule) {
+          try {
+            const cap = JSON.parse(card.dataset.contrastiveCapsule);
+            if (cap && cap.poleA && cap.poleB) {
+              capsuleHtml = `
+                <div style="margin-top: 10px; margin-bottom: 10px; background: rgba(13, 17, 23, 0.7); border: 1px solid #30363d; border-radius: 6px; padding: 10px 12px;">
+                  <div style="font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #c084fc; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+                    <span>⚖️</span>
+                    <span>Contrastive Focus (A vs B)</span>
+                  </div>
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div style="background: #161b22; border-radius: 6px; padding: 8px 10px; border: 1px solid #30363d; border-left: 3px solid #d29922; font-size: 0.82rem;">
+                      <div style="display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: #f0f6fc; margin-bottom: 4px;">
+                        <span style="font-size: 0.68rem; font-weight: 700; text-transform: uppercase; padding: 1px 5px; border-radius: 3px; background: rgba(210, 153, 34, 0.2); color: #e3b341;">Form A</span>
+                        <strong>${escapeHtml(cap.poleA.label || '')}</strong>
+                      </div>
+                      <div style="font-size: 0.8rem; color: #c9d1d9; line-height: 1.4;">${escapeHtml(cap.poleA.rule || '')}</div>
+                      ${cap.poleA.example ? `<div style="font-size: 0.78rem; color: #8b949e; font-style: italic; margin-top: 2px;">"${escapeHtml(cap.poleA.example)}"</div>` : ''}
+                    </div>
+                    <div style="background: #161b22; border-radius: 6px; padding: 8px 10px; border: 1px solid #30363d; border-left: 3px solid #3fb950; font-size: 0.82rem;">
+                      <div style="display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: #f0f6fc; margin-bottom: 4px;">
+                        <span style="font-size: 0.68rem; font-weight: 700; text-transform: uppercase; padding: 1px 5px; border-radius: 3px; background: rgba(63, 185, 80, 0.2); color: #56d364;">Form B</span>
+                        <strong>${escapeHtml(cap.poleB.label || '')}</strong>
+                      </div>
+                      <div style="font-size: 0.8rem; color: #c9d1d9; line-height: 1.4;">${escapeHtml(cap.poleB.rule || '')}</div>
+                      ${cap.poleB.example ? `<div style="font-size: 0.78rem; color: #8b949e; font-style: italic; margin-top: 2px;">"${escapeHtml(cap.poleB.example)}"</div>` : ''}
+                    </div>
+                  </div>
+                </div>`;
+            }
+          } catch (e) {
+            console.warn('[Report] Error parsing contrastive capsule:', e);
+          }
+        }
+
         cardsHtml += `
           <div style="background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px 16px; margin-bottom: 14px;">
-            ${context ? `<div style="font-size: 0.8rem; color: #8b949e; margin-bottom: 8px;"><strong>Contexto Docente:</strong> <span style="font-style: italic;">"${context}"</span></div>` : ''}
-            <div style="margin-bottom: 8px; line-height: 1.5;"><strong style="color: #f85149; font-size: 0.85rem; text-transform: uppercase;">Respuesta del Alumno:</strong> <div style="color: #f0f6fc; margin-top: 2px;">${studentResp}</div></div>
-            <div class="review-target-answer" style="margin-bottom: 8px; line-height: 1.5;">
-              <strong style="color: #3fb950; font-size: 0.85rem; text-transform: uppercase;">Corrección Quirúrgica:</strong>
+            ${context ? `<div style="font-size: 0.8rem; color: #8b949e; margin-bottom: 8px;"><strong>Teacher Context:</strong> <span style="font-style: italic;">"${context}"</span></div>` : ''}
+            <div style="margin-bottom: 8px; line-height: 1.5;"><strong style="color: #f85149; font-size: 0.85rem; text-transform: uppercase;">Student Response:</strong> <div style="color: #f0f6fc; margin-top: 2px;">${studentResp}</div></div>
+            ${capsuleHtml}
+            <div class="review-target-answer" style="margin-top: 8px; margin-bottom: 8px; line-height: 1.5;">
+              <strong style="color: #3fb950; font-size: 0.85rem; text-transform: uppercase;">Surgical Correction:</strong>
               <div style="color: #f0f6fc; margin-top: 2px;">${fix}</div>
               ${explanation ? `<div style="background: #0d1117; padding: 8px 12px; border-radius: 6px; font-size: 0.85rem; color: #c9d1d9; margin-top: 8px; margin-bottom: 8px; border-left: 3px solid #8957e5;">${explanation}</div>` : ''}
             </div>
@@ -921,65 +970,66 @@ function exportSessionReportHTML() {
   let exercisesHtml = '';
   if (state.sessionExercises && state.sessionExercises.length > 0) {
     const FORMAT_TITLES = {
-      multiple_choice: 'Opción Múltiple',
-      spot_the_error: 'Detectar Error',
+      multiple_choice: 'Multiple Choice',
+      spot_the_error: 'Spot the Error',
       key_word_transformation: 'Key Word Transformation (C1)',
-      error_correction_input: 'Corrección de Frase',
-      sentence_unscramble: 'Ordenar Frase',
+      error_correction_input: 'Sentence Correction',
+      sentence_unscramble: 'Unscramble Sentence',
       open_cloze: 'Open Cloze'
     };
 
     const CAT_LABELS = {
-      grammar: 'Gramática',
-      vocabulary: 'Vocabulario',
-      pronunciation: 'Pronunciación',
-      upgrade_c1: 'Upgrade C1',
-      fluency: 'Fluidez'
+      grammar: 'Grammar',
+      vocabulary: 'Vocabulary',
+      pronunciation: 'Pronunciation',
+      upgrade_c1: 'C1 Upgrade',
+      fluency: 'Fluency'
     };
 
     let itemsHtml = '';
     state.sessionExercises.forEach((ex, idx) => {
       const typeLabel = FORMAT_TITLES[ex.type] || ex.type;
-      const catLabel = CAT_LABELS[ex.category] || ex.category || 'Práctica';
+      const catLabel = CAT_LABELS[ex.category] || ex.category || 'Practice';
       const isContrast = ex.contrastPolarity === 'contrast';
+      const targetPole = ex.targetPole || (isContrast ? 'A' : 'B');
       const polarityBadge = isContrast
-        ? '<span style="background: rgba(245, 158, 11, 0.18); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 9999px;">⚖️ Contraste</span>'
-        : '<span style="background: rgba(16, 185, 129, 0.18); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 9999px;">🎯 Regla Objetivo</span>';
+        ? `<span style="background: rgba(245, 158, 11, 0.18); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4); font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 9999px;">⚖️ Contrast (Form ${targetPole})</span>`
+        : `<span style="background: rgba(16, 185, 129, 0.18); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4); font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 9999px;">🎯 Target (Form ${targetPole})</span>`;
 
-      let studentStatusBadge = '<span style="background: rgba(110, 118, 129, 0.2); color: #8b949e; border: 1px solid #30363d; font-size: 0.72rem; font-weight: 600; padding: 2px 8px; border-radius: 9999px;">⏳ No respondido</span>';
+      let studentStatusBadge = '<span style="background: rgba(110, 118, 129, 0.2); color: #8b949e; border: 1px solid #30363d; font-size: 0.72rem; font-weight: 600; padding: 2px 8px; border-radius: 9999px;">⏳ Not answered</span>';
       if (ex.isCorrect === true) {
-        studentStatusBadge = '<span style="background: rgba(46, 160, 67, 0.2); color: #3fb950; border: 1px solid rgba(46, 160, 67, 0.4); font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 9999px;">✓ Correcto</span>';
+        studentStatusBadge = '<span style="background: rgba(46, 160, 67, 0.2); color: #3fb950; border: 1px solid rgba(46, 160, 67, 0.4); font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 9999px;">✓ Correct</span>';
       } else if (ex.isCorrect === false) {
-        studentStatusBadge = '<span style="background: rgba(248, 81, 73, 0.2); color: #f85149; border: 1px solid rgba(248, 81, 73, 0.4); font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 9999px;">✗ Por reforzar</span>';
+        studentStatusBadge = '<span style="background: rgba(248, 81, 73, 0.2); color: #f85149; border: 1px solid rgba(248, 81, 73, 0.4); font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 9999px;">✗ Needs practice</span>';
       }
 
       let exerciseBodyHtml = '';
       let solutionHtml = '';
 
       if (ex.type === 'spot_the_error') {
-        const segs = (ex.segments || []).map((s, sIdx) => `<span style="display: inline-block; margin: 2px 4px; padding: 4px 8px; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; font-size: 0.88rem;"><strong>[${sIdx + 1}]</strong> ${s}</span>`).join(' ');
+        const segs = (ex.segments || []).map((s, sIdx) => `<span style="display: inline-block; margin: 2px 4px; padding: 4px 8px; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; font-size: 0.88rem;"><strong>[${sIdx + 1}]</strong> ${escapeHtml(s)}</span>`).join(' ');
         exerciseBodyHtml = `<div style="margin: 8px 0;">${segs}</div>`;
-        solutionHtml = `Segmento con error: <strong>[${(ex.errorSegmentIndex || 0) + 1}]</strong> &rarr; Corrección: <strong style="color: #3fb950;">${ex.correctedSegment || ''}</strong>`;
+        solutionHtml = `Error segment: <strong>[${(ex.errorSegmentIndex || 0) + 1}]</strong> &rarr; Target correction: <strong style="color: #3fb950;">${escapeHtml(ex.correctedSegment || '')}</strong>`;
       } else if (ex.type === 'key_word_transformation') {
         exerciseBodyHtml = `
-          <div style="font-style: italic; color: #8b949e; margin-bottom: 4px;">"${ex.baseSentence || ''}"</div>
-          <div style="margin-bottom: 6px;"><span style="background: rgba(168, 85, 247, 0.2); color: #c084fc; font-weight: 800; padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(168, 85, 247, 0.4); font-size: 0.85rem;">${ex.keyWord || ''}</span> <span style="color: #f0f6fc; margin-left: 6px;">${(ex.targetSentenceTemplate || '').replace('___', '<strong style="color: #c084fc; border-bottom: 2px dashed #c084fc;">___</strong>')}</span></div>`;
-        solutionHtml = `Transformación modelo: <strong style="color: #3fb950;">${ex.idealAnswer || ''}</strong>`;
+          <div style="font-style: italic; color: #8b949e; margin-bottom: 4px;">"${escapeHtml(ex.baseSentence || '')}"</div>
+          <div style="margin-bottom: 6px;"><span style="background: rgba(168, 85, 247, 0.2); color: #c084fc; font-weight: 800; padding: 2px 8px; border-radius: 4px; border: 1px solid rgba(168, 85, 247, 0.4); font-size: 0.85rem;">${escapeHtml(ex.keyWord || '')}</span> <span style="color: #f0f6fc; margin-left: 6px;">${(escapeHtml(ex.targetSentenceTemplate || '')).replace('___', '<strong style="color: #c084fc; border-bottom: 2px dashed #c084fc;">___</strong>')}</span></div>`;
+        solutionHtml = `Model transformation: <strong style="color: #3fb950;">${escapeHtml(ex.idealAnswer || '')}</strong>`;
       } else if (ex.type === 'error_correction_input') {
-        exerciseBodyHtml = `<div style="font-style: italic; color: #f0f6fc; margin: 6px 0;">"${ex.faultySentence || ''}"</div>`;
-        solutionHtml = `Corrección esperada: <strong style="color: #3fb950;">${ex.idealAnswer || ''}</strong>`;
+        exerciseBodyHtml = `<div style="font-style: italic; color: #f0f6fc; margin: 6px 0;">"${escapeHtml(ex.faultySentence || '')}"</div>`;
+        solutionHtml = `Target correction: <strong style="color: #3fb950;">${escapeHtml(ex.idealAnswer || '')}</strong>`;
       } else if (ex.type === 'sentence_unscramble') {
-        const chunks = (ex.shuffledChunks || []).map(c => `<span style="display: inline-block; margin: 2px 4px; padding: 3px 8px; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; font-size: 0.84rem; color: #c084fc;">${c}</span>`).join(' ');
+        const chunks = (ex.shuffledChunks || []).map(c => `<span style="display: inline-block; margin: 2px 4px; padding: 3px 8px; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; font-size: 0.84rem; color: #c084fc;">${escapeHtml(c)}</span>`).join(' ');
         exerciseBodyHtml = `<div style="margin: 6px 0;">${chunks}</div>`;
-        solutionHtml = `Oración correcta: <strong style="color: #3fb950;">${ex.correctSentence || ''}</strong>`;
+        solutionHtml = `Target sentence: <strong style="color: #3fb950;">${escapeHtml(ex.correctSentence || '')}</strong>`;
       } else if (ex.type === 'open_cloze') {
-        exerciseBodyHtml = `<div style="color: #f0f6fc; font-size: 0.95rem; margin: 6px 0;">${(ex.promptSentence || '').replace('___', '<strong style="color: #c084fc; border-bottom: 2px dashed #c084fc;">___</strong>')}</div>`;
-        solutionHtml = `Palabra precisa: <strong style="color: #3fb950;">${ex.idealAnswer || ''}</strong>`;
+        exerciseBodyHtml = `<div style="color: #f0f6fc; font-size: 0.95rem; margin: 6px 0;">${(escapeHtml(ex.promptSentence || '')).replace('___', '<strong style="color: #c084fc; border-bottom: 2px dashed #c084fc;">___</strong>')}</div>`;
+        solutionHtml = `Target word: <strong style="color: #3fb950;">${escapeHtml(ex.idealAnswer || '')}</strong>`;
       } else { // multiple_choice
-        const sentence = (ex.promptSentence || '').replace('___', '<strong style="color: #c084fc; border-bottom: 2px dashed #c084fc;">___</strong>');
-        const opts = (ex.options || []).map((o, oIdx) => `<span style="display: inline-block; margin: 2px 6px; padding: 3px 8px; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; font-size: 0.84rem; color: #c9d1d9;">${String.fromCharCode(65 + oIdx)}) ${o}</span>`).join(' ');
+        const sentence = (escapeHtml(ex.promptSentence || '')).replace('___', '<strong style="color: #c084fc; border-bottom: 2px dashed #c084fc;">___</strong>');
+        const opts = (ex.options || []).map((o, oIdx) => `<span style="display: inline-block; margin: 2px 6px; padding: 3px 8px; background: #0d1117; border: 1px solid #30363d; border-radius: 4px; font-size: 0.84rem; color: #c9d1d9;">${String.fromCharCode(65 + oIdx)}) ${escapeHtml(o)}</span>`).join(' ');
         exerciseBodyHtml = `<div style="color: #f0f6fc; font-size: 0.95rem; margin: 6px 0;">${sentence}</div><div style="margin-top: 4px;">${opts}</div>`;
-        solutionHtml = `Opción correcta: <strong style="color: #3fb950;">${ex.options && typeof ex.correctIndex === 'number' ? ex.options[ex.correctIndex] : ''}</strong>`;
+        solutionHtml = `Target option: <strong style="color: #3fb950;">${ex.options && typeof ex.correctIndex === 'number' ? escapeHtml(ex.options[ex.correctIndex]) : ''}</strong>`;
       }
 
       itemsHtml += `
@@ -993,35 +1043,35 @@ function exportSessionReportHTML() {
             ${studentStatusBadge}
           </div>
 
-          <div style="font-size: 0.82rem; color: #8b949e; font-style: italic; margin-bottom: 6px;">${ex.instruction || ''}</div>
+          <div style="font-size: 0.82rem; color: #8b949e; font-style: italic; margin-bottom: 6px;">${escapeHtml(ex.instruction || '')}</div>
           ${exerciseBodyHtml}
 
           ${ex.studentAnswer ? `
           <div class="review-target-answer" style="margin-top: 10px; font-size: 0.85rem; color: #c9d1d9;">
-            <strong style="color: #8b949e; text-transform: uppercase; font-size: 0.75rem;">Respuesta del Alumno:</strong> 
-            <span style="font-weight: 600; color: ${ex.isCorrect ? '#3fb950' : '#f85149'};">"${ex.studentAnswer}"</span>
+            <strong style="color: #8b949e; text-transform: uppercase; font-size: 0.75rem;">Student Response:</strong> 
+            <span style="font-weight: 600; color: ${ex.isCorrect ? '#3fb950' : '#f85149'};">"${escapeHtml(ex.studentAnswer)}"</span>
           </div>` : ''}
 
           <div class="review-target-answer" style="margin-top: 10px; background: rgba(16, 185, 129, 0.08); border-left: 3px solid #238636; padding: 10px 14px; border-radius: 4px;">
             <div style="font-size: 0.88rem; color: #e6edf3;">${solutionHtml}</div>
-            ${ex.feedbackExplanation ? `<div style="font-size: 0.8rem; color: #8b949e; margin-top: 4px;">${ex.feedbackExplanation}</div>` : ''}
+            ${ex.feedbackExplanation ? `<div style="font-size: 0.8rem; color: #8b949e; margin-top: 4px;">${escapeHtml(ex.feedbackExplanation)}</div>` : ''}
           </div>
         </div>`;
     });
 
     exercisesHtml = `
       <h2 style="color: #f0f6fc; border-bottom: 2px solid #a855f7; padding-bottom: 8px; margin-top: 36px; font-size: 1.25rem; display: flex; align-items: center; justify-content: space-between;">
-        <span>Práctica Interactiva Realizada en Sesión (${state.sessionExercises.length} Ejercicio${state.sessionExercises.length === 1 ? '' : 's'})</span>
-        <span style="font-size: 0.78rem; font-weight: 600; color: #c084fc; background: rgba(168, 85, 247, 0.15); padding: 2px 10px; border-radius: 12px; border: 1px solid rgba(168, 85, 247, 0.3);">Micro-Ejercicios IA</span>
+        <span>Interactive Practice Conducted in Session (${state.sessionExercises.length} Exercise${state.sessionExercises.length === 1 ? '' : 's'})</span>
+        <span style="font-size: 0.78rem; font-weight: 600; color: #c084fc; background: rgba(168, 85, 247, 0.15); padding: 2px 10px; border-radius: 12px; border: 1px solid rgba(168, 85, 247, 0.3);">AI Micro-Exercises</span>
       </h2>
       ${itemsHtml}`;
   }
 
   const fullReportHtml = `<!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Reporte de Evaluación Oral IELTS - ${studentName} (${roomCode})</title>
+  <title>EFL / IELTS Oral Assessment Report - ${escapeHtml(studentName)} (${escapeHtml(roomCode)})</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #0d1117; color: #f0f6fc; margin: 0; padding: 32px; }
     .report-wrapper { max-width: 900px; margin: 0 auto; background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 36px; box-shadow: 0 12px 30px rgba(0,0,0,0.5); }
@@ -1093,37 +1143,37 @@ function exportSessionReportHTML() {
   <div class="report-wrapper">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
       <div>
-        <h1>Reporte Pedagógico de Evaluación Oral EFL / IELTS</h1>
-        <div class="header-sub">Speaking Assistant &bull; Rúbrica IELTS Band Descriptors</div>
+        <h1>EFL / IELTS Oral Assessment Pedagogical Report</h1>
+        <div class="header-sub">Speaking Assistant &bull; IELTS Band Descriptors Rubric</div>
       </div>
       <button id="toggle-review-mode-btn" class="btn-review-mode" onclick="toggleReviewMode()">
-        👁️ Modo Repaso (Ocultar Respuestas)
+        👁️ Review Mode (Hide Answers)
       </button>
     </div>
 
     <div id="review-notice-banner" class="review-notice-banner">
-      <strong>Modo Repaso Activado:</strong> Las soluciones y correcciones quirúrgicas están ocultas. Intenta resolverlas mentalmente o en voz alta y pasa el cursor por encima de cada bloque para verificar la respuesta modelo.
+      <strong>Review Mode Active:</strong> Solutions and surgical corrections are blurred. Try answering mentally or out loud, then hover over any block to reveal the model answer.
     </div>
 
     <div class="meta-card">
-      <div class="meta-field"><strong>Estudiante</strong><span>${studentName}</span></div>
-      <div class="meta-field"><strong>Nivel Objetivo</strong><span>${studentLevel}</span></div>
-      <div class="meta-field"><strong>Código de Sala</strong><span style="font-family: monospace; color: #58a6ff;">${roomCode}</span></div>
-      <div class="meta-field"><strong>Fecha de Sesión</strong><span>${dateStr}</span></div>
+      <div class="meta-field"><strong>Student</strong><span>${escapeHtml(studentName)}</span></div>
+      <div class="meta-field"><strong>Target Level</strong><span>${escapeHtml(studentLevel)}</span></div>
+      <div class="meta-field"><strong>Room Code</strong><span style="font-family: monospace; color: #58a6ff;">${escapeHtml(roomCode)}</span></div>
+      <div class="meta-field"><strong>Session Date</strong><span>${dateStr}</span></div>
     </div>
 
     ${observationsHtml}
 
-    <h2 style="color: #f0f6fc; border-bottom: 2px solid #30363d; padding-bottom: 8px; margin-top: 32px; font-size: 1.25rem;">Transcripción Verbatim de la Sesión</h2>
+    <h2 style="color: #f0f6fc; border-bottom: 2px solid #30363d; padding-bottom: 8px; margin-top: 32px; font-size: 1.25rem;">Session Verbatim Transcript</h2>
     ${transcriptHtml}
 
-    <h2 style="color: #f0f6fc; border-bottom: 2px solid #30363d; padding-bottom: 8px; margin-top: 36px; font-size: 1.25rem;">Retroalimentación Quirúrgica (${totalCardsCount} Observaciones)</h2>
+    <h2 style="color: #f0f6fc; border-bottom: 2px solid #30363d; padding-bottom: 8px; margin-top: 36px; font-size: 1.25rem;">Surgical Feedback (${totalCardsCount} Observations)</h2>
     ${cardsHtml}
 
     ${exercisesHtml}
 
     <footer style="margin-top: 48px; border-top: 1px solid #30363d; padding-top: 18px; color: #6e7681; font-size: 0.8rem; text-align: center;">
-      Generado automáticamente por Antigravity EFL Speaking Coach &bull; Archivo pedagógico del docente
+      Automatically generated by Antigravity EFL Speaking Coach &bull; Teacher's Pedagogical Record
     </footer>
   </div>
 
@@ -1134,10 +1184,10 @@ function exportSessionReportHTML() {
       if (btn) {
         if (isReview) {
           btn.classList.add('active');
-          btn.innerHTML = '🔓 Salir de Modo Repaso (Mostrar Respuestas)';
+          btn.innerHTML = '🔓 Exit Review Mode (Show Answers)';
         } else {
           btn.classList.remove('active');
-          btn.innerHTML = '👁️ Modo Repaso (Ocultar Respuestas)';
+          btn.innerHTML = '👁️ Review Mode (Hide Answers)';
         }
       }
     }
@@ -1343,6 +1393,14 @@ function addSurgicalCard(item) {
   const surgicalCorrection = item.surgicalCorrection || item.surgical_correction || '';
   const explanation = item.explanation || item.reason || '';
   const ieltsCriterion = item.ieltsCriterion || item.ielts_criterion || 'IELTS Band Descriptors';
+  const contrastiveCapsule = item.contrastiveCapsule || null;
+  const hasContrastiveCapsule = Boolean(
+    contrastiveCapsule &&
+    contrastiveCapsule.poleA &&
+    contrastiveCapsule.poleB &&
+    contrastiveCapsule.poleA.label &&
+    contrastiveCapsule.poleB.label
+  );
 
   const targetPane = document.getElementById(`tab-pane-${category}`);
   if (!targetPane) return;
@@ -1354,6 +1412,39 @@ function addSurgicalCard(item) {
   const card = document.createElement('article');
   card.className = 'surgical-card';
   card.dataset.cardId = cardId;
+  if (hasContrastiveCapsule) {
+    card.dataset.contrastiveCapsule = JSON.stringify(contrastiveCapsule);
+  }
+
+  let capsuleHtml = '';
+  if (hasContrastiveCapsule) {
+    capsuleHtml = `
+      <div class="card-contrastive-capsule">
+        <div class="capsule-title">
+          <span>⚖️</span>
+          <span>Contrastive Focus (A vs B)</span>
+        </div>
+        <div class="capsule-grid">
+          <div class="capsule-col pole-a">
+            <div class="pole-title">
+              <span class="pole-pill">Form A</span>
+              <strong>${escapeHtml(contrastiveCapsule.poleA.label)}</strong>
+            </div>
+            <div class="pole-rule">${escapeHtml(contrastiveCapsule.poleA.rule || '')}</div>
+            ${contrastiveCapsule.poleA.example ? `<div class="pole-ex">"${escapeHtml(contrastiveCapsule.poleA.example)}"</div>` : ''}
+          </div>
+          <div class="capsule-col pole-b">
+            <div class="pole-title">
+              <span class="pole-pill target">Form B</span>
+              <strong>${escapeHtml(contrastiveCapsule.poleB.label)}</strong>
+            </div>
+            <div class="pole-rule">${escapeHtml(contrastiveCapsule.poleB.rule || '')}</div>
+            ${contrastiveCapsule.poleB.example ? `<div class="pole-ex">"${escapeHtml(contrastiveCapsule.poleB.example)}"</div>` : ''}
+          </div>
+        </div>
+      </div>
+    `;
+  }
 
   card.innerHTML = `
     ${hasTeacherContext ? `
@@ -1375,6 +1466,8 @@ function addSurgicalCard(item) {
       </div>
 
       ${explanation ? `<div class="card-explanation">${explanation}</div>` : ''}
+
+      ${capsuleHtml}
     </div>
 
     <footer class="card-ielts-footer">
@@ -1747,6 +1840,15 @@ async function handleToggleExerciseCard({ card, cardId, category, studentQuote, 
   }
 
   try {
+    let contrastiveCapsule = null;
+    if (card && card.dataset.contrastiveCapsule) {
+      try {
+        contrastiveCapsule = JSON.parse(card.dataset.contrastiveCapsule);
+      } catch (e) {
+        console.warn('[Micro-Exercise] Error parsing card dataset contrastiveCapsule:', e);
+      }
+    }
+
     let exercise = null;
     const randomSeed = `${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
     if (window.electronAPI && typeof window.electronAPI.generateMicroExercise === 'function') {
@@ -1755,6 +1857,7 @@ async function handleToggleExerciseCard({ card, cardId, category, studentQuote, 
         studentQuote,
         surgicalCorrection,
         explanation,
+        contrastiveCapsule,
         targetLevel: state.targetLevel || 'B1',
         preferredType,
         contrastPolarity,
@@ -1791,8 +1894,9 @@ async function handleToggleExerciseCard({ card, cardId, category, studentQuote, 
       const polarityBadge = panel.querySelector('.exercise-polarity-badge');
       if (polarityBadge) {
         const isContrast = exercise.contrastPolarity === 'contrast';
+        const targetPole = exercise.targetPole || (isContrast ? 'A' : 'B');
         polarityBadge.className = `exercise-polarity-badge ${isContrast ? 'polarity-contrast' : 'polarity-target'}`;
-        polarityBadge.textContent = isContrast ? '⚖️ Contraste' : '🎯 Regla Objetivo';
+        polarityBadge.textContent = isContrast ? `⚖️ Contrast (Form ${targetPole})` : `🎯 Target (Form ${targetPole})`;
       }
 
       const sentenceEl = panel.querySelector('.exercise-panel-sentence');
@@ -1884,7 +1988,7 @@ async function handleToggleExerciseCard({ card, cardId, category, studentQuote, 
       const statusBar = panel.querySelector('.exercise-status-bar');
       if (statusBar) {
         statusBar.className = 'exercise-status-bar status-waiting';
-        statusBar.innerHTML = '<span class="status-dot"></span><span class="status-label">Esperando respuesta del alumno...</span>';
+        statusBar.innerHTML = '<span class="status-dot"></span><span class="status-label">Waiting for student response...</span>';
       }
 
       panel.classList.remove('hidden');
@@ -1895,6 +1999,7 @@ async function handleToggleExerciseCard({ card, cardId, category, studentQuote, 
       await window.electronAPI.broadcastMicroExercise({
         action: 'show_exercise',
         sessionCode: state.sessionCode,
+        contrastiveCapsule: exercise.contrastiveCapsule || contrastiveCapsule || null,
         ...exercise
       });
     }
@@ -1906,6 +2011,8 @@ async function handleToggleExerciseCard({ card, cardId, category, studentQuote, 
       exerciseId: exercise.exerciseId,
       type: exercise.type,
       contrastPolarity: exercise.contrastPolarity || 'target',
+      targetPole: exercise.targetPole || (exercise.contrastPolarity === 'contrast' ? 'A' : 'B'),
+      contrastiveCapsule: exercise.contrastiveCapsule || contrastiveCapsule || null,
       category: exercise.category || category,
       instruction: exercise.instruction || '',
       promptSentence: exercise.promptSentence || '',
@@ -1972,55 +2079,55 @@ function handleStudentExerciseAnswer(answer) {
   if (answer.exerciseType === 'spot_the_error') {
     if (answer.isCorrect) {
       statusBar.className = 'exercise-status-bar status-correct';
-      statusBar.innerHTML = `<span>✓ Detectó el error correctamente: <strong>"${answer.selectedText}"</strong></span>`;
+      statusBar.innerHTML = `<span>✓ Spot the error correct: <strong>"${escapeHtml(answer.selectedText)}"</strong></span>`;
     } else {
       statusBar.className = 'exercise-status-bar status-wrong';
-      const corr = answer.correctText ? ` (Error real en: <strong>"${answer.correctText}"</strong>)` : '';
-      statusBar.innerHTML = `<span>✗ Marcó el segmento: <strong>"${answer.selectedText}"</strong>${corr}</span>`;
+      const corr = answer.correctText ? ` (Actual error in: <strong>"${escapeHtml(answer.correctText)}"</strong>)` : '';
+      statusBar.innerHTML = `<span>✗ Marked segment: <strong>"${escapeHtml(answer.selectedText)}"</strong>${corr}</span>`;
     }
   } else if (answer.exerciseType === 'key_word_transformation') {
     if (answer.isCorrect) {
       statusBar.className = 'exercise-status-bar status-correct';
-      statusBar.innerHTML = `<span>✓ Transformación correcta: <strong>"${answer.selectedText}"</strong></span>`;
+      statusBar.innerHTML = `<span>✓ Correct transformation: <strong>"${escapeHtml(answer.selectedText)}"</strong></span>`;
     } else {
       statusBar.className = 'exercise-status-bar status-wrong';
-      const ideal = answer.correctText ? ` (Modelo: <strong>"${answer.correctText}"</strong>)` : '';
-      statusBar.innerHTML = `<span>✗ Escribió: <strong>"${answer.selectedText}"</strong>${ideal}</span>`;
+      const ideal = answer.correctText ? ` (Target: <strong>"${escapeHtml(answer.correctText)}"</strong>)` : '';
+      statusBar.innerHTML = `<span>✗ Submitted: <strong>"${escapeHtml(answer.selectedText)}"</strong>${ideal}</span>`;
     }
   } else if (answer.exerciseType === 'error_correction_input') {
     if (answer.isCorrect) {
       statusBar.className = 'exercise-status-bar status-correct';
-      statusBar.innerHTML = `<span>✓ Corrección correcta: <strong>"${answer.selectedText}"</strong></span>`;
+      statusBar.innerHTML = `<span>✓ Correct correction: <strong>"${escapeHtml(answer.selectedText)}"</strong></span>`;
     } else {
       statusBar.className = 'exercise-status-bar status-wrong';
-      const ideal = answer.correctText ? ` (Modelo: <strong>"${answer.correctText}"</strong>)` : '';
-      statusBar.innerHTML = `<span>✗ Propuso: <strong>"${answer.selectedText}"</strong>${ideal}</span>`;
+      const ideal = answer.correctText ? ` (Target: <strong>"${escapeHtml(answer.correctText)}"</strong>)` : '';
+      statusBar.innerHTML = `<span>✗ Submitted: <strong>"${escapeHtml(answer.selectedText)}"</strong>${ideal}</span>`;
     }
   } else if (answer.exerciseType === 'sentence_unscramble') {
     if (answer.isCorrect) {
       statusBar.className = 'exercise-status-bar status-correct';
-      statusBar.innerHTML = `<span>✓ Orden sintáctico perfecto</span>`;
+      statusBar.innerHTML = `<span>✓ Perfect sentence syntax</span>`;
     } else {
       statusBar.className = 'exercise-status-bar status-wrong';
-      statusBar.innerHTML = `<span>✗ Orden incorrecto: <strong>"${answer.selectedText}"</strong></span>`;
+      statusBar.innerHTML = `<span>✗ Incorrect order: <strong>"${escapeHtml(answer.selectedText)}"</strong></span>`;
     }
   } else if (answer.exerciseType === 'open_cloze') {
     if (answer.isCorrect) {
       statusBar.className = 'exercise-status-bar status-correct';
-      statusBar.innerHTML = `<span>✓ Palabra precisa: <strong>"${answer.selectedText}"</strong></span>`;
+      statusBar.innerHTML = `<span>✓ Target word correct: <strong>"${escapeHtml(answer.selectedText)}"</strong></span>`;
     } else {
       statusBar.className = 'exercise-status-bar status-wrong';
-      const correctInfo = answer.correctText ? ` (Esperada: <strong>"${answer.correctText}"</strong>)` : '';
-      statusBar.innerHTML = `<span>✗ Escribió: <strong>"${answer.selectedText}"</strong>${correctInfo}</span>`;
+      const correctInfo = answer.correctText ? ` (Target: <strong>"${escapeHtml(answer.correctText)}"</strong>)` : '';
+      statusBar.innerHTML = `<span>✗ Submitted: <strong>"${escapeHtml(answer.selectedText)}"</strong>${correctInfo}</span>`;
     }
   } else {
     if (answer.isCorrect) {
       statusBar.className = 'exercise-status-bar status-correct';
-      statusBar.innerHTML = `<span>✓ Respondió correctamente: <strong>${answer.selectedText}</strong></span>`;
+      statusBar.innerHTML = `<span>✓ Correct answer: <strong>${escapeHtml(answer.selectedText)}</strong></span>`;
     } else {
       statusBar.className = 'exercise-status-bar status-wrong';
-      const correctInfo = answer.correctText ? ` (Correcta: <strong>${answer.correctText}</strong>)` : '';
-      statusBar.innerHTML = `<span>✗ Eligió: <strong>${answer.selectedText}</strong>${correctInfo}</span>`;
+      const correctInfo = answer.correctText ? ` (Target: <strong>${escapeHtml(answer.correctText)}</strong>)` : '';
+      statusBar.innerHTML = `<span>✗ Selected: <strong>${escapeHtml(answer.selectedText)}</strong>${correctInfo}</span>`;
     }
   }
 }
@@ -2034,10 +2141,10 @@ function loadSampleDemoData() {
   if (btnExportReport) btnExportReport.disabled = false;
 
   // Transcripción Continua de Ejemplo
-  addTranscriptTurn('Profesor', 'Could you tell me about a time you had to solve a difficult challenge at work or university?');
-  addTranscriptTurn('Estudiante', 'Well, last year I was working on a project with a very tight deadline. My team and I needs to coordinate many tasks, but the client was changing the requirements all the days.');
-  addTranscriptTurn('Profesor', 'And what did you do to manage those changing expectations?');
-  addTranscriptTurn('Estudiante', 'I organize a meeting to explain them the risks. Actually, if we followed their plan, we will lose a lot of money and time.');
+  addTranscriptTurn('Teacher', 'Could you tell me about a time you had to solve a difficult challenge at work or university?');
+  addTranscriptTurn('Student', 'Well, last year I was working on a project with a very tight deadline. My team and I needs to coordinate many tasks, but the client was changing the requirements all the days.');
+  addTranscriptTurn('Teacher', 'And what did you do to manage those changing expectations?');
+  addTranscriptTurn('Student', 'I organize a meeting to explain them the risks. Actually, if we followed their plan, we will lose a lot of money and time.');
 
   // 1. Pestaña Gramática (Tolerancia cero a errores básicos)
   addSurgicalCard({
@@ -2046,8 +2153,20 @@ function loadSampleDemoData() {
     teacherContext: 'Could you tell me about a time you had to solve a difficult challenge...',
     studentResponse: 'My team and I <span class="highlight-error">needs</span> to coordinate many tasks.',
     surgicalCorrection: 'My team and I <span class="highlight-fix">needed</span> to coordinate many tasks.',
-    explanation: 'Concordancia en tiempo pasado: la narración transcurre en pasado simple ("last year"), por lo que el verbo debe conjugarse en pasado ("needed"), no en presente singular.',
-    ieltsCriterion: 'GRA: Band 5.0 (Basic systemic error in past simple narration)'
+    explanation: 'Past simple agreement: your narration is about last year, so use past tense ("needed"), not present simple ("needs").',
+    ieltsCriterion: 'GRA: Band 5.0 (Basic systemic error in past simple narration)',
+    contrastiveCapsule: {
+      poleA: {
+        label: 'Present simple (needs)',
+        rule: 'Use for habits, facts, or situations true right now',
+        example: 'Our team needs more time today.'
+      },
+      poleB: {
+        label: 'Past simple (needed)',
+        rule: 'Use for completed actions or past events',
+        example: 'Last year, our team needed to coordinate many tasks.'
+      }
+    }
   });
 
   addSurgicalCard({
@@ -2056,8 +2175,20 @@ function loadSampleDemoData() {
     teacherContext: 'And what did you do to manage those changing expectations?',
     studentResponse: 'If we followed their plan, we <span class="highlight-error">will lose</span> a lot of money.',
     surgicalCorrection: 'If we followed their plan, we <span class="highlight-fix">would lose</span> a lot of money.',
-    explanation: 'Segundo condicional: la cláusula subordinada está en pasado hipotético ("followed"), la cláusula principal requiere "would + infinitivo", no "will".',
-    ieltsCriterion: 'GRA: Band 5.5 (Inconsistent conditional modal matching)'
+    explanation: 'Second conditional: when the if-clause uses past tense ("followed"), use "would + verb" in the main clause, not "will".',
+    ieltsCriterion: 'GRA: Band 5.5 (Inconsistent conditional modal matching)',
+    contrastiveCapsule: {
+      poleA: {
+        label: 'First conditional (will)',
+        rule: 'Use for real, likely future situations with "if + present"',
+        example: 'If we follow their plan, we will lose money.'
+      },
+      poleB: {
+        label: 'Second conditional (would)',
+        rule: 'Use for imaginary or hypothetical situations with "if + past"',
+        example: 'If we followed their plan, we would lose money.'
+      }
+    }
   });
 
   // 2. Pestaña Vocabulario y Colocaciones
@@ -2067,8 +2198,20 @@ function loadSampleDemoData() {
     teacherContext: '...the client was changing the requirements all the days.',
     studentResponse: 'The client was changing the requirements <span class="highlight-error">all the days</span>.',
     surgicalCorrection: 'The client was changing the requirements <span class="highlight-fix">on a daily basis / constantly</span>.',
-    explanation: 'Calco directo del español ("todos los días"). En inglés formal de negocios es preferible la colocación "on a daily basis" o el adverbio "constantly".',
-    ieltsCriterion: 'LR: Band 6.0 (Awareness of collocation and natural phrasing)'
+    explanation: 'Natural collocation: "all the days" is an unnatural literal translation. In business English, use "on a daily basis" or "every day".',
+    ieltsCriterion: 'LR: Band 6.0 (Awareness of collocation and natural phrasing)',
+    contrastiveCapsule: {
+      poleA: {
+        label: 'Literal phrasing (all the days)',
+        rule: 'Avoid literal word-by-word translations in English',
+        example: 'He changes requirements all the days.'
+      },
+      poleB: {
+        label: 'Natural idiom (on a daily basis)',
+        rule: 'Use standard English frequency collocations',
+        example: 'He changes requirements on a daily basis.'
+      }
+    }
   });
 
   // 3. Pestaña Pronunciación y Fonética
@@ -2076,10 +2219,11 @@ function loadSampleDemoData() {
     category: 'pronunciation',
     severity: 'basic_error',
     teacherContext: 'Could you tell me about a time you had to solve a difficult challenge...',
-    studentResponse: 'Pronunciación de la terminación en pasado regular en <span class="highlight-error">"coordinate / coordinated"</span>.',
-    surgicalCorrection: 'Asegurar la pronunciación de la sílaba final como <span class="highlight-fix">/kəʊˈɔː.dɪ.neɪ.tɪd/</span> (terminación /ɪd/ tras consonante alveolar /t/).',
-    explanation: 'Omisión de la sílaba adicional en verbos terminados en /t/ o /d/.',
-    ieltsCriterion: 'PR: Band 5.0 - 6.0 (Phonological features of past regular inflections)'
+    studentResponse: 'Pronunciation of regular past -ed ending in <span class="highlight-error">"coordinate / coordinated"</span>.',
+    surgicalCorrection: 'Pronounce the final syllable as <span class="highlight-fix">/kəʊˈɔː.dɪ.neɪ.tɪd/</span> with an extra /ɪd/ syllable.',
+    explanation: 'Add an extra syllable /ɪd/ whenever regular verbs end with a /t/ or /d/ sound.',
+    ieltsCriterion: 'PR: Band 5.0 - 6.0 (Phonological features of past regular inflections)',
+    contrastiveCapsule: null
   });
 
   // 4. Pestaña Upgrade C1 (Alternativas y Parafraseo)
@@ -2089,19 +2233,32 @@ function loadSampleDemoData() {
     teacherContext: 'And what did you do to manage those changing expectations?',
     studentResponse: 'I organize a meeting to <span class="highlight-error">explain them the risks</span>.',
     surgicalCorrection: '<span class="highlight-fix">I convened a meeting to outline the potential pitfalls</span>.',
-    explanation: 'Eleva el registro B1/B2 a nivel ejecutivo C1: "convened" en lugar de "organized" y "outline the potential pitfalls" para denotar precisión y sutileza.',
-    ieltsCriterion: 'LR: Band 7.5 - 8.0 (Idiomatic, precise and sophisticated lexical resource)'
+    explanation: 'C1 executive register: replace "convened" for "organized", and use "outline potential pitfalls" for precise impact.',
+    ieltsCriterion: 'LR: Band 7.5 - 8.0 (Idiomatic, precise and sophisticated lexical resource)',
+    contrastiveCapsule: {
+      poleA: {
+        label: 'Everyday register (explain the risks)',
+        rule: 'Direct everyday words for basic communication',
+        example: 'I set up a meeting to explain the risks.'
+      },
+      poleB: {
+        label: 'C1 executive register (outline pitfalls)',
+        rule: 'High-precision verbs and collocations for formal professional context',
+        example: 'I convened a meeting to outline the potential pitfalls.'
+      }
+    }
   });
 
   // 5. Pestaña Fluidez y Cohesión
   addSurgicalCard({
     category: 'fluency',
     severity: 'refinement',
-    teacherContext: 'Narración de causa y efecto durante el conflicto.',
-    studentResponse: 'Coordinación básica mediante yuxtaposición: <span class="highlight-error">"Well... but... Actually..."</span>.',
-    surgicalCorrection: 'Utilizar marcadores de discurso cohesivos: <span class="highlight-fix">"Consequently / Faced with this situation, we took proactive steps to..."</span>.',
-    explanation: 'Reemplaza conectores coloquiales por marcadores discursivos que estructuran lógicamente la respuesta sin vacilaciones.',
-    ieltsCriterion: 'FC: Band 7.0 (Flexible use of cohesive devices to develop a clear line of thought)'
+    teacherContext: 'Cause-and-effect narration during the conflict.',
+    studentResponse: 'Repetitive hesitation and informal fillers: <span class="highlight-error">"Well... but... Actually..."</span>.',
+    surgicalCorrection: 'Use structured discourse markers: <span class="highlight-fix">"Consequently / Faced with this situation, we took proactive steps to..."</span>.',
+    explanation: 'Replace spoken fillers with clear logical transitions to maintain smooth discourse flow.',
+    ieltsCriterion: 'FC: Band 7.0 (Flexible use of cohesive devices to develop a clear line of thought)',
+    contrastiveCapsule: null
   });
 }
 

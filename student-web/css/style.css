@@ -706,8 +706,134 @@ select {
    ============================================================================== */
 
 .exercise-modal-card {
+  max-width: 540px;
   border-color: rgba(168, 85, 247, 0.4);
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(168, 85, 247, 0.25);
+}
+
+/* ==============================================================================
+   CÁPSULA CONTRASTIVA DE ENFOQUE ESTRUCTURAL (STUDENT-WEB)
+   ============================================================================== */
+.contrastive-capsule-box {
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(168, 85, 247, 0.35);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+
+.capsule-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 6px;
+}
+
+.capsule-header-title {
+  font-size: 0.76rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #c084fc;
+}
+
+.capsule-header-subtitle {
+  font-size: 0.72rem;
+  color: #94a3b8;
+}
+
+.capsule-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+@media (max-width: 520px) {
+  .capsule-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+.capsule-column {
+  background: rgba(17, 24, 39, 0.95);
+  border: 1px solid #374151;
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.capsule-pole-a {
+  border-left: 3px solid #f59e0b;
+}
+
+.capsule-pole-b {
+  border-left: 3px solid #10b981;
+}
+
+.capsule-pole-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pole-tag {
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.tag-pole-a {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+.tag-pole-b {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+}
+
+.pole-label {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #f1f5f9;
+}
+
+.pole-rule {
+  font-size: 0.8rem;
+  color: #cbd5e1;
+  line-height: 1.35;
+  margin: 0;
+}
+
+.pole-example-box {
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 4px;
+  padding: 4px 8px;
+  margin-top: 2px;
+}
+
+.example-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #64748b;
+  display: block;
+}
+
+.pole-example {
+  font-size: 0.78rem;
+  color: #94a3b8;
+  font-style: italic;
+  margin: 0;
 }
 
 .guided-pulse-dot.exercise-dot {
