@@ -997,4 +997,149 @@ body {
   }
 }
 
+/* MODAL: CONFIRMAR NIVEL ANTES DE ANALIZAR */
+.modal-card-level-confirm {
+  width: 480px;
+  max-width: 95vw;
+  background: #161b22;
+  border: 1px solid rgba(88, 166, 255, 0.3);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.55), 0 0 20px rgba(56, 139, 253, 0.15);
+  border-radius: 12px;
+  padding: 24px;
+}
+
+.level-modal-icon {
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.confirm-level-intro {
+  font-size: 0.88rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.confirm-student-badge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  margin-bottom: 18px;
+}
+
+.confirm-student-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.confirm-student-val {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #f0f6fc;
+}
+
+.confirm-level-picker {
+  margin-bottom: 22px;
+}
+
+.confirm-picker-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.level-btn-group {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+
+.btn-level-pill {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 6px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1.5px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.18s ease-in-out;
+  color: #c9d1d9;
+}
+
+.btn-level-pill:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.25);
+  transform: translateY(-1px);
+}
+
+.btn-level-pill .level-code {
+  font-size: 1.15rem;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.btn-level-pill .level-desc {
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-top: 2px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* Estado activo de cada nivel */
+.btn-level-pill.active {
+  background: rgba(56, 139, 253, 0.18);
+  border-color: #58a6ff;
+  color: #58a6ff;
+  box-shadow: 0 0 12px rgba(88, 166, 255, 0.25);
+}
+
+.btn-level-pill[data-level="A2"].active {
+  background: rgba(63, 185, 80, 0.18);
+  border-color: #3fb950;
+  color: #3fb950;
+  box-shadow: 0 0 12px rgba(63, 185, 80, 0.25);
+}
+
+.btn-level-pill[data-level="B1"].active {
+  background: rgba(56, 139, 253, 0.18);
+  border-color: #58a6ff;
+  color: #58a6ff;
+  box-shadow: 0 0 12px rgba(88, 166, 255, 0.25);
+}
+
+.btn-level-pill[data-level="B2"].active {
+  background: rgba(210, 153, 34, 0.18);
+  border-color: #d29922;
+  color: #e3b341;
+  box-shadow: 0 0 12px rgba(210, 153, 34, 0.25);
+}
+
+.btn-level-pill[data-level="C1"].active {
+  background: rgba(168, 85, 247, 0.18);
+  border-color: #a855f7;
+  color: #c084fc;
+  box-shadow: 0 0 12px rgba(168, 85, 247, 0.25);
+}
+
+.btn-start-analysis {
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+  padding: 12px 18px;
+}
+
 

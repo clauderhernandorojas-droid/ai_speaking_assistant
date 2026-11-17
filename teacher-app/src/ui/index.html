@@ -258,6 +258,57 @@
       </div>
     </div>
 
+    <!-- MODAL: CONFIRMAR NIVEL DEL ESTUDIANTE ANTES DE ANALIZAR -->
+    <div id="confirm-level-modal" class="modal-backdrop hidden">
+      <div class="modal-card modal-card-level-confirm">
+        <header class="modal-header">
+          <div class="modal-title-with-icon">
+            <span class="level-modal-icon">🎯</span>
+            <h3 id="confirm-level-title">Confirmar nivel antes de analizar</h3>
+          </div>
+          <button type="button" id="btn-close-confirm-level-modal" class="btn-close">&times;</button>
+        </header>
+        <div class="modal-confirm-body">
+          <p class="confirm-level-intro">Verifica el nivel CEFR del estudiante para calibrar con precisión las correcciones pedagógicas y la reformulación (i+1):</p>
+          <div class="confirm-student-badge">
+            <span class="confirm-student-label">Alumno:</span>
+            <span id="confirm-student-name" class="confirm-student-val">Estudiante</span>
+          </div>
+
+          <div class="confirm-level-picker">
+            <div class="confirm-picker-label">Nivel CEFR Confirmado:</div>
+            <div class="level-btn-group" id="confirm-level-btn-group">
+              <button type="button" class="btn-level-pill" data-level="A2">
+                <span class="level-code">A2</span>
+                <span class="level-desc">Elementary</span>
+              </button>
+              <button type="button" class="btn-level-pill active" data-level="B1">
+                <span class="level-code">B1</span>
+                <span class="level-desc">Intermediate</span>
+              </button>
+              <button type="button" class="btn-level-pill" data-level="B2">
+                <span class="level-code">B2</span>
+                <span class="level-desc">Upper-Int</span>
+              </button>
+              <button type="button" class="btn-level-pill" data-level="C1">
+                <span class="level-code">C1</span>
+                <span class="level-desc">Advanced</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-actions-confirm">
+          <button type="button" id="btn-proceed-analysis" class="btn btn-primary btn-block btn-start-analysis">
+            <span>✨</span> Analizar Transcripción
+          </button>
+          <div class="secondary-actions-group">
+            <button type="button" id="btn-cancel-confirm-level" class="btn btn-secondary">Cancelar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <script src="js/renderer.js"></script>

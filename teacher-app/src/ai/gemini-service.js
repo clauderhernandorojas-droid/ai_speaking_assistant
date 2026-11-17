@@ -231,6 +231,8 @@ SILENCE RULE:
     const apiKey = this.getApiKey();
     console.log('[GEMINI] Clave encontrada:', !!apiKey, 'Longitud:', apiKey ? apiKey.length : 0);
 
+    const normLevel = (studentLevel || 'B1').toUpperCase().trim();
+
     const payload = {
       contents: [
         {
@@ -240,7 +242,8 @@ SILENCE RULE:
 
 TEACHER'S CONTEXT / QUESTION: "${teacherContext}"
 STUDENT'S SPOKEN RESPONSE: "${studentUtterance}"
-STUDENT TARGET CEFR LEVEL: "${studentLevel}"
+CONFIRMED STUDENT CEFR LEVEL: "${normLevel}"
+LEVEL CALIBRATION MANDATE: Keep 'grammar', 'vocabulary', 'pronunciation', and 'fluency' strictly within ${normLevel}. Keep 'upgrade_c1' for C1 reference. In modelSpeech, 'naturalCorrected' must strictly reflect ${normLevel}, and 'targetUpgrade' must reflect exactly i+1.
 
 Analyze according to all instructions and output ONLY valid JSON without markdown wrapping.`
             }

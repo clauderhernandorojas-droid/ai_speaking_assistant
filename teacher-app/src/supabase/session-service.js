@@ -539,8 +539,16 @@ class TeacherSessionService {
    * del último fragmento de audio del alumno, espera a que termine la cola de transcripción
    * y procesa la evaluación sobre todo el sessionTranscript acumulado.
    */
-  async stopSession(reason = 'teacher_stopped') {
+  async stopSession(reason = 'teacher_stopped', options = {}) {
     if (!this.currentSession) return null;
+
+    // Normalizar argumentos si reason es objeto
+    let actualReason = reason;
+    let actualOptions = options;
+    if (typeof reason === 'object' && reason !== null) {
+      actualOptions = reason;
+      actualReason = actualOptions.reason || 'teacher_stopped';
+    }
 
     // 1. Notificar al estudiante vía Realtime para que detenga la captura y transmita el último bloque
     if (this.channel) {
@@ -549,7 +557,7 @@ class TeacherSessionService {
         await this.channel.send({
           type: 'broadcast',
           event: 'teacher:session_end',
-          payload: { reason, timestamp: Date.now() }
+          payload: { reason: actualReason, timestamp: Date.now() }
         });
       } catch (err) {
         console.warn('[Supabase Realtime] Error al emitir teacher:session_end:', err.message);
@@ -587,8 +595,8 @@ class TeacherSessionService {
       }
     }
 
-    // 5. Ejecutar la evaluación IELTS una sola vez sobre todo el sessionTranscript acumulado
-    const sessionSummary = await this.processReceivedAudioSession();
+    // 5. Preparar la transcripción verbatim acumulada y el resumen de sesión
+    const sessionSummary = await this.processReceivedAudioSession(actualOptions);
     this.currentSession = null;
     return sessionSummary;
   }
@@ -596,10 +604,10 @@ class TeacherSessionService {
   /**
    * Evalúa la sesión acumulada contra la rúbrica IELTS y genera las tarjetas quirúrgicas.
    */
-  async processReceivedAudioSession() {
+  async processReceivedAudioSession(options = {}) {
     const chunkCount = this.audioChunks.length;
-    const studentLevel = this.currentSession?.studentLevel || 'B1';
-    console.log(`[Audio Pipeline] Evaluando sesión IELTS sobre la transcripción completa acumulada (${chunkCount} bloques recibidos)...`);
+    const studentLevel = options.confirmedLevel || this.currentSession?.studentLevel || 'B1';
+    console.log(`[Audio Pipeline] Procesando transcripción acumulada de sesión (${chunkCount} bloques recibidos)...`);
 
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
     console.log('[GEMINI] Clave encontrada:', !!apiKey, 'Longitud:', apiKey ? apiKey.length : 0);
@@ -635,11 +643,13 @@ class TeacherSessionService {
       text: verbatimStudentSpeech
     });
 
-    // Evaluación contra rúbricas IELTS para las 5 pestañas maestras (directo con texto verbatim)
+    // Solo evaluar inmediatamente si se solicita explícitamente autoEvaluate o skipEvaluation === false
+    const shouldEvaluateImmediately = options.autoEvaluate === true || options.skipEvaluation === false;
     let feedbackCards = [];
     let modelSpeech = null;
-    if (verbatimStudentSpeech.trim().length > 0) {
-      console.log('[Audio Pipeline] Ejecutando motor IELTS sobre la transcripción acumulada...');
+
+    if (shouldEvaluateImmediately && verbatimStudentSpeech.trim().length > 0) {
+      console.log(`[Audio Pipeline] Ejecutando motor IELTS de inmediato con nivel ${studentLevel}...`);
       const evalResult = await ieltsEngine.evaluateUtterance({
         teacherContext,
         studentUtterance: verbatimStudentSpeech,
@@ -652,17 +662,20 @@ class TeacherSessionService {
         modelSpeech = evalResult.modelSpeech || null;
       }
     } else {
-      console.log('[Audio Pipeline] Transcripción vacía. No se generan tarjetas de error.');
+      console.log('[Audio Pipeline] Transcripción lista. Evaluación diferida a la confirmación de nivel en UI.');
     }
 
-    console.log(`[Audio Pipeline] Evaluación completada. ${feedbackCards.length} tarjetas quirúrgicas generadas.`);
+    console.log(`[Audio Pipeline] Proceso concluido. ${feedbackCards.length} tarjetas generadas.`);
 
     return {
       chunkCount,
       cleanDialogueTurns,
+      verbatimStudentSpeech,
       feedbackCards,
-      modelSpeech
+      modelSpeech,
+      needsLevelConfirmation: !shouldEvaluateImmediately
     };
+  }
   }
 
   /**

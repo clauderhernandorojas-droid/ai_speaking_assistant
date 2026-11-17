@@ -91,21 +91,12 @@ class IELTSEngine {
   }
 
   /**
-   * Genera un discurso modelo de respaldo enriquecido con dos versiones y 3 mejoras clave.
+   * Genera un discurso modelo de respaldo enriquecido con dos versiones y 3 mejoras clave,
+   * calibrado por nivel confirmado y escalamiento pedagógico (i+1).
    */
   generateFallbackModelSpeech(studentUtterance, studentLevel = 'B1') {
+    const normLevel = (studentLevel || 'B1').toUpperCase().trim();
     const raw = (studentUtterance || '').trim();
-    if (!raw) {
-      return {
-        naturalCorrected: 'Well, last year I worked on a challenging project with a tight deadline. My team and I needed to coordinate many tasks, but the client was changing the requirements constantly. I convened a meeting to outline the potential pitfalls to them. If we had followed their plan, we would have lost a lot of time and money.',
-        targetUpgrade: `During the previous year, I coordinated a critical initiative under demanding constraints. Our team had to orchestrate multiple deliverables simultaneously, while the client continually revised key specifications on a daily basis. To address these emerging challenges, I convened a formal review to outline the strategic implications.`,
-        keyImprovements: [
-          'Maintained consistent past simple narration without accidental present tense shifts.',
-          'Replaced literal Spanish phrasings with standard professional collocations ("on a daily basis").',
-          'Structured logical transitions with clear discourse markers instead of fragmented fillers.'
-        ]
-      };
-    }
 
     // Limpiar muletillas acústicas de la transcripción cruda
     const cleaned = raw
@@ -113,13 +104,97 @@ class IELTSEngine {
       .replace(/\s{2,}/g, ' ')
       .trim();
 
+    if (!cleaned) {
+      if (normLevel === 'A2') {
+        return {
+          naturalCorrected: 'Last year I worked on a difficult project. My team had many tasks, but the client changed the plans often. I spoke with them and we solved the problem on time.',
+          targetUpgrade: 'Last year, I worked on a challenging project with a strict deadline. My team and I had to coordinate several tasks, but the client was constantly changing the requirements. Therefore, we organized a meeting to explain our plan and finished successfully.',
+          keyImprovements: [
+            'Used consistent past simple verbs (worked, had, changed) without mixing present forms.',
+            'Connected ideas with clear basic linkers (therefore, but, and).',
+            'Removed hesitation fillers like "um" and "you know".'
+          ]
+        };
+      }
+      if (normLevel === 'B2') {
+        return {
+          naturalCorrected: 'Last year, I managed a demanding project with a strict deadline. My team and I had to coordinate various deliverables while the client repeatedly modified key requirements. I arranged a meeting to discuss the main risks, and we successfully delivered the work on schedule.',
+          targetUpgrade: 'Over the course of the past year, I oversaw a high-stakes project subject to rigorous deadlines. While our team was orchestrating multiple deliverables simultaneously, the client continually revised fundamental specifications. To mitigate this risk, I convened a formal review to address the core challenges, ensuring we fulfilled our commitments seamlessly.',
+          keyImprovements: [
+            'Incorporated nuanced professional collocations ("high-stakes project", "mitigate this risk").',
+            'Utilized sophisticated participle clauses for smoother sentence flow ("ensuring we fulfilled").',
+            'Removed conversational fillers for an articulate, authoritative tone.'
+          ]
+        };
+      }
+      if (normLevel === 'C1' || normLevel === 'C2') {
+        return {
+          naturalCorrected: 'During the previous year, I oversaw an intricate initiative under demanding timelines. Our cross-functional team orchestrated multiple parallel deliverables, despite the client repeatedly revising key milestones. I initiated a targeted consultation to align on priorities and bring the project to a successful close.',
+          targetUpgrade: 'Throughout the past year, I steered an exceptionally multifaceted undertaking amidst stringent constraints. While orchestrating diverse operational streams, our unit encountered continual recalibrations of client requirements. By orchestrating a pivotal stakeholder summit, I effectively preempted potential bottlenecks, thereby ensuring flawless execution.',
+          keyImprovements: [
+            'Mastered sophisticated syntactic variation with non-finite clauses.',
+            'Showcased highly idiomatic and domain-specific executive phrasing.',
+            'Achieved effortless native-like cohesion without mechanical discourse markers.'
+          ]
+        };
+      }
+      // Default: B1 -> i+1 = B2
+      return {
+        naturalCorrected: 'Last year I worked on a challenging project with a tight deadline. My team and I needed to coordinate many tasks, but the client was changing the requirements constantly. I scheduled a meeting to explain the situation to them, and we were able to finish on time.',
+        targetUpgrade: 'Last year, I managed a demanding project with a tight deadline. My team had to coordinate multiple priorities, while the client kept revising the project scope. Consequently, I arranged a meeting to address their concerns, which allowed us to deliver the project on schedule.',
+        keyImprovements: [
+          'Maintained consistent past narration without accidental tense shifts.',
+          'Replaced repetitive words with natural B2 collocations ("deliver on schedule", "multiple priorities").',
+          'Structured logical transitions with clear connectors ("consequently", "which allowed us to").'
+        ]
+      };
+    }
+
+    const firstUpper = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+    const lowerClean = cleaned.toLowerCase().replace(/^(well|so),?\s*/i, '');
+
+    if (normLevel === 'A2') {
+      return {
+        naturalCorrected: firstUpper,
+        targetUpgrade: `In fact, ${lowerClean}. Because of this, it was a good learning experience for me and my colleagues.`,
+        keyImprovements: [
+          'Corrected basic verb agreements and prepositions.',
+          'Enhanced sentence linking with accessible B1 connectors (because of this, in fact).',
+          'Eliminated hesitations to improve rhythm.'
+        ]
+      };
+    }
+    if (normLevel === 'B2') {
+      return {
+        naturalCorrected: firstUpper,
+        targetUpgrade: `From a broader operational standpoint, ${lowerClean}. This experience underscored the value of adaptive strategy when navigating evolving demands.`,
+        keyImprovements: [
+          'Elevated lexical range to Upper-Intermediate/Advanced (B2+/C1).',
+          'Constructed balanced complex sentences with natural subordinate phrasing.',
+          'Polished discourse flow for professional presentation.'
+        ]
+      };
+    }
+    if (normLevel === 'C1' || normLevel === 'C2') {
+      return {
+        naturalCorrected: firstUpper,
+        targetUpgrade: `Reflecting upon this trajectory, ${lowerClean}. It stands as a compelling testament to the pivotal role of cohesive leadership under volatile parameters.`,
+        keyImprovements: [
+          'Infused native-level idiomatic precision and authoritative tone.',
+          'Leveraged advanced cleft and fronted syntactic structures.',
+          'Maintained seamless rhetorical continuity throughout the utterance.'
+        ]
+      };
+    }
+
+    // Default B1 -> i+1 = B2
     return {
-      naturalCorrected: cleaned ? (cleaned.charAt(0).toUpperCase() + cleaned.slice(1)) : 'I communicated my ideas clearly and completed the objectives on schedule.',
-      targetUpgrade: `From an executive perspective, ${cleaned ? cleaned.toLowerCase().replace(/^(well|so),?\s*/i, '') : 'we executed our objectives smoothly'}. Furthermore, this demonstrated the importance of precise coordination and proactive communication under demanding conditions.`,
+      naturalCorrected: firstUpper,
+      targetUpgrade: `Furthermore, ${lowerClean}. This clearly demonstrated the importance of effective planning and teamwork in reaching our goals.`,
       keyImprovements: [
-        'Eliminated hesitation fillers and fragmented speech starters.',
-        'Enhanced lexical precision and natural collocations suited for professional communication.',
-        'Integrated cohesive discourse markers to guide listener comprehension effortlessly.'
+        'Polished grammar and vocabulary to sound natural and accurate at B1 level.',
+        'Elevated phrasing one step (i+1 to B2) with stronger connectors ("furthermore") and collocations.',
+        'Eliminated hesitation fillers and fragmented speech starters.'
       ]
     };
   }
@@ -403,32 +478,62 @@ class IELTSEngine {
    */
   async callLLMEvaluation({ teacherContext, studentUtterance, studentLevel, categories }) {
     const cleanTeacherContext = (teacherContext || '').trim();
-    const systemPrompt = `You are a certified IELTS Speaking Examiner and EFL Master Teacher evaluating a CEFR ${studentLevel} student.
+    const normLevel = (studentLevel || 'B1').toUpperCase().trim();
+    let iPlusOneLevel = 'B1+/B2';
+    if (normLevel === 'A1' || normLevel === 'A2') {
+      iPlusOneLevel = 'B1 (accessible intermediate)';
+    } else if (normLevel === 'B1') {
+      iPlusOneLevel = 'B1+/B2 (accessible upper-intermediate)';
+    } else if (normLevel === 'B2') {
+      iPlusOneLevel = 'B2+/C1 (effective operational proficiency)';
+    } else if (normLevel === 'C1' || normLevel === 'C2') {
+      iPlusOneLevel = 'C1/C2 (native-like mastery & fluency)';
+    }
+
+    const systemPrompt = `You are a certified IELTS Speaking Examiner and EFL Master Teacher evaluating a student with a CONFIRMED CEFR level of ${normLevel}.
 The student utterance is a 100% verbatim transcription containing authentic pauses, repetitions, and spoken fillers (e.g., 'um', 'uh', 'you know').
 - For 'fluency': Leverage these genuine hesitations, reformulations, and linking devices to assess Fluency and Coherence.
 - For 'grammar' and 'vocabulary': Focus on systemic grammatical errors and unnatural collocations in the message, ignoring acoustic filler noise.
 
 LANGUAGE & PEDAGOGICAL CLARITY DIRECTIVE (STRICT 100% ENGLISH):
 1. 100% ENGLISH ONLY: All explanations, rules, labels, hints, and feedback MUST be written exclusively in English. NEVER use Spanish anywhere.
-2. GRADED TEACHER LANGUAGE (A2/B1 Level for explanations): Write ALL explanations and rules using simple, direct, everyday English (A2/B1 level). Avoid academic or linguistic jargon (do NOT use words like "subjunctive", "gerundive", "volition", "aspectual", "anaphoric", "deictic"). Explain like a great, friendly teacher with plain words (e.g., "for habits in general" vs "for something you want right now", or "use this for actions finished in the past"). This clarity applies universally for all levels. Only the model examples should reflect the student's target CEFR level.
+2. GRADED TEACHER LANGUAGE (A2/B1 Level for explanations): Write ALL explanations and rules using simple, direct, everyday English (A2/B1 level). Avoid academic or linguistic jargon (do NOT use words like "subjunctive", "gerundive", "volition", "aspectual", "anaphoric", "deictic"). Explain like a great, friendly teacher with plain words (e.g., "for habits in general" vs "for something you want right now", or "use this for actions finished in the past"). This clarity applies universally for all levels.
 
 TEACHER CONTEXT RULE:
 - The 'teacherContext' field in every feedback card MUST contain ONLY the literal question or comment made by the teacher prior to the student's turn.
 - If the teacher said nothing prior to that intervention or no teacher prompt was provided, 'teacherContext' MUST be returned as an empty string "" (NEVER fabricate or invent generic questions such as "Tell me about your experience...").
+
+STRICT DIFFICULTY & LEVEL CALIBRATION DIRECTIVE (CONFIRMED LEVEL: ${normLevel}):
+1. LEVEL-APPROPRIATE CORRECTIONS FOR 'grammar', 'vocabulary', 'pronunciation', AND 'fluency':
+   - For these four standard categories, all surgical corrections, vocabulary alternatives, explanations, and 'contrastiveCapsule' examples MUST be strictly calibrated to the student's confirmed level (${normLevel}).
+   - Use natural, achievable structures and vocabulary realistic for a ${normLevel} speaker.
+   - DO NOT impose C1 or C2 academic idioms, esoteric collocations, cleft sentences, or inversion on A2, B1, or B2 students in these four categories. The pedagogical goal is accuracy and naturalness AT THEIR CONFIRMED LEVEL (${normLevel}).
+   - Example: If a B1 student says "I have much work", correct to "I have a lot of work" (natural B1), NEVER "I am encumbered by an onerous workload" (overly complex C2).
+2. EXCLUSIVE ADVANCED ROLE FOR 'upgrade_c1' (UPGRADE C1):
+   - 'upgrade_c1' is the ONLY category designated for advanced C1 (Band 7.5–8.5) reference.
+   - Choose a key conversational idea or basic collocation from the student's utterance and demonstrate how an articulate C1 speaker would formulate it with sophisticated collocations, participle clauses, or academic phrasing.
+3. MODEL SPEECH WITH EXACT i+1 STEP-BY-STEP CALIBRATION:
+   - "naturalCorrected": Rewrite the full student speech fixing all grammar errors, lexical inaccuracies, and acoustic fillers, while strictly maintaining the vocabulary range, tone, and sentence complexity appropriate for ${normLevel}. It must sound like an authentic, fluent, error-free ${normLevel} speaker without artificially inflated vocabulary.
+   - "targetUpgrade": Elevate the speech EXACTLY ONE STEP ABOVE (${iPlusOneLevel} / i+1) the student's confirmed level (${normLevel}):
+     * If confirmed level is A2: elevate strictly to accessible B1 (clear past simple, standard connectors like 'because', 'although', 'however', common phrasal verbs). Never jump directly to C1!
+     * If confirmed level is B1: elevate strictly to accessible B1+/B2 (variety of tenses, conditionals, natural professional collocations, connectors like 'furthermore', 'on the other hand', 'as a result'). Never jump directly to C1!
+     * If confirmed level is B2: elevate to B2+/C1 (idiomatic collocations, complex sentence structures, nuanced vocabulary, cleft sentences).
+     * If confirmed level is C1: elevate to C1/C2 native mastery (subtle idiomatic nuance, rhetorical connectors, native-like cohesion).
+   - "keyImprovements": An array of EXACTLY 3 short bullet points in simple A2/B1 English explaining the practical improvements made in this i+1 transition.
 
 EXHAUSTIVE & UNLIMITED FEEDBACK MANDATE:
 - Detect and report ALL systemic errors, lexical opportunities, unnatural collocations, C1 upgrades, acoustic phonological issues, and fluency cohesion details present throughout the entire utterance.
 - DO NOT artificially cap or limit the number of cards in ANY category. Never omit an observation due to quantity limits (especially in Vocabulary, Grammar, and Upgrade C1). If there are 10 distinct opportunities in a single category, you MUST output all 10 cards.
 
 Evaluate comprehensively across these 5 tabs:
-1. 'grammar': Catch EVERY single systemic or localized error (subject-verb agreement, verb tenses, auxiliaries, conditionals, prepositions, articles, word order). Severity: 'basic_error'.
-2. 'vocabulary': Catch EVERY unnatural collocation, imprecise term, and Spanish L1 calque/false cognate, providing precise idiomatic native alternatives. Severity: 'refinement'.
+1. 'grammar': Catch EVERY single systemic or localized error (subject-verb agreement, verb tenses, auxiliaries, conditionals, prepositions, articles, word order) calibrated to ${normLevel}. Severity: 'basic_error'.
+2. 'vocabulary': Catch EVERY unnatural collocation, imprecise term, and Spanish L1 calque/false cognate, providing precise natural alternatives calibrated to ${normLevel}. Severity: 'refinement'.
 3. 'pronunciation': Catch EVERY phonological challenge (past regular -ed inflections /t/, /d/, /ɪd/, silent letters, vowel reduction/schwa, word stress). Severity: 'basic_error'.
 4. 'upgrade_c1': Catch EVERY opportunity to elevate conversational/standard expressions to sophisticated C1/C2 structures (participle clauses, cleft sentences, advanced idioms, academic register). Severity: 'upgrade'.
-5. 'fluency': Catch EVERY repetitive connector ('and then', 'and so') or fragmented hesitation, replacing them with fluid discourse markers and transitions. Severity: 'refinement'.
+5. 'fluency': Catch EVERY repetitive connector ('and then', 'and so') or fragmented hesitation, replacing them with fluid discourse markers and transitions calibrated to ${normLevel}. Severity: 'refinement'.
 
 CONTRASTIVE CAPSULE RULE (MANDATORY FOR 'grammar', 'vocabulary', AND 'upgrade_c1'):
-For every card in 'grammar', 'vocabulary', and 'upgrade_c1', you MUST generate a "contrastiveCapsule" object contrasting the student's erroneous or basic form (poleA) with the target native form (poleB):
+For every card in 'grammar', 'vocabulary', and 'upgrade_c1', you MUST generate a "contrastiveCapsule" object contrasting the student's erroneous or basic form (poleA) with the target form (poleB):
 - "poleA":
   * "label": Short name of the student's form or opposing structure (e.g., "like + -ing / to", "Present simple", "make a question", "very difficult").
   * "rule": Short, simple A2/B1 English rule explaining when Form A IS correct.
@@ -436,14 +541,8 @@ For every card in 'grammar', 'vocabulary', and 'upgrade_c1', you MUST generate a
 - "poleB":
   * "label": Short name of the target form (e.g., "would like + to", "Past simple", "ask a question", "a formidable challenge").
   * "rule": Short, simple A2/B1 English rule explaining when to use Form B instead.
-  * "example": Natural model sentence where Form B is the right choice.
+  * "example": Natural model sentence where Form B is the right choice (calibrated to ${normLevel} for grammar/vocabulary; calibrated to C1 for upgrade_c1).
 For 'pronunciation' and 'fluency', "contrastiveCapsule" MUST be null.
-
-MODEL SPEECH DIRECTIVE (COMPLETE REFORMULATION):
-In addition to feedback cards, generate a complete reformulation of the entire student's response in "modelSpeech":
-1. "naturalCorrected": Rewrite the full speech naturally, fixing all grammar errors, vocabulary inaccuracies, and hesitation fillers, while strictly preserving the student's exact ideas and message.
-2. "targetUpgrade": Re-express the same speech elevated to the student's target CEFR level (${studentLevel}), using sophisticated natural connectors, idiomatic collocations, and varied grammatical structures.
-3. "keyImprovements": An array of EXACTLY 3 short bullet points in simple A2/B1 English explaining the most impactful improvements made.
 
 OUTPUT SCHEMA:
 Return a valid JSON object with EXACTLY this structure:
@@ -472,8 +571,8 @@ Return a valid JSON object with EXACTLY this structure:
     }
   ],
   "modelSpeech": {
-    "naturalCorrected": "Full transcript rewritten naturally fixing all errors while keeping student ideas",
-    "targetUpgrade": "Same speech elevated to target level with natural connectors and phrasing",
+    "naturalCorrected": "Full transcript rewritten naturally at confirmed level (${normLevel}) fixing errors",
+    "targetUpgrade": "Same speech elevated exactly one step (i+1 = ${iPlusOneLevel})",
     "keyImprovements": [
       "Short bullet 1 in simple A2/B1 English",
       "Short bullet 2 in simple A2/B1 English",
@@ -485,7 +584,7 @@ Return a valid JSON object with EXACTLY this structure:
     const rawResponse = await geminiService.evaluateTranscript({
       teacherContext: cleanTeacherContext,
       studentUtterance,
-      studentLevel,
+      studentLevel: normLevel,
       systemPrompt
     });
 

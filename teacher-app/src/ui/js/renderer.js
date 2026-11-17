@@ -85,6 +85,18 @@ const btnSaveAndStart = document.getElementById('btn-save-and-start');
 const btnDiscardAndStart = document.getElementById('btn-discard-and-start');
 const btnCancelStart = document.getElementById('btn-cancel-start');
 
+// Modal de confirmación de nivel antes de analizar
+const confirmLevelModal = document.getElementById('confirm-level-modal');
+const confirmStudentName = document.getElementById('confirm-student-name');
+const confirmLevelBtnGroup = document.getElementById('confirm-level-btn-group');
+const btnProceedAnalysis = document.getElementById('btn-proceed-analysis');
+const btnCancelConfirmLevel = document.getElementById('btn-cancel-confirm-level');
+const btnCloseConfirmLevelModal = document.getElementById('btn-close-confirm-level-modal');
+
+let pendingAnalysisUtterance = '';
+let pendingTeacherContext = '';
+let tempSelectedConfirmLevel = 'B1';
+
 // ==============================================================================
 // 1. INICIALIZACIÓN
 // ==============================================================================
@@ -519,6 +531,209 @@ if (btnExportReport) {
   });
 }
 
+// ==============================================================================
+// GESTIÓN DEL MODAL DE CONFIRMACIÓN DE NIVEL Y EJECUCIÓN DEL ANÁLISIS
+// ==============================================================================
+
+function updateConfirmLevelPillSelection(level) {
+  tempSelectedConfirmLevel = level;
+  if (!confirmLevelBtnGroup) return;
+  const pills = confirmLevelBtnGroup.querySelectorAll('.btn-level-pill');
+  pills.forEach(pill => {
+    if (pill.dataset.level === level) {
+      pill.classList.add('active');
+    } else {
+      pill.classList.remove('active');
+    }
+  });
+}
+
+function openConfirmLevelModal({ studentUtterance, teacherContext }) {
+  pendingAnalysisUtterance = (studentUtterance || '').trim();
+  pendingTeacherContext = (teacherContext || '').trim();
+
+  const currentLevel = (state.targetLevel || state.currentStudent?.default_level || 'B1').toUpperCase().trim();
+  tempSelectedConfirmLevel = ['A2', 'B1', 'B2', 'C1'].includes(currentLevel) ? currentLevel : 'B1';
+
+  if (confirmStudentName) {
+    confirmStudentName.textContent = state.currentStudent?.name || 'Estudiante en Sesión';
+  }
+
+  updateConfirmLevelPillSelection(tempSelectedConfirmLevel);
+
+  if (confirmLevelModal) {
+    confirmLevelModal.classList.remove('hidden');
+  }
+}
+
+function closeConfirmLevelModal() {
+  if (confirmLevelModal) {
+    confirmLevelModal.classList.add('hidden');
+  }
+}
+
+async function executeAnalysisWithConfirmedLevel(confirmedLevel, studentUtterance, teacherContext) {
+  if (!studentUtterance) {
+    alert('No hay texto del estudiante disponible para evaluar.');
+    return;
+  }
+
+  // 1. Sincronizar nivel confirmado con el estado y la UI superior
+  state.targetLevel = confirmedLevel;
+  if (studentLevelSelect) {
+    studentLevelSelect.value = confirmedLevel;
+    studentLevelSelect.className = `level-select badge-${confirmedLevel.toLowerCase()}`;
+  }
+  if (evalLevelLabel) {
+    evalLevelLabel.textContent = confirmedLevel;
+  }
+
+  // Actualizar nivel del estudiante en SQLite si cambió
+  if (state.currentStudent) {
+    if (state.currentStudent.default_level !== confirmedLevel) {
+      state.currentStudent.default_level = confirmedLevel;
+      const selectedOpt = studentSelect.options[studentSelect.selectedIndex];
+      if (selectedOpt) {
+        selectedOpt.dataset.level = confirmedLevel;
+        selectedOpt.textContent = `${state.currentStudent.name} (${confirmedLevel})`;
+      }
+      if (window.electronAPI && typeof window.electronAPI.updateStudent === 'function') {
+        try {
+          await window.electronAPI.updateStudent(state.currentStudent.id, { defaultLevel: confirmedLevel });
+          console.log(`[UI] Nivel confirmado de "${state.currentStudent.name}" actualizado a ${confirmedLevel} en SQLite`);
+        } catch (dbErr) {
+          console.warn('[UI] Error al actualizar nivel de alumno en SQLite:', dbErr);
+        }
+      }
+    }
+  }
+
+  // 2. Estado visual de análisis
+  if (btnReanalyze) {
+    btnReanalyze.disabled = true;
+    btnReanalyze.classList.add('is-analyzing');
+  }
+  if (reanalyzeBtnLabel) reanalyzeBtnLabel.textContent = 'Analizando...';
+  if (transcriptStatus) transcriptStatus.textContent = `Analizando con Gemini (Nivel ${confirmedLevel} / Tolerancia 35s)...`;
+
+  try {
+    console.log(`[Renderer] Ejecutando evaluación con Gemini para nivel ${confirmedLevel}:`, studentUtterance.slice(0, 100));
+    const evalResult = await window.electronAPI.evaluateUtterance({
+      teacherContext: teacherContext || '',
+      studentUtterance,
+      studentLevel: confirmedLevel
+    });
+
+    let newCards = [];
+    let newModelSpeech = null;
+
+    if (Array.isArray(evalResult)) {
+      newCards = evalResult;
+    } else if (evalResult && typeof evalResult === 'object') {
+      newCards = evalResult.feedbackCards || [];
+      newModelSpeech = evalResult.modelSpeech || null;
+    }
+
+    // 3. Limpiar tarjetas anteriores y reiniciar contadores
+    tabPanes.forEach(pane => {
+      if (pane.dataset.tab !== 'model_speech') pane.innerHTML = '';
+    });
+    state.activeGuidedCardId = null;
+    state.revealedGuidedCardId = null;
+    state.activeExerciseCardId = null;
+    state.currentExercise = null;
+    Object.keys(state.feedbackCounts).forEach(cat => {
+      state.feedbackCounts[cat] = 0;
+      updateBadgeCounter(cat);
+    });
+
+    // 4. Renderizar nuevas tarjetas quirúrgicas
+    newCards.forEach(card => {
+      let rawCat = (card.category || '').toLowerCase().trim();
+      let category = 'grammar';
+      if (rawCat.includes('gramm') || rawCat.includes('syntax')) category = 'grammar';
+      else if (rawCat.includes('vocab') || rawCat.includes('colloc') || rawCat.includes('lexic')) category = 'vocabulary';
+      else if (rawCat.includes('pronun') || rawCat.includes('phon')) category = 'pronunciation';
+      else if (rawCat.includes('upgrade') || rawCat.includes('c1')) category = 'upgrade_c1';
+      else if (rawCat.includes('fluen') || rawCat.includes('cohes')) category = 'fluency';
+
+      let severity = card.severity;
+      if (!severity) {
+        if (category === 'upgrade_c1') severity = 'upgrade';
+        else if (category === 'vocabulary' || category === 'fluency') severity = 'refinement';
+        else severity = 'basic_error';
+      }
+
+      const tCtx = card.teacherContext || card.teacher_context || card.context || '';
+      const sResp = card.studentResponse || card.student_response || card.studentUtterance || card.original || card.response || '';
+      const sCorr = card.surgicalCorrection || card.surgical_correction || card.correction || card.solution || '';
+      const expl = card.explanation || card.reason || card.notes || '';
+      const crit = card.ieltsCriterion || card.ielts_criterion || card.criterion || card.band || 'IELTS Band Descriptors';
+      const contrastiveCapsule = card.contrastiveCapsule || null;
+
+      addSurgicalCard({
+        category,
+        severity,
+        teacherContext: tCtx,
+        studentResponse: sResp,
+        surgicalCorrection: sCorr,
+        explanation: expl,
+        ieltsCriterion: crit,
+        contrastiveCapsule
+      });
+    });
+
+    // 5. Renderizar discurso modelo reformulado
+    state.currentModelSpeech = newModelSpeech;
+    renderModelSpeechTab(newModelSpeech);
+
+    state.hasEvaluatedSession = true;
+    state.isDemoData = false;
+    if (btnExportReport) btnExportReport.disabled = false;
+    if (transcriptStatus) transcriptStatus.textContent = `Evaluación completada (${newCards.length} tarjetas)`;
+
+    // Guardar sesión y tarjetas en SQLite local
+    if (window.electronAPI && typeof window.electronAPI.createSession === 'function' && newCards.length > 0) {
+      window.electronAPI.createSession({
+        studentId: state.currentStudent?.id || 1,
+        sessionCode: state.roomCode || state.sessionCode || 'EFL-ROOM',
+        durationMinutes: state.durationMinutes || 10
+      }).then(async (sessionRecord) => {
+        if (sessionRecord && sessionRecord.id) {
+          for (const item of newCards) {
+            try {
+              await window.electronAPI.addFeedbackItem({
+                sessionId: sessionRecord.id,
+                category: item.category,
+                severity: item.severity,
+                originalText: item.studentResponse,
+                suggestedText: item.surgicalCorrection,
+                notes: item.explanation
+              });
+            } catch (e) {
+              console.warn('[DB] Error guardando tarjeta individual:', e);
+            }
+          }
+          console.log(`[DB] Sesión #${sessionRecord.id} y ${newCards.length} tarjetas guardadas en SQLite.`);
+        }
+      }).catch(err => console.warn('[DB] Error creando sesión en SQLite:', err));
+    }
+  } catch (err) {
+    console.error('[Renderer] Error en análisis con Gemini:', err);
+    if (transcriptStatus) transcriptStatus.textContent = 'Error al evaluar';
+    alert(`Error al analizar con Gemini: ${err.message || err}`);
+  } finally {
+    if (btnReanalyze) {
+      btnReanalyze.disabled = false;
+      btnReanalyze.classList.remove('is-analyzing');
+    }
+    if (reanalyzeBtnLabel) reanalyzeBtnLabel.textContent = 'Re-analizar';
+    btnToggleSession.disabled = false;
+    btnToggleSession.className = 'btn btn-start';
+    sessionBtnText.textContent = 'Iniciar Sesión';
+  }
+}
+
 // Botón para re-analizar la transcripción visible actual con Gemini
 if (btnReanalyze) {
   btnReanalyze.addEventListener('click', async () => {
@@ -549,97 +764,33 @@ if (btnReanalyze) {
       return;
     }
 
-    // 2. Estado de carga visual
-    btnReanalyze.disabled = true;
-    btnReanalyze.classList.add('is-analyzing');
-    if (reanalyzeBtnLabel) reanalyzeBtnLabel.textContent = 'Analizando...';
-    if (transcriptStatus) transcriptStatus.textContent = 'Re-analizando con Gemini (Tolerancia 35s)...';
+    // Abrir modal de confirmación de nivel antes de llamar a Gemini
+    openConfirmLevelModal({ studentUtterance, teacherContext });
+  });
+}
 
-    try {
-      console.log('[Renderer] Ejecutando Re-análisis sobre texto:', studentUtterance.slice(0, 100));
-      const targetLevel = state.targetLevel || (state.currentStudent?.default_level) || 'B1';
-      const evalResult = await window.electronAPI.evaluateUtterance({
-        teacherContext,
-        studentUtterance,
-        studentLevel: targetLevel
-      });
+// Listeners del Modal de Confirmación de Nivel
+if (confirmLevelBtnGroup) {
+  confirmLevelBtnGroup.addEventListener('click', (e) => {
+    const pill = e.target.closest('.btn-level-pill');
+    if (!pill || !pill.dataset.level) return;
+    updateConfirmLevelPillSelection(pill.dataset.level);
+  });
+}
 
-      let newCards = [];
-      let newModelSpeech = null;
+if (btnCancelConfirmLevel) {
+  btnCancelConfirmLevel.addEventListener('click', closeConfirmLevelModal);
+}
 
-      if (Array.isArray(evalResult)) {
-        newCards = evalResult;
-      } else if (evalResult && typeof evalResult === 'object') {
-        newCards = evalResult.feedbackCards || [];
-        newModelSpeech = evalResult.modelSpeech || null;
-      }
+if (btnCloseConfirmLevelModal) {
+  btnCloseConfirmLevelModal.addEventListener('click', closeConfirmLevelModal);
+}
 
-      // 3. Limpiar tarjetas anteriores y contadores
-      tabPanes.forEach(pane => {
-        if (pane.dataset.tab !== 'model_speech') pane.innerHTML = '';
-      });
-      state.activeGuidedCardId = null;
-      state.revealedGuidedCardId = null;
-      state.activeExerciseCardId = null;
-      state.currentExercise = null;
-      Object.keys(state.feedbackCounts).forEach(cat => {
-        state.feedbackCounts[cat] = 0;
-        updateBadgeCounter(cat);
-      });
-
-      // 4. Renderizar nuevas tarjetas
-      newCards.forEach(card => {
-        let rawCat = (card.category || '').toLowerCase().trim();
-        let category = 'grammar';
-        if (rawCat.includes('gramm') || rawCat.includes('syntax')) category = 'grammar';
-        else if (rawCat.includes('vocab') || rawCat.includes('colloc') || rawCat.includes('lexic')) category = 'vocabulary';
-        else if (rawCat.includes('pronun') || rawCat.includes('phon')) category = 'pronunciation';
-        else if (rawCat.includes('upgrade') || rawCat.includes('c1')) category = 'upgrade_c1';
-        else if (rawCat.includes('fluen') || rawCat.includes('cohes')) category = 'fluency';
-
-        let severity = card.severity;
-        if (!severity) {
-          if (category === 'upgrade_c1') severity = 'upgrade';
-          else if (category === 'vocabulary' || category === 'fluency') severity = 'refinement';
-          else severity = 'basic_error';
-        }
-
-        const tCtx = card.teacherContext || card.teacher_context || card.context || '';
-        const sResp = card.studentResponse || card.student_response || card.studentUtterance || card.original || card.response || '';
-        const sCorr = card.surgicalCorrection || card.surgical_correction || card.correction || card.solution || '';
-        const expl = card.explanation || card.reason || card.notes || '';
-        const crit = card.ieltsCriterion || card.ielts_criterion || card.criterion || card.band || 'IELTS Band Descriptors';
-        const contrastiveCapsule = card.contrastiveCapsule || null;
-
-        addSurgicalCard({
-          category,
-          severity,
-          teacherContext: tCtx,
-          studentResponse: sResp,
-          surgicalCorrection: sCorr,
-          explanation: expl,
-          ieltsCriterion: crit,
-          contrastiveCapsule
-        });
-      });
-
-      // 5. Renderizar discurso modelo reformulado
-      state.currentModelSpeech = newModelSpeech;
-      renderModelSpeechTab(newModelSpeech);
-
-      state.hasEvaluatedSession = true;
-      state.isDemoData = false;
-      if (btnExportReport) btnExportReport.disabled = false;
-      if (transcriptStatus) transcriptStatus.textContent = `Re-análisis completado (${newCards.length} tarjetas)`;
-    } catch (err) {
-      console.error('[Renderer] Error en re-análisis:', err);
-      if (transcriptStatus) transcriptStatus.textContent = 'Error al re-analizar';
-      alert(`Error al re-analizar con Gemini: ${err.message || err}`);
-    } finally {
-      btnReanalyze.disabled = false;
-      btnReanalyze.classList.remove('is-analyzing');
-      if (reanalyzeBtnLabel) reanalyzeBtnLabel.textContent = 'Re-analizar';
-    }
+if (btnProceedAnalysis) {
+  btnProceedAnalysis.addEventListener('click', async () => {
+    closeConfirmLevelModal();
+    const confirmed = tempSelectedConfirmLevel || 'B1';
+    await executeAnalysisWithConfirmedLevel(confirmed, pendingAnalysisUtterance, pendingTeacherContext);
   });
 }
 
@@ -878,7 +1029,35 @@ function handleSessionCompleted(summary) {
     });
   }
 
-  // 2. Limpiar tarjetas anteriores y reiniciar contadores
+  // Extraer texto del estudiante y contexto del profesor
+  let studentUtterance = (summary.verbatimStudentSpeech || '').trim();
+  let teacherContext = '';
+  if (summary.cleanDialogueTurns && summary.cleanDialogueTurns.length > 0) {
+    summary.cleanDialogueTurns.forEach(turn => {
+      const sp = (turn.speaker || '').toLowerCase();
+      if (sp.includes('estudiante') || sp.includes('alumno')) {
+        if (!studentUtterance) {
+          studentUtterance = (studentUtterance + ' ' + (turn.text || '')).trim();
+        }
+      } else if (sp.includes('profesor') || sp.includes('docente')) {
+        teacherContext = (teacherContext + ' ' + (turn.text || '')).trim();
+      }
+    });
+  }
+
+  // 2. Si la evaluación requiere confirmación de nivel antes de llamar a Gemini:
+  if (summary.needsLevelConfirmation || !summary.feedbackCards || summary.feedbackCards.length === 0) {
+    if (studentUtterance) {
+      transcriptStatus.textContent = 'Transcripción lista. Confirma el nivel para analizar.';
+      console.log('[Renderer] Transcripción acumulada lista. Abriendo modal de confirmación de nivel...');
+      openConfirmLevelModal({ studentUtterance, teacherContext });
+    } else {
+      transcriptStatus.textContent = 'Finalizada (Sin voz detectable)';
+    }
+    return;
+  }
+
+  // 3. Limpiar tarjetas anteriores y reiniciar contadores (en caso de evaluación inmediata directa)
   tabPanes.forEach(pane => (pane.innerHTML = ''));
   state.activeGuidedCardId = null;
   state.revealedGuidedCardId = null;
@@ -1218,19 +1397,26 @@ function exportSessionReportHTML() {
       </li>
     `).join('');
 
+    const normReportLevel = (studentLevel || 'B1').toUpperCase().trim();
+    let iPlusOneReportLabel = 'B1+/B2';
+    if (normReportLevel === 'A1' || normReportLevel === 'A2') iPlusOneReportLabel = 'B1 Upgrade (i+1)';
+    else if (normReportLevel === 'B1') iPlusOneReportLabel = 'B1+/B2 Upgrade (i+1)';
+    else if (normReportLevel === 'B2') iPlusOneReportLabel = 'B2+/C1 Upgrade (i+1)';
+    else if (normReportLevel === 'C1' || normReportLevel === 'C2') iPlusOneReportLabel = 'C1/C2 Native Mastery (i+1)';
+
     modelSpeechHtml = `
       <h2 style="color: #f0f6fc; border-bottom: 2px solid #a855f7; padding-bottom: 8px; margin-top: 36px; font-size: 1.25rem; display: flex; align-items: center; justify-content: space-between;">
         <span>Complete Speech Reformulation (Model Discourse)</span>
-        <span style="font-size: 0.78rem; font-weight: 600; color: #c084fc; background: rgba(168, 85, 247, 0.15); padding: 2px 10px; border-radius: 12px; border: 1px solid rgba(168, 85, 247, 0.3);">Target Level: ${escapeHtml(studentLevel)}</span>
+        <span style="font-size: 0.78rem; font-weight: 600; color: #c084fc; background: rgba(168, 85, 247, 0.15); padding: 2px 10px; border-radius: 12px; border: 1px solid rgba(168, 85, 247, 0.3);">Confirmed Level: ${escapeHtml(normReportLevel)} (i+1 Escalation)</span>
       </h2>
 
       <div style="background: #161b22; border: 1px solid #30363d; border-left: 4px solid #3fb950; border-radius: 8px; padding: 16px; margin-bottom: 14px;">
-        <div style="font-size: 0.75rem; font-weight: 700; color: #3fb950; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">Natural Corrected Version (Accurate & Fluent)</div>
+        <div style="font-size: 0.75rem; font-weight: 700; color: #3fb950; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">Natural Corrected Version (${escapeHtml(normReportLevel)} Accurate & Fluent)</div>
         <div style="font-size: 0.95rem; line-height: 1.6; color: #f0f6fc;">${escapeHtml(ms.naturalCorrected || '')}</div>
       </div>
 
       <div style="background: #161b22; border: 1px solid #30363d; border-left: 4px solid #a855f7; border-radius: 8px; padding: 16px; margin-bottom: 14px;">
-        <div style="font-size: 0.75rem; font-weight: 700; color: #c084fc; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">Target Level Version (${escapeHtml(studentLevel)} Sophisticated Upgrade)</div>
+        <div style="font-size: 0.75rem; font-weight: 700; color: #c084fc; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px;">Target Level Version (${escapeHtml(iPlusOneReportLabel)})</div>
         <div style="font-size: 0.95rem; line-height: 1.6; color: #f0f6fc;">${escapeHtml(ms.targetUpgrade || '')}</div>
       </div>
 
@@ -1519,6 +1705,12 @@ function renderModelSpeechTab(modelSpeech) {
   }
 
   const normLevel = (state.targetLevel || (state.currentStudent?.default_level) || 'B1').toUpperCase().trim();
+  let iPlusOneLabel = 'B1+/B2';
+  if (normLevel === 'A1' || normLevel === 'A2') iPlusOneLabel = 'B1 Upgrade (i+1)';
+  else if (normLevel === 'B1') iPlusOneLabel = 'B1+/B2 Upgrade (i+1)';
+  else if (normLevel === 'B2') iPlusOneLabel = 'B2+/C1 Upgrade (i+1)';
+  else if (normLevel === 'C1' || normLevel === 'C2') iPlusOneLabel = 'C1/C2 Native Mastery (i+1)';
+
   const bullets = (modelSpeech.keyImprovements || []).map(imp => `
     <li>
       <span class="improvement-bullet-dot">✓</span>
@@ -1532,7 +1724,7 @@ function renderModelSpeechTab(modelSpeech) {
     <div class="model-speech-top-bar">
       <div class="model-speech-title-group">
         <h3><span>★</span> Discurso Modelo & Reformulación Completa</h3>
-        <span class="model-speech-subtitle">Reescritura pedagógica integral alineada a CEFR ${normLevel}</span>
+        <span class="model-speech-subtitle">Reescritura calibrada a CEFR ${normLevel} & Escalón superior (${iPlusOneLabel})</span>
       </div>
       <button type="button" id="btn-project-model-speech" class="btn-project-model ${state.isModelSpeechProjected ? 'active' : ''}" title="Proyectar esta reformulación completa en la pantalla del alumno">
         <span class="guided-dot"></span>
@@ -1543,17 +1735,17 @@ function renderModelSpeechTab(modelSpeech) {
     <!-- 1. Versión Corregida Natural -->
     <div class="model-speech-card card-corrected">
       <div class="model-card-header">
-        <span class="model-card-badge badge-corrected">Versión Corregida (Natural & Fluida)</span>
-        <span style="font-size: 0.72rem; color: #8b949e;">Mantiene ideas exactas del alumno</span>
+        <span class="model-card-badge badge-corrected">Versión Corregida (${normLevel} Natural & Precisa)</span>
+        <span style="font-size: 0.72rem; color: #8b949e;">Mantiene nivel e ideas del alumno</span>
       </div>
       <div class="model-card-text">${escapeHtml(modelSpeech.naturalCorrected || '')}</div>
     </div>
 
-    <!-- 2. Versión Nivel Objetivo (Upgrade) -->
+    <!-- 2. Versión Nivel Objetivo (Upgrade i+1) -->
     <div class="model-speech-card card-upgrade">
       <div class="model-card-header">
-        <span class="model-card-badge badge-upgrade">Versión Nivel Objetivo (${normLevel} Upgrade)</span>
-        <span style="font-size: 0.72rem; color: #c084fc; font-weight: 600;">Discurso ejecutivo avanzado</span>
+        <span class="model-card-badge badge-upgrade">Versión Escalón Superior (${iPlusOneLabel})</span>
+        <span style="font-size: 0.72rem; color: #c084fc; font-weight: 600;">Calibración estricta i+1</span>
       </div>
       <div class="model-card-text">${escapeHtml(modelSpeech.targetUpgrade || '')}</div>
     </div>
