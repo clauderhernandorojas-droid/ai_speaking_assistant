@@ -101,6 +101,88 @@ export class StudentSupabaseService {
   }
 
   /**
+   * Sube un segmento de audio (Blob) directamente a Supabase Storage con bitrate optimizado.
+   * Si la subida falla por permisos o bucket inexistente, realiza fallback automático a broadcast Base64 si < 120 KB.
+   */
+  async uploadAudioSegment(blob, mimeType = 'audio/webm', base64Fallback = null) {
+    if (!this.client) this.init();
+    this.sequenceId += 1;
+    const currentSeq = this.sequenceId;
+    const cleanSessionCode = (this.sessionCode || 'UNKNOWN').toUpperCase();
+    const filePath = `${cleanSessionCode}/${Date.now()}_seg_${currentSeq}.webm`;
+
+    try {
+      console.log(`[Supabase Storage] Subiendo segmento #${currentSeq} (${blob.size} bytes) a session-audio/${filePath}...`);
+      const { data, error } = await this.client.storage
+        .from('session-audio')
+        .upload(filePath, blob, {
+          contentType: mimeType || 'audio/webm',
+          upsert: true
+        });
+
+      if (error) {
+        throw error;
+      }
+
+      const uploadedPath = data?.path || filePath;
+      console.log(`[Supabase Storage] ✅ Segmento #${currentSeq} subido con éxito:`, uploadedPath);
+
+      // Emitir notificación ligera por Realtime
+      this.broadcastEvent('audio_segment_uploaded', {
+        storagePath: uploadedPath,
+        segmentIndex: currentSeq,
+        sequence: currentSeq,
+        mimeType: mimeType || 'audio/webm',
+        size: blob.size,
+        timestamp: Date.now()
+      });
+
+      return { success: true, storagePath: uploadedPath, sequence: currentSeq };
+    } catch (uploadErr) {
+      console.warn(`[Supabase Storage] Falló subida a Storage (${uploadErr.message}). Evaluando fallback Base64...`);
+
+      // Fallback automático por WebSocket broadcast si el blob es < 120 KB
+      if (blob.size < 120 * 1024) {
+        try {
+          let b64 = base64Fallback;
+          if (!b64) {
+            b64 = await this.blobToBase64(blob);
+          }
+          console.log(`[Supabase Realtime Fallback] Transmitiendo segmento #${currentSeq} (${blob.size} bytes) por WebSocket Base64...`);
+          this.broadcastEvent('student:audio_chunk', {
+            sequence: currentSeq,
+            mimeType: mimeType || 'audio/webm',
+            data: b64,
+            timestamp: Date.now()
+          });
+          return { success: true, fallback: true, sequence: currentSeq };
+        } catch (b64Err) {
+          console.error('[Supabase Realtime Fallback] Error en fallback Base64:', b64Err.message);
+        }
+      } else {
+        console.error(`[Supabase Storage] Segmento (${blob.size} bytes) excede 120 KB para fallback WebSocket.`);
+      }
+
+      return { success: false, error: uploadErr.message };
+    }
+  }
+
+  /**
+   * Helper para convertir Blob a Base64 en caso de fallback.
+   */
+  blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const dataUrl = reader.result;
+        resolve(dataUrl.split(',')[1]);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  /**
    * Envía un chunk de audio codificado en Base64 al canal de broadcast.
    */
   sendAudioChunk(base64Data, mimeType = 'audio/webm') {

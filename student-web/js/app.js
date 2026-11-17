@@ -238,15 +238,15 @@ joinForm.addEventListener('submit', async (e) => {
       selectedDeviceId = micSelect.value;
     }
 
-    // Inicializar captura de audio por bloques autocontenidos con VAD Adaptativo (piso de ruido dinámico + AGC)
+    // Inicializar captura de audio con bitrate de voz optimizado (24 kbps), bloques de 15s y VAD Adaptativo
     audioService = new AudioCaptureService({
       deviceId: selectedDeviceId,
-      maxBlockDuration: 35000,
-      silenceTimeoutMs: 2000,
-      onChunk: (base64Chunk, mimeType, metrics) => {
-        const rawByteEstimate = Math.round((base64Chunk.length * 3) / 4);
-        console.log(`[AudioCapture] Transmitiendo bloque WebM (${rawByteEstimate} bytes, voz: ${Math.round(metrics?.activeSpeechMs || 0)}ms, peakRms: ${metrics?.peakRms?.toFixed(3) || 0}, noiseFloor: ${metrics?.noiseFloorAtEnd?.toFixed(4) || 0})`);
-        supabaseService.sendAudioChunk(base64Chunk, mimeType);
+      maxBlockDuration: 15000,
+      silenceTimeoutMs: 1800,
+      audioBitsPerSecond: 24000,
+      onChunk: async (blob, mimeType, metrics) => {
+        console.log(`[AudioCapture] Bloque listo para subir a Storage (${blob.size} bytes, voz: ${Math.round(metrics?.activeSpeechMs || 0)}ms, peakRms: ${metrics?.peakRms?.toFixed(3) || 0}, noiseFloor: ${metrics?.noiseFloorAtEnd?.toFixed(4) || 0})`);
+        await supabaseService.uploadAudioSegment(blob, mimeType);
       },
       onVolume: (level, _rms = 0) => {
         handleVolumeFeedback(level);

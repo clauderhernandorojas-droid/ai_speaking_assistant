@@ -1,13 +1,14 @@
 /**
  * Gestor de captura de audio y hardware del micrófono para el estudiante.
- * Utiliza MediaRecorder con ciclo de bloques WebM autocontenidos (hasta 35s o 2.0s de silencio continuo tras voz)
- * y Web Audio API con VAD Adaptativo por piso de ruido dinámico (SNR) + AGC + Hangover de 400ms.
+ * Utiliza MediaRecorder con bitrate optimizado de voz (24 kbps) y ciclo de bloques WebM autocontenidos
+ * de máximo 15s (o 1.8s de silencio tras voz) con VAD Adaptativo (piso de ruido dinámico acotado a 0.015).
  */
 
 export class AudioCaptureService {
   constructor(options = {}) {
-    this.maxBlockDuration = options.maxBlockDuration || 35000; // Máximo 35 segundos por bloque
-    this.silenceTimeoutMs = options.silenceTimeoutMs || 2000;  // 2.0s de silencio continuo tras haber detectado voz
+    this.maxBlockDuration = options.maxBlockDuration || 15000; // Máximo 15 segundos por bloque (~35-45 KB a 24 kbps)
+    this.silenceTimeoutMs = options.silenceTimeoutMs || 1800;  // 1.8s de silencio continuo tras haber detectado voz
+    this.audioBitsPerSecond = options.audioBitsPerSecond || 24000; // 24 kbps: calidad de voz cristalina ultraligera
     this.onChunk = options.onChunk || (() => {});
     this.onVolume = options.onVolume || (() => {});
     this.deviceId = options.deviceId || null;
@@ -21,7 +22,7 @@ export class AudioCaptureService {
     this.isActive = false;
 
     // VAD Adaptativo por piso de ruido dinámico (SNR) + AGC
-    this.noiseFloor = 0.004; // Inicializado en 0.004, acotado entre 0.0015 y 0.04
+    this.noiseFloor = 0.004; // Inicializado en 0.004, acotado entre 0.0015 y 0.015
     this.hangoverMs = 0;     // Retención de 400ms para pausas entre sílabas
 
     // Métricas y control del ciclo de bloques
@@ -69,7 +70,7 @@ export class AudioCaptureService {
   }
 
   /**
-   * Inicia un nuevo bloque de grabación WebM autocontenido.
+   * Inicia un nuevo bloque de grabación WebM autocontenido con bitrate de voz optimizado (24 kbps).
    */
   startNewRecordingBlock() {
     if (!this.isActive || this.isMuted || !this.mediaStream) return;
@@ -103,14 +104,22 @@ export class AudioCaptureService {
     this.hangoverMs = 0;
     this.isCycling = false;
 
+    // Configurar 24 kbps (audioBitsPerSecond: 24000) para generar WebM ultraligeros
     try {
-      this.mediaRecorder = new MediaRecorder(
-        this.mediaStream,
-        this.supportedMime ? { mimeType: this.supportedMime } : {}
-      );
+      const recorderOptions = { audioBitsPerSecond: this.audioBitsPerSecond };
+      if (this.supportedMime) recorderOptions.mimeType = this.supportedMime;
+      this.mediaRecorder = new MediaRecorder(this.mediaStream, recorderOptions);
     } catch (err) {
-      console.error('[AudioCaptureService] Error instanciando MediaRecorder:', err);
-      return;
+      console.warn('[AudioCaptureService] Fallback MediaRecorder sin audioBitsPerSecond:', err.message);
+      try {
+        this.mediaRecorder = new MediaRecorder(
+          this.mediaStream,
+          this.supportedMime ? { mimeType: this.supportedMime } : {}
+        );
+      } catch (fallbackErr) {
+        console.error('[AudioCaptureService] Error instanciando MediaRecorder:', fallbackErr);
+        return;
+      }
     }
 
     this.mediaRecorder.ondataavailable = (event) => {
@@ -136,10 +145,10 @@ export class AudioCaptureService {
         if (hasValidSpeech) {
           console.log(`[AudioCapture] Bloque autocontenido con voz válida (${blob.size} bytes, voz: ${Math.round(metrics.activeSpeechMs)}ms, peakRms: ${metrics.peakRms.toFixed(3)}, noiseFloor: ${this.noiseFloor.toFixed(4)}, gateRms: ${speechGateRms.toFixed(3)}). Transmitiendo...`);
           try {
-            const base64 = await this.blobToBase64(blob);
-            this.onChunk(base64, mime, metrics);
-          } catch (b64Err) {
-            console.error('[AudioCapture] Error al codificar blob a Base64:', b64Err);
+            // Se entrega el Blob directo (y su MIME y métricas) para subida a Supabase Storage
+            this.onChunk(blob, mime, metrics);
+          } catch (chunkErr) {
+            console.error('[AudioCapture] Error en onChunk:', chunkErr);
           }
         } else {
           console.log(`[AudioCapture] Bloque descartado localmente por falta de voz (${blob.size} bytes, voz: ${Math.round(metrics.activeSpeechMs)}ms < 250ms, peakRms: ${metrics.peakRms.toFixed(3)} < ${speechGateRms.toFixed(3)}). 0 tokens IA consumidos.`);
@@ -155,10 +164,10 @@ export class AudioCaptureService {
     // Iniciar sin timeslice para generar un archivo WebM autocontenido al llamar .stop()
     this.mediaRecorder.start();
 
-    // Límite máximo: 35 segundos por bloque
+    // Límite máximo: 15 segundos por bloque
     if (this.blockTimer) clearTimeout(this.blockTimer);
     this.blockTimer = setTimeout(() => {
-      this.cycleBlock('max_duration_35s');
+      this.cycleBlock('max_duration_15s');
     }, this.maxBlockDuration);
   }
 
@@ -339,9 +348,12 @@ export class AudioCaptureService {
         // VAD Adaptativo por Piso de Ruido Dinámico
         const dynamicThreshold = Math.max(0.005, this.noiseFloor * 2.8);
 
-        // Actualizar suavemente el piso de ruido cuando la señal actual está baja
-        if (rms < dynamicThreshold) {
-          this.noiseFloor = Math.min(0.04, Math.max(0.0015, this.noiseFloor * 0.95 + rms * 0.05));
+        // Congelar actualización de noiseFloor mientras haya voz activa o hangover.
+        // Solo actualizar cuando la señal esté en calma real (rms < dynamicThreshold y hangoverMs === 0).
+        // Acotado entre 0.0015 y 0.015 para evitar que el umbral suba mientras el alumno habla.
+        const isSignalQuiet = rms < dynamicThreshold && this.hangoverMs === 0;
+        if (isSignalQuiet) {
+          this.noiseFloor = Math.min(0.015, Math.max(0.0015, this.noiseFloor * 0.95 + rms * 0.05));
         }
 
         // Rastreo de VAD si hay un bloque activo
@@ -371,9 +383,9 @@ export class AudioCaptureService {
               const isEligibleBlock = this.blockMetrics.activeSpeechMs >= 250 ||
                 this.blockMetrics.peakRms >= Math.max(0.02, this.noiseFloor * 4.5);
 
-              // Si detecta 2.0s de silencio continuo tras haber captado voz válida:
+              // Si detecta 1.8s de silencio continuo tras haber captado voz válida:
               if (this.blockMetrics.continuousSilenceMs >= this.silenceTimeoutMs && isEligibleBlock) {
-                this.cycleBlock('silence_after_speech_2s');
+                this.cycleBlock('silence_after_speech_1.8s');
               }
             }
           }
@@ -449,7 +461,7 @@ export class AudioCaptureService {
   }
 
   /**
-   * Convierte un Blob binario a string Base64 para transporte JSON.
+   * Convierte un Blob binario a string Base64 para transporte JSON (útil para fallback).
    */
   blobToBase64(blob) {
     return new Promise((resolve, reject) => {

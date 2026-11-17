@@ -59,33 +59,95 @@ class TeacherSessionService {
         }
       });
       console.log('[Supabase Session] Cliente inicializado correctamente con soporte WebSocket.');
+      this.ensureStorageBucket();
     } catch (err) {
       console.error('[Supabase Session] No se pudo inicializar cliente de Supabase:', err.message);
     }
   }
 
   /**
-   * Procesa la llegada de un bloque WebM autocontenido desde el estudiante.
+   * Intenta asegurar que el bucket público 'session-audio' exista en Supabase Storage.
+   */
+  async ensureStorageBucket() {
+    if (!this.client || !this.client.storage) return;
+    try {
+      const { data: buckets } = await this.client.storage.listBuckets();
+      const exists = buckets && buckets.some(b => b.name === 'session-audio');
+      if (!exists) {
+        console.log('[Supabase Storage] Creando bucket "session-audio"...');
+        const { error } = await this.client.storage.createBucket('session-audio', {
+          public: true,
+          fileSizeLimit: 10485760 // 10MB
+        });
+        if (error) {
+          console.warn('[Supabase Storage] Aviso al crear bucket session-audio:', error.message);
+        } else {
+          console.log('[Supabase Storage] Bucket session-audio creado con éxito.');
+        }
+      }
+    } catch (err) {
+      console.warn('[Supabase Storage] Verificación de bucket omitida:', err.message);
+    }
+  }
+
+  /**
+   * Procesa la notificación Realtime de un bloque WebM subido a Supabase Storage.
+   */
+  handleIncomingAudioStorageSegment(payload) {
+    if (!payload || !payload.storagePath) return;
+
+    const segmentMeta = {
+      storagePath: payload.storagePath,
+      sequence: payload.sequence || payload.segmentIndex || (this.audioChunks.length + 1),
+      mimeType: payload.mimeType || 'audio/webm',
+      size: payload.size || 0,
+      fromStorage: true
+    };
+
+    this.audioChunks.push(segmentMeta);
+    this.eventListeners.onAudioChunk({
+      sequence: segmentMeta.sequence,
+      totalChunks: this.audioChunks.length,
+      mimeType: segmentMeta.mimeType
+    });
+
+    // Si la sesión está activa, encolar el bloque para descarga y transcripción en vivo
+    if (this.currentSession && this.currentSession.status === 'active') {
+      this.transcriptionQueue.push(segmentMeta);
+      this.processTranscriptionQueue();
+    }
+  }
+
+  /**
+   * Procesa la llegada de un bloque WebM recibido como Base64 (fallback WebSocket).
    */
   handleIncomingAudioSegment(chunkData) {
     if (!chunkData || !chunkData.data) return;
 
-    this.audioChunks.push(chunkData);
+    const segmentMeta = {
+      data: chunkData.data,
+      sequence: chunkData.sequence || (this.audioChunks.length + 1),
+      mimeType: chunkData.mimeType || 'audio/webm',
+      fromStorage: false
+    };
+
+    this.audioChunks.push(segmentMeta);
     this.eventListeners.onAudioChunk({
-      sequence: chunkData.sequence,
+      sequence: segmentMeta.sequence,
       totalChunks: this.audioChunks.length,
-      mimeType: chunkData.mimeType
+      mimeType: segmentMeta.mimeType
     });
 
     // Si la sesión está activa, encolar el bloque para transcripción secuencial en vivo
     if (this.currentSession && this.currentSession.status === 'active') {
-      this.transcriptionQueue.push(chunkData);
+      this.transcriptionQueue.push(segmentMeta);
       this.processTranscriptionQueue();
     }
   }
 
   /**
    * Cola secuencial de transcripción con Gemini para bloques WebM individuales.
+   * Descarga desde Storage o usa Buffer de Base64, y limpia el archivo del bucket tras transcribir.
    */
   async processTranscriptionQueue() {
     if (this.isProcessingQueue) return;
@@ -95,13 +157,37 @@ class TeacherSessionService {
 
     while (this.transcriptionQueue.length > 0) {
       const segment = this.transcriptionQueue.shift();
-      if (!segment || !segment.data) continue;
+      if (!segment) continue;
 
       try {
-        const segmentBuffer = Buffer.from(segment.data, 'base64');
+        let segmentBuffer = null;
         const mimeType = (segment.mimeType || 'audio/webm').split(';')[0];
 
-        // Guardar diagnóstico del último segmento recibido en la carpeta temp de Electron
+        // 1. Obtener Buffer binario (desde Supabase Storage o desde Base64 de fallback)
+        if (segment.fromStorage && segment.storagePath) {
+          console.log(`[Audio Pipeline] Descargando bloque #${segment.sequence} desde Storage: ${segment.storagePath}...`);
+          const { data: blobData, error: dlErr } = await this.client.storage
+            .from('session-audio')
+            .download(segment.storagePath);
+
+          if (dlErr || !blobData) {
+            console.error(`[Audio Pipeline] Error al descargar ${segment.storagePath}:`, dlErr ? dlErr.message : 'Blob vacío');
+            continue;
+          }
+
+          const arrayBuffer = await blobData.arrayBuffer();
+          segmentBuffer = Buffer.from(arrayBuffer);
+        } else if (segment.data) {
+          // Fallback Base64 por WebSocket
+          segmentBuffer = Buffer.from(segment.data, 'base64');
+        }
+
+        if (!segmentBuffer || segmentBuffer.length === 0) {
+          console.warn(`[Audio Pipeline] Segmento #${segment.sequence} sin datos binarios.`);
+          continue;
+        }
+
+        // 2. Guardar diagnóstico del último segmento recibido en la carpeta temp de Electron
         let tempDir = os.tmpdir();
         try {
           const electron = require('electron');
@@ -119,8 +205,9 @@ class TeacherSessionService {
           console.warn('[Audio Pipeline] No se pudo escribir last_session_debug.webm:', fsErr.message);
         }
 
+        // 3. Transcribir con Gemini si hay API Key disponible
         if (apiKey && segmentBuffer.length > 0) {
-          console.log(`[Audio Pipeline] Transcribiendo bloque WebM #${segment.sequence} (${segmentBuffer.length} bytes) con Gemini...`);
+          console.log(`[Audio Pipeline] Transcribiendo bloque WebM #${segment.sequence} (${segmentBuffer.length} bytes, 24kbps) con Gemini...`);
           const rawSegmentText = await geminiService.transcribeAudio(segmentBuffer, mimeType);
           console.log(`[Audio Pipeline] Segmento #${segment.sequence} transcrito:`, rawSegmentText);
 
@@ -152,8 +239,18 @@ class TeacherSessionService {
         } else if (!apiKey) {
           console.warn('[Audio Pipeline] Falta GEMINI_API_KEY en variables de entorno.');
         }
+
+        // 4. Limpieza automática: eliminar archivo de Supabase Storage inmediatamente tras transcribirlo
+        if (segment.fromStorage && segment.storagePath && this.client) {
+          try {
+            console.log(`[Audio Pipeline] 🗑️ Eliminando archivo procesado de Storage: ${segment.storagePath}`);
+            await this.client.storage.from('session-audio').remove([segment.storagePath]);
+          } catch (rmErr) {
+            console.warn(`[Audio Pipeline] Aviso al eliminar ${segment.storagePath}:`, rmErr.message);
+          }
+        }
       } catch (err) {
-        console.error(`[Audio Pipeline] Error transcribiendo segmento #${segment.sequence}:`, err.message);
+        console.error(`[Audio Pipeline] Error procesando segmento #${segment.sequence}:`, err.message);
       }
     }
 
@@ -240,6 +337,10 @@ class TeacherSessionService {
         .on('broadcast', { event: 'student:joined' }, (payload) => {
           console.log('[Supabase Realtime] Alumno conectado a sala en espera:', payload.payload);
           this.eventListeners.onStudentJoined(payload.payload);
+        })
+        .on('broadcast', { event: 'audio_segment_uploaded' }, (payload) => {
+          console.log('[Supabase Realtime] Notificación audio_segment_uploaded recibida en espera:', payload.payload);
+          this.handleIncomingAudioStorageSegment(payload.payload);
         })
         .on('broadcast', { event: 'student:audio_chunk' }, (payload) => {
           this.handleIncomingAudioSegment(payload.payload);
@@ -380,6 +481,10 @@ class TeacherSessionService {
         .on('broadcast', { event: 'student:joined' }, (payload) => {
           console.log('[Supabase Realtime] Alumno conectado:', payload.payload);
           this.eventListeners.onStudentJoined(payload.payload);
+        })
+        .on('broadcast', { event: 'audio_segment_uploaded' }, (payload) => {
+          console.log('[Supabase Realtime] Notificación audio_segment_uploaded recibida en sesión:', payload.payload);
+          this.handleIncomingAudioStorageSegment(payload.payload);
         })
         .on('broadcast', { event: 'student:audio_chunk' }, (payload) => {
           this.handleIncomingAudioSegment(payload.payload);
