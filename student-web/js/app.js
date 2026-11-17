@@ -308,12 +308,12 @@ btnToggleMute.addEventListener('click', () => {
 // 4. Salir de la sesión
 btnLeaveSession.addEventListener('click', async () => {
   if (confirm('¿Deseas salir de la sesión?')) {
-    cleanupSession();
+    await cleanupSession();
   }
 });
 
 // 5. Manejo de eventos del docente recibidos vía Realtime
-function handleTeacherEvent(eventType, payload) {
+async function handleTeacherEvent(eventType, payload) {
   if (eventType === 'session_start') {
     sessionStatusBadge.textContent = 'Sesión en Curso';
     sessionStatusBadge.className = 'badge badge-active';
@@ -323,7 +323,10 @@ function handleTeacherEvent(eventType, payload) {
     micStatusLabel.textContent = 'Tiempo Terminado';
     micStatusSub.textContent = 'La sesión oral ha concluido. ¡Buen trabajo!';
     if (audioService) {
-      audioService.stop();
+      await audioService.stop();
+    }
+    if (supabaseService) {
+      await supabaseService.waitForPendingUploads(10000);
     }
     visualizerContainer.classList.remove('recording');
   } else if (eventType === 'guided_correction') {
@@ -958,10 +961,11 @@ async function cleanupSession() {
     activePreviewMonitor = null;
   }
   if (audioService) {
-    audioService.stop();
+    await audioService.stop();
     audioService = null;
   }
   if (supabaseService) {
+    await supabaseService.waitForPendingUploads(10000);
     await supabaseService.leave();
   }
   if (guidedModal) {

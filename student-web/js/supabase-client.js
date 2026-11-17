@@ -17,6 +17,8 @@ export class StudentSupabaseService {
     this.sessionCode = null;
     this.studentName = null;
     this.sequenceId = 0;
+    this.uploadQueue = [];
+    this.isProcessingUploadQueue = false;
   }
 
   init() {
@@ -101,18 +103,57 @@ export class StudentSupabaseService {
   }
 
   /**
-   * Sube un segmento de audio (Blob) directamente a Supabase Storage con bitrate optimizado.
-   * Si la subida falla por permisos o bucket inexistente, realiza fallback automático a broadcast Base64 si < 120 KB.
+   * Sube un segmento de audio (Blob) de forma secuencial a través de una cola ordenada (uploadQueue).
+   * Evita condiciones de carrera y pérdida de bloques en redes móviles (4G).
    */
-  async uploadAudioSegment(blob, mimeType = 'audio/webm', base64Fallback = null) {
-    if (!this.client) this.init();
+  uploadAudioSegment(blob, mimeType = 'audio/webm', base64Fallback = null) {
     this.sequenceId += 1;
     const currentSeq = this.sequenceId;
+
+    return new Promise((resolve) => {
+      this.uploadQueue.push({
+        seq: currentSeq,
+        blob,
+        mimeType,
+        base64Fallback,
+        resolve
+      });
+      this.processUploadQueue();
+    });
+  }
+
+  /**
+   * Procesa la cola de subida estrictamente en orden secuencial (FIFO).
+   */
+  async processUploadQueue() {
+    if (this.isProcessingUploadQueue) return;
+    this.isProcessingUploadQueue = true;
+
+    while (this.uploadQueue.length > 0) {
+      const item = this.uploadQueue.shift();
+      try {
+        const result = await this._performUpload(item.seq, item.blob, item.mimeType, item.base64Fallback);
+        item.resolve(result);
+      } catch (err) {
+        console.error(`[Upload] Error crítico procesando bloque #${item.seq}:`, err);
+        item.resolve({ success: false, error: err.message, sequence: item.seq });
+      }
+    }
+
+    this.isProcessingUploadQueue = false;
+  }
+
+  /**
+   * Ejecución real de subida a Supabase Storage con fallback a Base64 por WebSocket si falla.
+   */
+  async _performUpload(currentSeq, blob, mimeType = 'audio/webm', base64Fallback = null) {
+    if (!this.client) this.init();
     const cleanSessionCode = (this.sessionCode || 'UNKNOWN').toUpperCase();
     const filePath = `${cleanSessionCode}/${Date.now()}_seg_${currentSeq}.webm`;
 
+    console.log(`[Upload] Subiendo bloque #${currentSeq} (${blob.size} bytes) a Storage: session-audio/${filePath}...`);
+
     try {
-      console.log(`[Supabase Storage] Subiendo segmento #${currentSeq} (${blob.size} bytes) a session-audio/${filePath}...`);
       const { data, error } = await this.client.storage
         .from('session-audio')
         .upload(filePath, blob, {
@@ -125,7 +166,7 @@ export class StudentSupabaseService {
       }
 
       const uploadedPath = data?.path || filePath;
-      console.log(`[Supabase Storage] ✅ Segmento #${currentSeq} subido con éxito:`, uploadedPath);
+      console.log(`[Upload] Éxito: Bloque #${currentSeq} subido a Storage (${uploadedPath})`);
 
       // Emitir notificación ligera por Realtime
       this.broadcastEvent('audio_segment_uploaded', {
@@ -139,7 +180,7 @@ export class StudentSupabaseService {
 
       return { success: true, storagePath: uploadedPath, sequence: currentSeq };
     } catch (uploadErr) {
-      console.warn(`[Supabase Storage] Falló subida a Storage (${uploadErr.message}). Evaluando fallback Base64...`);
+      console.warn(`[Upload] Error subiendo bloque #${currentSeq} a Storage (${uploadErr.message}). Evaluando fallback Base64...`);
 
       // Fallback automático por WebSocket broadcast si el blob es < 120 KB
       if (blob.size < 120 * 1024) {
@@ -148,7 +189,7 @@ export class StudentSupabaseService {
           if (!b64) {
             b64 = await this.blobToBase64(blob);
           }
-          console.log(`[Supabase Realtime Fallback] Transmitiendo segmento #${currentSeq} (${blob.size} bytes) por WebSocket Base64...`);
+          console.log(`[Upload] Transmitiendo bloque #${currentSeq} (${blob.size} bytes) por fallback WebSocket Base64...`);
           this.broadcastEvent('student:audio_chunk', {
             sequence: currentSeq,
             mimeType: mimeType || 'audio/webm',
@@ -157,13 +198,13 @@ export class StudentSupabaseService {
           });
           return { success: true, fallback: true, sequence: currentSeq };
         } catch (b64Err) {
-          console.error('[Supabase Realtime Fallback] Error en fallback Base64:', b64Err.message);
+          console.error(`[Upload] Error en fallback Base64 bloque #${currentSeq}:`, b64Err.message);
         }
       } else {
-        console.error(`[Supabase Storage] Segmento (${blob.size} bytes) excede 120 KB para fallback WebSocket.`);
+        console.error(`[Upload] Bloque #${currentSeq} (${blob.size} bytes) excede 120 KB para fallback WebSocket.`);
       }
 
-      return { success: false, error: uploadErr.message };
+      return { success: false, error: uploadErr.message, sequence: currentSeq };
     }
   }
 
@@ -229,9 +270,27 @@ export class StudentSupabaseService {
   }
 
   /**
-   * Desconecta del canal al salir.
+   * Espera a que se vacíe la cola de subidas pendientes a Storage antes de desconectar.
+   */
+  async waitForPendingUploads(timeoutMs = 15000) {
+    const startTime = Date.now();
+    while ((this.uploadQueue.length > 0 || this.isProcessingUploadQueue) && (Date.now() - startTime < timeoutMs)) {
+      console.log(`[Upload] Esperando subidas pendientes... (en cola: ${this.uploadQueue.length}, procesando: ${this.isProcessingUploadQueue})`);
+      await new Promise(r => setTimeout(r, 200));
+    }
+
+    if (this.uploadQueue.length > 0 || this.isProcessingUploadQueue) {
+      console.warn(`[Upload] Timeout esperando subidas pendientes (${timeoutMs}ms). Quedan ${this.uploadQueue.length} en cola.`);
+    } else {
+      console.log('[Upload] Todas las subidas pendientes a Storage se completaron.');
+    }
+  }
+
+  /**
+   * Desconecta del canal al salir, asegurando que todos los bloques en cola terminen de subirse.
    */
   async leave() {
+    await this.waitForPendingUploads(10000);
     if (this.channel) {
       await this.broadcastEvent('student:left', { timestamp: Date.now() });
       await this.client.removeChannel(this.channel);

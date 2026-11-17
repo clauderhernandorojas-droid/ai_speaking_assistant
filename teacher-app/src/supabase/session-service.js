@@ -104,6 +104,8 @@ class TeacherSessionService {
       fromStorage: true
     };
 
+    console.log(`[Audio Pipeline] 📥 Bloque Storage recibido: seq=#${segmentMeta.sequence}, size=${segmentMeta.size} bytes, path=${segmentMeta.storagePath}, sessionStatus=${this.currentSession?.status || 'none'}`);
+
     this.audioChunks.push(segmentMeta);
     this.eventListeners.onAudioChunk({
       sequence: segmentMeta.sequence,
@@ -115,6 +117,8 @@ class TeacherSessionService {
     if (this.currentSession && this.currentSession.status === 'active') {
       this.transcriptionQueue.push(segmentMeta);
       this.processTranscriptionQueue();
+    } else {
+      console.log(`[Audio Pipeline] ⏳ Bloque #${segmentMeta.sequence} conservado en memoria (esperando activación de sesión)`);
     }
   }
 
@@ -124,12 +128,16 @@ class TeacherSessionService {
   handleIncomingAudioSegment(chunkData) {
     if (!chunkData || !chunkData.data) return;
 
+    const approxSize = chunkData.data ? Math.round(chunkData.data.length * 0.75) : 0;
     const segmentMeta = {
       data: chunkData.data,
       sequence: chunkData.sequence || (this.audioChunks.length + 1),
       mimeType: chunkData.mimeType || 'audio/webm',
+      size: approxSize,
       fromStorage: false
     };
+
+    console.log(`[Audio Pipeline] 📥 Bloque Base64 recibido: seq=#${segmentMeta.sequence}, size=~${approxSize} bytes, sessionStatus=${this.currentSession?.status || 'none'}`);
 
     this.audioChunks.push(segmentMeta);
     this.eventListeners.onAudioChunk({
@@ -142,6 +150,8 @@ class TeacherSessionService {
     if (this.currentSession && this.currentSession.status === 'active') {
       this.transcriptionQueue.push(segmentMeta);
       this.processTranscriptionQueue();
+    } else {
+      console.log(`[Audio Pipeline] ⏳ Bloque Base64 #${segmentMeta.sequence} conservado en memoria (esperando activación de sesión)`);
     }
   }
 
@@ -218,13 +228,9 @@ class TeacherSessionService {
             
             const cleanedSegment = speechCleaner.cleanText(rawSegmentText).trim();
             if (cleanedSegment) {
-              if (this.sessionTranscript.length > 0) {
-                this.sessionTranscript += ' ' + cleanedSegment;
-              } else {
-                this.sessionTranscript = cleanedSegment;
-              }
+              this.sessionTranscript = (this.sessionTranscript ? `${this.sessionTranscript.trim()} ${cleanedSegment}` : cleanedSegment).trim();
 
-              console.log(`[Audio Pipeline] Transcripción acumulada en vivo: "${this.sessionTranscript}"`);
+              console.log(`[Audio Pipeline] Transcripción acumulada en vivo (Segmento #${segment.sequence}): "${this.sessionTranscript}"`);
 
               // Emitir inmediatamente al proceso de UI (renderer.js)
               if (typeof this.eventListeners.onTranscriptSegment === 'function') {
@@ -376,6 +382,8 @@ class TeacherSessionService {
     }
 
     const code = sessionCode.toUpperCase().trim();
+    const existingChunks = (this.audioChunks && this.audioChunks.length > 0) ? [...this.audioChunks] : [];
+
     this.currentSession = {
       sessionCode: code,
       studentName: studentName || 'Estudiante',
@@ -385,10 +393,18 @@ class TeacherSessionService {
       startedAt: Date.now()
     };
 
-    this.audioChunks = [];
-    this.transcriptionQueue = [];
-    this.isProcessingQueue = false;
-    this.sessionTranscript = '';
+    if (existingChunks.length > 0) {
+      console.log(`[Audio Pipeline] Conservando ${existingChunks.length} bloques recibidos durante el modo de espera previo.`);
+      existingChunks.forEach(chunk => {
+        if (!this.transcriptionQueue.includes(chunk)) {
+          this.transcriptionQueue.push(chunk);
+        }
+      });
+    } else {
+      this.audioChunks = [];
+      this.transcriptionQueue = [];
+      this.sessionTranscript = '';
+    }
 
     // 1. Sincronizar en la tabla 'sessions' de Supabase con status 'active'
     if (this.client) {
@@ -448,6 +464,9 @@ class TeacherSessionService {
     if (this.channel && this.channel.topic === `realtime:${channelName}`) {
       console.log('[Supabase Realtime] Reutilizando canal en espera ya conectado:', channelName);
       emitSessionStart();
+      if (this.transcriptionQueue.length > 0) {
+        this.processTranscriptionQueue();
+      }
       return { success: true, sessionCode: this.currentSession.sessionCode };
     }
 
@@ -505,6 +524,9 @@ class TeacherSessionService {
           if (status === 'SUBSCRIBED') {
             console.log(`[Supabase Realtime] Docente suscrito exitosamente a ${channelName}`);
             emitSessionStart();
+            if (this.transcriptionQueue.length > 0) {
+              this.processTranscriptionQueue();
+            }
           }
         });
     }
@@ -534,15 +556,15 @@ class TeacherSessionService {
       }
     }
 
-    // 2. Margen de espera (1500 ms) para recibir el último bloque transmitido (flush) por el alumno
-    console.log('[Audio Pipeline] Margen de espera (1500ms) para vaciado (flush) del último bloque de audio...');
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    // 2. Margen de espera (3000 ms) para recibir el último bloque transmitido (flush) por el alumno
+    console.log('[Audio Pipeline] Margen de espera (3000ms) para vaciado (flush) del último bloque de audio...');
+    await new Promise((resolve) => setTimeout(resolve, 3000));
     console.log(`[Audio Pipeline] Vaciado completado. Total de bloques recibidos en sesión: ${this.audioChunks.length}`);
 
     // 3. Esperar a que la cola secuencial de transcripción termine de procesar todos los bloques pendientes
     console.log(`[Audio Pipeline] Esperando a que termine la cola de transcripción (pendientes: ${this.transcriptionQueue.length}, procesando: ${this.isProcessingQueue})...`);
     const queueWaitStart = Date.now();
-    while ((this.transcriptionQueue.length > 0 || this.isProcessingQueue) && (Date.now() - queueWaitStart < 35000)) {
+    while ((this.transcriptionQueue.length > 0 || this.isProcessingQueue) && (Date.now() - queueWaitStart < 40000)) {
       await new Promise((resolve) => setTimeout(resolve, 200));
     }
     console.log(`[Audio Pipeline] Cola de transcripción finalizada. Transcripción acumulada total: "${this.sessionTranscript}"`);

@@ -1282,7 +1282,11 @@ function handleLiveTranscriptSegment(data) {
     transcriptStatus.textContent = 'Transcribiendo en vivo...';
   }
 
-  state.sessionTranscript = data.fullTranscript || data.segmentText || '';
+  if (data.fullTranscript && data.fullTranscript.trim().length > 0) {
+    state.sessionTranscript = data.fullTranscript.trim();
+  } else if (data.segmentText && data.segmentText.trim().length > 0) {
+    state.sessionTranscript = (state.sessionTranscript ? `${state.sessionTranscript.trim()} ${data.segmentText.trim()}` : data.segmentText.trim());
+  }
 
   let liveTurnEl = document.getElementById('live-student-turn');
   if (!liveTurnEl) {

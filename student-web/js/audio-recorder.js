@@ -146,7 +146,7 @@ export class AudioCaptureService {
           console.log(`[AudioCapture] Bloque autocontenido con voz válida (${blob.size} bytes, voz: ${Math.round(metrics.activeSpeechMs)}ms, peakRms: ${metrics.peakRms.toFixed(3)}, noiseFloor: ${this.noiseFloor.toFixed(4)}, gateRms: ${speechGateRms.toFixed(3)}). Transmitiendo...`);
           try {
             // Se entrega el Blob directo (y su MIME y métricas) para subida a Supabase Storage
-            this.onChunk(blob, mime, metrics);
+            await this.onChunk(blob, mime, metrics);
           } catch (chunkErr) {
             console.error('[AudioCapture] Error en onChunk:', chunkErr);
           }
@@ -428,9 +428,9 @@ export class AudioCaptureService {
   }
 
   /**
-   * Detiene la captura y libera el hardware del micrófono.
+   * Detiene la captura, vacía cualquier bloque pendiente y libera el hardware del micrófono.
    */
-  stop() {
+  async stop() {
     this.isActive = false;
 
     if (this.blockTimer) {
@@ -444,9 +444,25 @@ export class AudioCaptureService {
     }
 
     if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
-      try {
-        this.mediaRecorder.stop();
-      } catch (_) {}
+      await new Promise((resolve) => {
+        const prevOnStop = this.mediaRecorder.onstop;
+        this.mediaRecorder.onstop = async (e) => {
+          if (typeof prevOnStop === 'function') {
+            try {
+              await prevOnStop(e);
+            } catch (err) {
+              console.error('[AudioCapture] Error en onstop durante stop():', err);
+            }
+          }
+          resolve();
+        };
+
+        try {
+          this.mediaRecorder.stop();
+        } catch (_) {
+          resolve();
+        }
+      });
     }
 
     if (this.mediaStream) {
@@ -455,7 +471,9 @@ export class AudioCaptureService {
     }
 
     if (this.audioContext && this.audioContext.state !== 'closed') {
-      this.audioContext.close();
+      try {
+        await this.audioContext.close();
+      } catch (_) {}
       this.audioContext = null;
     }
   }
