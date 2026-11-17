@@ -676,7 +676,6 @@ class TeacherSessionService {
       needsLevelConfirmation: !shouldEvaluateImmediately
     };
   }
-  }
 
   /**
    * Envía un evento broadcast 'guided_correction' al canal activo de la sala
