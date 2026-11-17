@@ -129,8 +129,8 @@ body {
   padding: 3px 8px;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
-  flex-shrink: 1;
-  min-width: 0;
+  flex-shrink: 0;
+  overflow: hidden;
 }
 
 .student-selector-group label {
@@ -230,6 +230,7 @@ body {
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
+  overflow: hidden;
 }
 
 .duration-selector-group label {
@@ -899,8 +900,14 @@ body {
     max-width: 115px;
     font-size: 0.8rem;
   }
+  .student-selector-group {
+    flex-shrink: 0;
+    overflow: hidden;
+  }
   .duration-selector-group {
     gap: 4px;
+    flex-shrink: 0;
+    overflow: hidden;
   }
   .duration-btn {
     padding: 3px 6px;

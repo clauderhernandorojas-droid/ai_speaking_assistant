@@ -1,14 +1,12 @@
 /**
  * Gestor de captura de audio y hardware del micrófono para el estudiante.
  * Utiliza MediaRecorder con ciclo de bloques WebM autocontenidos (hasta 35s o 2.0s de silencio continuo tras voz)
- * y Web Audio API con VAD para descartar bloques sin voz y garantizar cabeceras WebM completas.
+ * y Web Audio API con VAD Adaptativo por piso de ruido dinámico (SNR) + AGC + Hangover de 400ms.
  */
 
 export class AudioCaptureService {
   constructor(options = {}) {
     this.maxBlockDuration = options.maxBlockDuration || 35000; // Máximo 35 segundos por bloque
-    this.speechThreshold = options.speechThreshold || 0.035;   // Umbral RMS calibrado de voz real
-    this.minSpeechMs = options.minSpeechMs || 500;             // Mínimo 500ms de actividad vocal
     this.silenceTimeoutMs = options.silenceTimeoutMs || 2000;  // 2.0s de silencio continuo tras haber detectado voz
     this.onChunk = options.onChunk || (() => {});
     this.onVolume = options.onVolume || (() => {});
@@ -22,6 +20,10 @@ export class AudioCaptureService {
     this.isMuted = false;
     this.isActive = false;
 
+    // VAD Adaptativo por piso de ruido dinámico (SNR) + AGC
+    this.noiseFloor = 0.004; // Inicializado en 0.004, acotado entre 0.0015 y 0.04
+    this.hangoverMs = 0;     // Retención de 400ms para pausas entre sílabas
+
     // Métricas y control del ciclo de bloques
     this.blockTimer = null;
     this.currentBlockChunks = [];
@@ -30,14 +32,15 @@ export class AudioCaptureService {
       activeSpeechMs: 0,
       continuousSilenceMs: 0,
       hasSpeech: false,
-      peakRms: 0
+      peakRms: 0,
+      noiseFloorAtEnd: 0.004
     };
     this.isCycling = false;
     this.supportedMime = '';
   }
 
   /**
-   * Solicita acceso al micrófono del navegador (o al deviceId especificado) con cancelación de ruido.
+   * Solicita acceso al micrófono del navegador (o al deviceId especificado) con AGC y cancelación de ruido.
    */
   async start(deviceId = null) {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -49,14 +52,11 @@ export class AudioCaptureService {
     }
 
     const audioConstraints = {
-      echoCancellation: true,
+      deviceId: this.deviceId ? { exact: this.deviceId } : undefined,
+      autoGainControl: true,
       noiseSuppression: true,
-      autoGainControl: true
+      echoCancellation: true
     };
-
-    if (this.deviceId) {
-      audioConstraints.deviceId = { exact: this.deviceId };
-    }
 
     this.mediaStream = await navigator.mediaDevices.getUserMedia({
       audio: audioConstraints,
@@ -97,8 +97,10 @@ export class AudioCaptureService {
       activeSpeechMs: 0,
       continuousSilenceMs: 0,
       hasSpeech: false,
-      peakRms: 0
+      peakRms: 0,
+      noiseFloorAtEnd: this.noiseFloor
     };
+    this.hangoverMs = 0;
     this.isCycling = false;
 
     try {
@@ -126,9 +128,13 @@ export class AudioCaptureService {
         const mime = this.mediaRecorder?.mimeType || this.supportedMime || 'audio/webm';
         const blob = new Blob(chunks, { type: mime });
 
-        // Verificación estricta: ¿tuvo al menos 500ms de voz real?
-        if (metrics.activeSpeechMs >= this.minSpeechMs) {
-          console.log(`[AudioCapture] Bloque autocontenido con voz (${blob.size} bytes, voz: ${Math.round(metrics.activeSpeechMs)}ms, peakRms: ${metrics.peakRms.toFixed(3)}). Transmitiendo...`);
+        // Criterio VAD Adaptativo:
+        // Acepta el bloque como voz válida si activeSpeechMs >= 250 O si peakRms >= Math.max(0.02, noiseFloor * 4.5)
+        const speechGateRms = Math.max(0.02, this.noiseFloor * 4.5);
+        const hasValidSpeech = metrics.activeSpeechMs >= 250 || metrics.peakRms >= speechGateRms;
+
+        if (hasValidSpeech) {
+          console.log(`[AudioCapture] Bloque autocontenido con voz válida (${blob.size} bytes, voz: ${Math.round(metrics.activeSpeechMs)}ms, peakRms: ${metrics.peakRms.toFixed(3)}, noiseFloor: ${this.noiseFloor.toFixed(4)}, gateRms: ${speechGateRms.toFixed(3)}). Transmitiendo...`);
           try {
             const base64 = await this.blobToBase64(blob);
             this.onChunk(base64, mime, metrics);
@@ -136,7 +142,7 @@ export class AudioCaptureService {
             console.error('[AudioCapture] Error al codificar blob a Base64:', b64Err);
           }
         } else {
-          console.log(`[AudioCapture] Bloque descartado localmente por falta de voz (${blob.size} bytes, voz: ${Math.round(metrics.activeSpeechMs)}ms < ${this.minSpeechMs}ms, peakRms: ${metrics.peakRms.toFixed(3)}). 0 tokens IA consumidos.`);
+          console.log(`[AudioCapture] Bloque descartado localmente por falta de voz (${blob.size} bytes, voz: ${Math.round(metrics.activeSpeechMs)}ms < 250ms, peakRms: ${metrics.peakRms.toFixed(3)} < ${speechGateRms.toFixed(3)}). 0 tokens IA consumidos.`);
         }
       }
 
@@ -179,10 +185,13 @@ export class AudioCaptureService {
 
   /**
    * Cambia el micrófono activo durante la sesión sin perder la conexión.
+   * Reinicia el piso de ruido dinámico para calibrarse con el nuevo hardware.
    */
   async setDevice(newDeviceId) {
     if (this.deviceId === newDeviceId && this.mediaStream) return;
     this.deviceId = newDeviceId;
+    this.noiseFloor = 0.004; // Reiniciar piso de ruido al cambiar de hardware
+    this.hangoverMs = 0;
 
     const wasActive = !!this.mediaStream;
     if (wasActive) {
@@ -231,7 +240,12 @@ export class AudioCaptureService {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return null;
 
     const constraints = {
-      audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+      audio: {
+        deviceId: deviceId ? { exact: deviceId } : undefined,
+        autoGainControl: true,
+        noiseSuppression: true,
+        echoCancellation: true
+      },
       video: false
     };
 
@@ -277,7 +291,7 @@ export class AudioCaptureService {
   }
 
   /**
-   * Conecta un AnalyserNode para monitorear el nivel de voz en tiempo real y ejecutar VAD.
+   * Conecta un AnalyserNode para monitorear el nivel de voz en tiempo real y ejecutar VAD Adaptativo.
    */
   setupAudioAnalysis(stream) {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -322,24 +336,43 @@ export class AudioCaptureService {
         // Feedback visual para el visualizador
         this.onVolume(average, rms);
 
+        // VAD Adaptativo por Piso de Ruido Dinámico
+        const dynamicThreshold = Math.max(0.005, this.noiseFloor * 2.8);
+
+        // Actualizar suavemente el piso de ruido cuando la señal actual está baja
+        if (rms < dynamicThreshold) {
+          this.noiseFloor = Math.min(0.04, Math.max(0.0015, this.noiseFloor * 0.95 + rms * 0.05));
+        }
+
         // Rastreo de VAD si hay un bloque activo
         if (!this.isCycling && this.mediaRecorder && this.mediaRecorder.state === 'recording') {
           if (rms > this.blockMetrics.peakRms) {
             this.blockMetrics.peakRms = rms;
           }
+          this.blockMetrics.noiseFloorAtEnd = this.noiseFloor;
 
-          if (rms >= this.speechThreshold) {
-            // Voz real detectada en este frame
+          const isVoicePeak = rms >= dynamicThreshold;
+          if (isVoicePeak) {
+            // Pico por encima de umbral dinámico: reactivar hangover de 400 ms
+            this.hangoverMs = 400;
             this.blockMetrics.activeSpeechMs += dt;
             this.blockMetrics.hasSpeech = true;
             this.blockMetrics.continuousSilenceMs = 0;
+          } else if (this.hangoverMs > 0) {
+            // Retención hangover (pausa natural entre sílabas)
+            this.hangoverMs = Math.max(0, this.hangoverMs - dt);
+            this.blockMetrics.activeSpeechMs += dt;
+            this.blockMetrics.continuousSilenceMs = 0;
           } else {
-            // Silencio en este frame
+            // Silencio fuera de pausas entre sílabas
             if (this.blockMetrics.hasSpeech) {
               this.blockMetrics.continuousSilenceMs += dt;
-              // Si detecta 2.0s de silencio continuo tras haber captado voz:
-              if (this.blockMetrics.continuousSilenceMs >= this.silenceTimeoutMs &&
-                  this.blockMetrics.activeSpeechMs >= this.minSpeechMs) {
+
+              const isEligibleBlock = this.blockMetrics.activeSpeechMs >= 250 ||
+                this.blockMetrics.peakRms >= Math.max(0.02, this.noiseFloor * 4.5);
+
+              // Si detecta 2.0s de silencio continuo tras haber captado voz válida:
+              if (this.blockMetrics.continuousSilenceMs >= this.silenceTimeoutMs && isEligibleBlock) {
                 this.cycleBlock('silence_after_speech_2s');
               }
             }
