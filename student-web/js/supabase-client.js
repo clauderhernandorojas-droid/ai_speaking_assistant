@@ -170,6 +170,7 @@ export class StudentSupabaseService {
 
       // Emitir notificación ligera por Realtime
       this.broadcastEvent('audio_segment_uploaded', {
+        sessionCode: cleanSessionCode,
         storagePath: uploadedPath,
         segmentIndex: currentSeq,
         sequence: currentSeq,
@@ -191,6 +192,7 @@ export class StudentSupabaseService {
           }
           console.log(`[Upload] Transmitiendo bloque #${currentSeq} (${blob.size} bytes) por fallback WebSocket Base64...`);
           this.broadcastEvent('student:audio_chunk', {
+            sessionCode: cleanSessionCode,
             sequence: currentSeq,
             mimeType: mimeType || 'audio/webm',
             data: b64,
@@ -231,6 +233,7 @@ export class StudentSupabaseService {
 
     this.sequenceId += 1;
     this.broadcastEvent('student:audio_chunk', {
+      sessionCode: (this.sessionCode || '').toUpperCase().trim(),
       sequence: this.sequenceId,
       mimeType,
       data: base64Data,

@@ -241,9 +241,13 @@ SILENCE RULE:
               text: `${systemPrompt}
 
 TEACHER'S CONTEXT / QUESTION: "${teacherContext}"
-STUDENT'S SPOKEN RESPONSE: "${studentUtterance}"
+TRANSCRIPTION (MAY INCLUDE 'DOCENTE:' AND 'ESTUDIANTE:' TURNS):
+"""
+${studentUtterance}
+"""
 CONFIRMED STUDENT CEFR LEVEL: "${normLevel}"
 LEVEL CALIBRATION MANDATE: Keep 'grammar', 'vocabulary', 'pronunciation', and 'fluency' strictly within ${normLevel}. Keep 'upgrade_c1' for C1 reference. In modelSpeech, 'naturalCorrected' must strictly reflect ${normLevel}, and 'targetUpgrade' must reflect exactly i+1.
+ROLE MANDATE: Use 'DOCENTE:' turns exclusively as conversational context. Evaluate, critique, and reformulate ONLY what the 'ESTUDIANTE:' said!
 
 Analyze according to all instructions and output ONLY valid JSON without markdown wrapping.`
             }

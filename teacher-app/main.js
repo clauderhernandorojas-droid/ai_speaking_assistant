@@ -179,6 +179,17 @@ ipcMain.handle('ai:evaluateUtterance', async (event, options) => {
   return ieltsEngine.evaluateUtterance(options);
 });
 
+ipcMain.handle('ai:transcribeAudio', async (event, { base64Data, mimeType }) => {
+  try {
+    if (!base64Data) return '';
+    const audioBuffer = Buffer.from(base64Data, 'base64');
+    return await geminiService.transcribeAudio(audioBuffer, mimeType || 'audio/webm');
+  } catch (err) {
+    console.error('[MAIN ai:transcribeAudio ERROR]', err);
+    return '';
+  }
+});
+
 ipcMain.handle('ai:generateMicroExercise', async (_event, params) => {
   try {
     console.log('[MAIN ai:generateMicroExercise] Solicitando ejercicio con params:', params);

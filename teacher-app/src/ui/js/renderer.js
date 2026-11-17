@@ -97,6 +97,218 @@ let pendingAnalysisUtterance = '';
 let pendingTeacherContext = '';
 let tempSelectedConfirmLevel = 'B1';
 
+// Elementos de captura de micrófono del docente
+const btnToggleTeacherMic = document.getElementById('btn-toggle-teacher-mic');
+const teacherMicIcon = document.getElementById('teacher-mic-icon');
+const teacherMicLabel = document.getElementById('teacher-mic-label');
+
+let isTeacherMicMuted = false;
+let teacherAudioStream = null;
+let teacherMediaRecorder = null;
+let teacherAudioContext = null;
+let teacherAnalyserNode = null;
+let teacherCaptureActive = false;
+let teacherVadInterval = null;
+let teacherMaxBlockTimer = null;
+
+function updateTeacherMicUI() {
+  if (!btnToggleTeacherMic) return;
+  if (isTeacherMicMuted) {
+    btnToggleTeacherMic.classList.add('muted');
+    if (teacherMicIcon) teacherMicIcon.textContent = '🔇';
+    if (teacherMicLabel) teacherMicLabel.textContent = 'Docente: Mute';
+  } else {
+    btnToggleTeacherMic.classList.remove('muted');
+    if (teacherMicIcon) teacherMicIcon.textContent = '🎙️';
+    if (teacherMicLabel) teacherMicLabel.textContent = 'Docente: Activo';
+  }
+}
+
+if (btnToggleTeacherMic) {
+  btnToggleTeacherMic.addEventListener('click', () => {
+    isTeacherMicMuted = !isTeacherMicMuted;
+    if (teacherAudioStream) {
+      teacherAudioStream.getAudioTracks().forEach(track => {
+        track.enabled = !isTeacherMicMuted;
+      });
+    }
+    updateTeacherMicUI();
+  });
+}
+
+async function startTeacherAudioCapture() {
+  if (teacherCaptureActive) return;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      }
+    });
+
+    teacherAudioStream = stream;
+    teacherCaptureActive = true;
+    isTeacherMicMuted = false;
+    updateTeacherMicUI();
+
+    teacherAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+    if (teacherAudioContext.state === 'suspended') {
+      await teacherAudioContext.resume();
+    }
+    const sourceNode = teacherAudioContext.createMediaStreamSource(stream);
+    teacherAnalyserNode = teacherAudioContext.createAnalyser();
+    teacherAnalyserNode.fftSize = 512;
+    teacherAnalyserNode.smoothingTimeConstant = 0.2;
+    sourceNode.connect(teacherAnalyserNode);
+
+    startTeacherBlockRecording();
+    console.log('[TeacherMic] Captura de micrófono de docente iniciada correctamente.');
+  } catch (err) {
+    console.warn('[TeacherMic] No se pudo acceder al micrófono del docente:', err);
+    if (teacherMicLabel) teacherMicLabel.textContent = 'Mic No Disp.';
+  }
+}
+
+function startTeacherBlockRecording() {
+  if (!teacherCaptureActive || !state.isSessionActive || !teacherAudioStream) return;
+
+  const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+    ? 'audio/webm;codecs=opus'
+    : 'audio/webm';
+
+  try {
+    teacherMediaRecorder = new MediaRecorder(teacherAudioStream, {
+      mimeType,
+      audioBitsPerSecond: 24000
+    });
+  } catch (e) {
+    console.warn('[TeacherMic] Error creando MediaRecorder del docente:', e);
+    return;
+  }
+
+  const chunks = [];
+  let speechMs = 0;
+  let hasVoice = false;
+  let lastVoiceTimestamp = 0;
+
+  teacherMediaRecorder.ondataavailable = (e) => {
+    if (e.data && e.data.size > 0) {
+      chunks.push(e.data);
+    }
+  };
+
+  teacherMediaRecorder.onstop = async () => {
+    if (teacherVadInterval) {
+      clearInterval(teacherVadInterval);
+      teacherVadInterval = null;
+    }
+    if (teacherMaxBlockTimer) {
+      clearTimeout(teacherMaxBlockTimer);
+      teacherMaxBlockTimer = null;
+    }
+
+    // Iniciar de inmediato el siguiente bloque si la sesión sigue activa
+    if (teacherCaptureActive && state.isSessionActive) {
+      startTeacherBlockRecording();
+    }
+
+    // Si el bloque tuvo actividad vocal relevante (>400ms) y el docente no estaba silenciado, transcribir
+    if (chunks.length > 0 && speechMs >= 400 && !isTeacherMicMuted) {
+      const blob = new Blob(chunks, { type: mimeType });
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        try {
+          const res = reader.result;
+          const base64 = typeof res === 'string' ? res.split(',')[1] : '';
+          if (base64 && window.electronAPI && typeof window.electronAPI.transcribeAudio === 'function') {
+            const transcribed = await window.electronAPI.transcribeAudio({
+              base64Data: base64,
+              mimeType
+            });
+            if (transcribed && transcribed.trim()) {
+              console.log('[TeacherMic] Docente transcrito:', transcribed.trim());
+              addTranscriptTurn('Profesor', transcribed.trim());
+            }
+          }
+        } catch (err) {
+          console.warn('[TeacherMic] Error transcribiendo bloque docente:', err);
+        }
+      };
+      reader.readAsDataURL(blob);
+    }
+  };
+
+  teacherMediaRecorder.start();
+
+  // Monitor VAD con RMS
+  const pcmBuffer = new Float32Array(teacherAnalyserNode.fftSize);
+  teacherVadInterval = setInterval(() => {
+    if (!teacherCaptureActive || !teacherAnalyserNode || teacherMediaRecorder?.state !== 'recording') {
+      return;
+    }
+    teacherAnalyserNode.getFloatTimeDomainData(pcmBuffer);
+    let sumSquares = 0;
+    for (let i = 0; i < pcmBuffer.length; i++) {
+      sumSquares += pcmBuffer[i] * pcmBuffer[i];
+    }
+    const rms = Math.sqrt(sumSquares / pcmBuffer.length);
+
+    if (!isTeacherMicMuted && rms > 0.02) {
+      speechMs += 100;
+      hasVoice = true;
+      lastVoiceTimestamp = Date.now();
+    }
+
+    // Corte temprano en 1.6s de silencio tras detectar voz
+    if (hasVoice && (Date.now() - lastVoiceTimestamp > 1600)) {
+      if (teacherMediaRecorder.state === 'recording') {
+        teacherMediaRecorder.stop();
+      }
+    }
+  }, 100);
+
+  // Duración máxima de seguridad del bloque (12 segundos)
+  teacherMaxBlockTimer = setTimeout(() => {
+    if (teacherMediaRecorder && teacherMediaRecorder.state === 'recording') {
+      teacherMediaRecorder.stop();
+    }
+  }, 12000);
+}
+
+function stopTeacherAudioCapture() {
+  teacherCaptureActive = false;
+  if (teacherVadInterval) {
+    clearInterval(teacherVadInterval);
+    teacherVadInterval = null;
+  }
+  if (teacherMaxBlockTimer) {
+    clearTimeout(teacherMaxBlockTimer);
+    teacherMaxBlockTimer = null;
+  }
+  if (teacherMediaRecorder && teacherMediaRecorder.state !== 'inactive') {
+    try {
+      teacherMediaRecorder.stop();
+    } catch (_) {}
+  }
+  teacherMediaRecorder = null;
+  if (teacherAudioStream) {
+    try {
+      teacherAudioStream.getTracks().forEach(t => t.stop());
+    } catch (_) {}
+    teacherAudioStream = null;
+  }
+  if (teacherAudioContext) {
+    try {
+      teacherAudioContext.close();
+    } catch (_) {}
+    teacherAudioContext = null;
+  }
+  teacherAnalyserNode = null;
+  isTeacherMicMuted = false;
+  updateTeacherMicUI();
+}
+
 // ==============================================================================
 // 1. INICIALIZACIÓN
 // ==============================================================================
@@ -739,24 +951,32 @@ if (btnReanalyze) {
   btnReanalyze.addEventListener('click', async () => {
     if (btnReanalyze.disabled || state.isSessionActive) return;
 
-    // 1. Extraer transcripción visible actual
+    // 1. Extraer transcripción visible actual con roles diferenciados de DOCENTE y ESTUDIANTE
     const turns = document.querySelectorAll('#transcript-feed .transcript-turn');
     let teacherContext = '';
     let studentUtterance = '';
+    let fullLabeledTranscript = '';
 
     turns.forEach(turn => {
       const isTeacher = turn.classList.contains('turn-teacher');
       const contentEl = turn.querySelector('.turn-content');
       const text = (contentEl ? contentEl.textContent : turn.textContent).trim();
+      if (!text) return;
+
       if (isTeacher) {
         teacherContext = (teacherContext + ' ' + text).trim();
+        fullLabeledTranscript += `DOCENTE: "${text}"\n`;
       } else {
         studentUtterance = (studentUtterance + ' ' + text).trim();
+        fullLabeledTranscript += `ESTUDIANTE: "${text}"\n`;
       }
     });
 
     if (!studentUtterance && state.sessionTranscript) {
       studentUtterance = state.sessionTranscript.trim();
+      if (!fullLabeledTranscript) {
+        fullLabeledTranscript = `ESTUDIANTE: "${studentUtterance}"\n`;
+      }
     }
 
     if (!studentUtterance) {
@@ -764,8 +984,10 @@ if (btnReanalyze) {
       return;
     }
 
+    const payloadUtterance = fullLabeledTranscript.trim() || studentUtterance;
+
     // Abrir modal de confirmación de nivel antes de llamar a Gemini
-    openConfirmLevelModal({ studentUtterance, teacherContext });
+    openConfirmLevelModal({ studentUtterance: payloadUtterance, teacherContext });
   });
 }
 
@@ -864,6 +1086,7 @@ async function proceedToStartNewSession() {
   state.sessionTranscript = '';
   state.currentModelSpeech = null;
   state.isModelSpeechProjected = false;
+  renderModelSpeechTab(null);
 
   // Limpiar campo de observaciones del docente para la nueva sesión
   const teacherObsEl = document.getElementById('teacher-observations');
@@ -953,6 +1176,9 @@ async function executeStartSession() {
   recordingPulse.classList.remove('hidden');
   transcriptStatus.textContent = 'Sesión Activa';
 
+  // Iniciar captura y transcripción contextual del micrófono del docente
+  startTeacherAudioCapture();
+
   // Ocultar placeholder si existía
   if (transcriptEmptyState) transcriptEmptyState.classList.add('hidden');
 
@@ -969,6 +1195,7 @@ async function executeStartSession() {
 async function stopSession() {
   state.isSessionActive = false;
   clearInterval(state.timerInterval);
+  stopTeacherAudioCapture();
   btnToggleSession.disabled = true;
   btnToggleSession.className = 'btn btn-start';
   sessionBtnText.textContent = 'Procesando...';
@@ -1021,28 +1248,43 @@ function handleSessionCompleted(summary) {
   if (btnExportReport) btnExportReport.disabled = false;
   if (btnReanalyze) btnReanalyze.disabled = false;
 
-  // 1. Desplegar transcripción verbatim en el panel izquierdo
-  if (summary.cleanDialogueTurns && summary.cleanDialogueTurns.length > 0) {
+  // 1. Desplegar transcripción verbatim en el panel izquierdo si no hubiera turnos ya en pantalla
+  const existingTurns = transcriptFeed.querySelectorAll('.transcript-turn');
+  if (existingTurns.length === 0 && summary.cleanDialogueTurns && summary.cleanDialogueTurns.length > 0) {
     transcriptFeed.innerHTML = '';
     summary.cleanDialogueTurns.forEach(turn => {
       addTranscriptTurn(turn.speaker || 'Participante', turn.text || '');
     });
   }
 
-  // Extraer texto del estudiante y contexto del profesor
-  let studentUtterance = (summary.verbatimStudentSpeech || '').trim();
+  // Extraer diálogo completo con roles diferenciados de DOCENTE y ESTUDIANTE
+  const allTurns = transcriptFeed.querySelectorAll('.transcript-turn');
+  let fullLabeledTranscript = '';
+  let studentUtterance = '';
   let teacherContext = '';
-  if (summary.cleanDialogueTurns && summary.cleanDialogueTurns.length > 0) {
-    summary.cleanDialogueTurns.forEach(turn => {
-      const sp = (turn.speaker || '').toLowerCase();
-      if (sp.includes('estudiante') || sp.includes('alumno')) {
-        if (!studentUtterance) {
-          studentUtterance = (studentUtterance + ' ' + (turn.text || '')).trim();
-        }
-      } else if (sp.includes('profesor') || sp.includes('docente')) {
-        teacherContext = (teacherContext + ' ' + (turn.text || '')).trim();
+
+  if (allTurns.length > 0) {
+    allTurns.forEach(turn => {
+      const isTeacher = turn.classList.contains('turn-teacher');
+      const contentEl = turn.querySelector('.turn-content');
+      const text = (contentEl ? contentEl.textContent : turn.textContent).trim();
+      if (!text) return;
+
+      if (isTeacher) {
+        teacherContext = (teacherContext + ' ' + text).trim();
+        fullLabeledTranscript += `DOCENTE: "${text}"\n`;
+      } else {
+        studentUtterance = (studentUtterance + ' ' + text).trim();
+        fullLabeledTranscript += `ESTUDIANTE: "${text}"\n`;
       }
     });
+  }
+
+  if (!studentUtterance && summary.verbatimStudentSpeech) {
+    studentUtterance = summary.verbatimStudentSpeech.trim();
+    if (!fullLabeledTranscript) {
+      fullLabeledTranscript = `ESTUDIANTE: "${studentUtterance}"\n`;
+    }
   }
 
   // 2. Si la evaluación requiere confirmación de nivel antes de llamar a Gemini:
@@ -1050,7 +1292,8 @@ function handleSessionCompleted(summary) {
     if (studentUtterance) {
       transcriptStatus.textContent = 'Transcripción lista. Confirma el nivel para analizar.';
       console.log('[Renderer] Transcripción acumulada lista. Abriendo modal de confirmación de nivel...');
-      openConfirmLevelModal({ studentUtterance, teacherContext });
+      const payloadUtterance = fullLabeledTranscript.trim() || studentUtterance;
+      openConfirmLevelModal({ studentUtterance: payloadUtterance, teacherContext });
     } else {
       transcriptStatus.textContent = 'Finalizada (Sin voz detectable)';
     }
@@ -1805,50 +2048,42 @@ function handleLiveTranscriptSegment(data) {
     transcriptStatus.textContent = 'Transcribiendo en vivo...';
   }
 
-  if (data.fullTranscript && data.fullTranscript.trim().length > 0) {
-    state.sessionTranscript = data.fullTranscript.trim();
-  } else if (data.segmentText && data.segmentText.trim().length > 0) {
-    state.sessionTranscript = (state.sessionTranscript ? `${state.sessionTranscript.trim()} ${data.segmentText.trim()}` : data.segmentText.trim());
+  const segment = (data.segmentText || '').trim();
+  if (segment) {
+    state.sessionTranscript = (state.sessionTranscript ? `${state.sessionTranscript.trim()} ${segment}` : segment);
+    addTranscriptTurn('Estudiante', segment);
+  } else if (data.fullTranscript && data.fullTranscript.trim()) {
+    const full = data.fullTranscript.trim();
+    if (!state.sessionTranscript) {
+      state.sessionTranscript = full;
+      addTranscriptTurn('Estudiante', full);
+    }
   }
-
-  let liveTurnEl = document.getElementById('live-student-turn');
-  if (!liveTurnEl) {
-    liveTurnEl = document.createElement('div');
-    liveTurnEl.id = 'live-student-turn';
-    liveTurnEl.className = 'transcript-turn turn-student';
-    liveTurnEl.innerHTML = `
-      <div class="turn-header">
-        <span class="speaker-badge">Estudiante</span>
-        <span class="live-dot" style="display: inline-block; margin-left: 8px; vertical-align: middle;" title="Transcripción en vivo"></span>
-      </div>
-      <div class="turn-content" id="live-student-turn-content"></div>
-    `;
-    transcriptFeed.appendChild(liveTurnEl);
-  }
-
-  const contentEl = document.getElementById('live-student-turn-content');
-  if (contentEl) {
-    contentEl.textContent = state.sessionTranscript;
-  }
-
-  transcriptFeed.scrollTop = transcriptFeed.scrollHeight;
 }
 
 /**
  * Añade una intervención limpia de la conversación en el Panel Izquierdo
  */
 function addTranscriptTurn(speaker, text) {
+  if (!text || !text.trim()) return;
   if (transcriptEmptyState) transcriptEmptyState.classList.add('hidden');
 
-  const isTeacher = speaker.toLowerCase() === 'profesor' || speaker.toLowerCase() === 'teacher';
+  const cleanSpeaker = String(speaker || '').toLowerCase();
+  const isTeacher = cleanSpeaker.includes('profesor') || 
+                    cleanSpeaker.includes('teacher') || 
+                    cleanSpeaker.includes('docente');
   const turnEl = document.createElement('div');
   turnEl.className = `transcript-turn ${isTeacher ? 'turn-teacher' : 'turn-student'}`;
 
+  const cleanText = text.trim();
+  const label = isTeacher ? 'DOCENTE:' : 'ESTUDIANTE:';
+  const badgeClass = isTeacher ? 'badge-teacher' : 'badge-student';
+
   turnEl.innerHTML = `
     <div class="turn-header">
-      <span class="speaker-badge">${isTeacher ? 'Profesor' : 'Estudiante'}</span>
+      <span class="speaker-badge ${badgeClass}">${label}</span>
     </div>
-    <div class="turn-content">${text}</div>
+    <div class="turn-content">${escapeHtml(cleanText)}</div>
   `;
 
   transcriptFeed.appendChild(turnEl);

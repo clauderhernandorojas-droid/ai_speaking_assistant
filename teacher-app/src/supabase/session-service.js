@@ -24,6 +24,7 @@ class TeacherSessionService {
     this.currentSession = null;
     this.audioChunks = []; // Historial de chunks/bloques recibidos
     this.transcriptionQueue = []; // Cola secuencial de bloques WebM para transcripción
+    this.processedStoragePaths = new Set(); // Registro de rutas para evitar duplicados entre sesiones
     this.isProcessingQueue = false;
     this.sessionTranscript = ''; // Transcripción acumulada en vivo
     this.eventListeners = {
@@ -96,6 +97,34 @@ class TeacherSessionService {
   handleIncomingAudioStorageSegment(payload) {
     if (!payload || !payload.storagePath) return;
 
+    const currentCode = (this.currentSession?.sessionCode || '').toUpperCase().trim();
+    if (!currentCode) {
+      console.warn('[Audio Pipeline] Descartando bloque Storage: no hay sesión activa ni sala registrada');
+      return;
+    }
+
+    // Validar que el bloque pertenezca a la sesión actual
+    const payloadCode = (payload.sessionCode || '').toUpperCase().trim();
+    const storagePath = String(payload.storagePath || '');
+    const pathPrefix = storagePath.split('/')[0].toUpperCase().trim();
+
+    if (payloadCode && payloadCode !== currentCode) {
+      console.warn(`[Audio Pipeline] 🚫 Ignorando bloque de sesión anterior: recibido ${payloadCode}, sesión actual ${currentCode}`);
+      return;
+    }
+
+    if (pathPrefix && pathPrefix !== currentCode) {
+      console.warn(`[Audio Pipeline] 🚫 Ignorando bloque de sesión anterior por prefijo de ruta: "${pathPrefix}", sesión actual "${currentCode}" (path: ${storagePath})`);
+      return;
+    }
+
+    // Evitar procesamiento duplicado del mismo storagePath
+    if (this.processedStoragePaths.has(storagePath)) {
+      console.log(`[Audio Pipeline] ⏩ Omitiendo bloque ya registrado: ${storagePath}`);
+      return;
+    }
+    this.processedStoragePaths.add(storagePath);
+
     const segmentMeta = {
       storagePath: payload.storagePath,
       sequence: payload.sequence || payload.segmentIndex || (this.audioChunks.length + 1),
@@ -127,6 +156,18 @@ class TeacherSessionService {
    */
   handleIncomingAudioSegment(chunkData) {
     if (!chunkData || !chunkData.data) return;
+
+    const currentCode = (this.currentSession?.sessionCode || '').toUpperCase().trim();
+    if (!currentCode) {
+      console.warn('[Audio Pipeline] Descartando bloque Base64: no hay sesión activa ni sala registrada');
+      return;
+    }
+
+    const chunkCode = (chunkData.sessionCode || '').toUpperCase().trim();
+    if (chunkCode && chunkCode !== currentCode) {
+      console.warn(`[Audio Pipeline] 🚫 Ignorando bloque Base64 de sesión anterior: recibido ${chunkCode}, sesión actual ${currentCode}`);
+      return;
+    }
 
     const approxSize = chunkData.data ? Math.round(chunkData.data.length * 0.75) : 0;
     const segmentMeta = {
@@ -291,6 +332,7 @@ class TeacherSessionService {
 
     this.audioChunks = [];
     this.transcriptionQueue = [];
+    this.processedStoragePaths.clear();
     this.isProcessingQueue = false;
     this.sessionTranscript = '';
 
@@ -393,18 +435,12 @@ class TeacherSessionService {
       startedAt: Date.now()
     };
 
-    if (existingChunks.length > 0) {
-      console.log(`[Audio Pipeline] Conservando ${existingChunks.length} bloques recibidos durante el modo de espera previo.`);
-      existingChunks.forEach(chunk => {
-        if (!this.transcriptionQueue.includes(chunk)) {
-          this.transcriptionQueue.push(chunk);
-        }
-      });
-    } else {
-      this.audioChunks = [];
-      this.transcriptionQueue = [];
-      this.sessionTranscript = '';
-    }
+    // Limpieza obligatoria de estado para arranque limpio de sesión activa
+    this.audioChunks = [];
+    this.transcriptionQueue = [];
+    this.processedStoragePaths.clear();
+    this.sessionTranscript = '';
+    this.isProcessingQueue = false;
 
     // 1. Sincronizar en la tabla 'sessions' de Supabase con status 'active'
     if (this.client) {
@@ -597,7 +633,15 @@ class TeacherSessionService {
 
     // 5. Preparar la transcripción verbatim acumulada y el resumen de sesión
     const sessionSummary = await this.processReceivedAudioSession(actualOptions);
+
+    // Limpieza obligatoria y estricta de estado tras stopSession
+    this.audioChunks = [];
+    this.transcriptionQueue = [];
+    this.processedStoragePaths.clear();
+    this.sessionTranscript = '';
+    this.isProcessingQueue = false;
     this.currentSession = null;
+
     return sessionSummary;
   }
 

@@ -503,6 +503,20 @@ TEACHER CONTEXT RULE:
 - The 'teacherContext' field in every feedback card MUST contain ONLY the literal question or comment made by the teacher prior to the student's turn.
 - If the teacher said nothing prior to that intervention or no teacher prompt was provided, 'teacherContext' MUST be returned as an empty string "" (NEVER fabricate or invent generic questions such as "Tell me about your experience...").
 
+DIALOGUE ROLES & CONVERSATIONAL CONTEXT DIRECTIVE:
+The conversation transcript may contain alternating turns labeled 'DOCENTE:' (the teacher) and 'ESTUDIANTE:' (the student).
+1. STRICT EVALUATION TARGET:
+   - You MUST evaluate, critique, score, and generate feedback cards EXCLUSIVELY based on what the 'ESTUDIANTE:' said.
+   - NEVER evaluate, critique, correct, or create cards for anything spoken by the 'DOCENTE:'.
+   - In every feedback card, 'studentResponse' MUST be taken solely from the student's speech ('ESTUDIANTE:').
+   - In every feedback card, 'teacherContext' MUST be the specific preceding question or prompt by the 'DOCENTE:' that elicited that response.
+2. PEDAGOGICAL USE OF 'DOCENTE:' TURNS:
+   - Use 'DOCENTE:' turns STRICTLY as conversational context:
+     * To verify if the student answered the question asked.
+     * To verify if the student used the expected grammatical tense (e.g. past simple if the teacher asked "What did you do?", conditionals if "What would you do?").
+3. REFORMULATION IN 'modelSpeech':
+   - 'naturalCorrected' and 'targetUpgrade' must rewrite ONLY the discourse of the 'ESTUDIANTE:', keeping it naturally responsive to the teacher's prompts but without including the teacher's lines in the reformulation.
+
 STRICT DIFFICULTY & LEVEL CALIBRATION DIRECTIVE (CONFIRMED LEVEL: ${normLevel}):
 1. LEVEL-APPROPRIATE CORRECTIONS FOR 'grammar', 'vocabulary', 'pronunciation', AND 'fluency':
    - For these four standard categories, all surgical corrections, vocabulary alternatives, explanations, and 'contrastiveCapsule' examples MUST be strictly calibrated to the student's confirmed level (${normLevel}).

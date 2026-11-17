@@ -657,8 +657,56 @@ body {
   letter-spacing: 0.05em;
 }
 
+.speaker-badge.badge-teacher {
+  background: rgba(56, 139, 253, 0.15);
+  color: #58a6ff;
+  border: 1px solid rgba(56, 139, 253, 0.3);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.speaker-badge.badge-student {
+  background: rgba(63, 185, 80, 0.15);
+  color: #3fb950;
+  border: 1px solid rgba(63, 185, 80, 0.3);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
 .turn-teacher .speaker-badge { color: var(--primary); }
 .turn-student .speaker-badge { color: #3fb950; }
+
+.btn-teacher-mic {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: rgba(56, 139, 253, 0.12);
+  border: 1px solid rgba(56, 139, 253, 0.35);
+  border-radius: 9999px;
+  color: #58a6ff;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.btn-teacher-mic:hover {
+  background: rgba(56, 139, 253, 0.22);
+  border-color: #58a6ff;
+}
+
+.btn-teacher-mic.muted {
+  background: rgba(248, 81, 73, 0.12);
+  border-color: rgba(248, 81, 73, 0.35);
+  color: #f85149;
+}
+
+.btn-teacher-mic.muted:hover {
+  background: rgba(248, 81, 73, 0.22);
+  border-color: #f85149;
+}
 
 .turn-content {
   font-size: 0.94rem;
