@@ -4,9 +4,31 @@
 
 const https = require('https');
 const path = require('path');
+const fs = require('fs');
 
-// Asegurar carga de .env
-require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
+// Asegurar carga de .env en desarrollo y producción (app.isPackaged)
+(() => {
+  let envPath = null;
+  try {
+    const electron = require('electron');
+    const electronApp = electron.app || electron.remote?.app;
+    if (electronApp && electronApp.isPackaged && process.resourcesPath) {
+      const prodEnv = path.join(process.resourcesPath, '.env');
+      if (fs.existsSync(prodEnv)) envPath = prodEnv;
+    }
+  } catch (_) {}
+  if (!envPath && process.resourcesPath) {
+    const prodEnv = path.join(process.resourcesPath, '.env');
+    if (fs.existsSync(prodEnv)) envPath = prodEnv;
+  }
+  if (!envPath) {
+    const devEnv = path.join(__dirname, '..', '..', '.env');
+    if (fs.existsSync(devEnv)) envPath = devEnv;
+  }
+  if (envPath) {
+    require('dotenv').config({ path: envPath, override: false });
+  }
+})();
 
 class GeminiService {
   constructor() {
@@ -242,7 +264,7 @@ class GeminiService {
    * Evalúa las intervenciones con Gemini contra los Band Descriptors de IELTS
    * con tolerancia ampliada de 35s y 1 reintento automático para evitar caídas en fallback por latencia.
    */
-  async evaluateTranscript({ teacherContext, studentUtterance, studentLevel, systemPrompt }) {
+  async evaluateTranscript({ teacherContext, studentUtterance, studentLevel, systemPrompt, highPrecision = false }) {
     const apiKey = this.getApiKey();
     console.log('[GEMINI] Clave encontrada:', !!apiKey, 'Longitud:', apiKey ? apiKey.length : 0);
 
@@ -255,14 +277,12 @@ class GeminiService {
             {
               text: `${systemPrompt}
 
-TEACHER'S CONTEXT / QUESTION: "${teacherContext}"
+TEACHER'S CONTEXT / QUESTION: "${teacherContext || ''}"
 TRANSCRIPTION (MAY INCLUDE 'DOCENTE:' AND 'ESTUDIANTE:' TURNS):
 """
 ${studentUtterance}
 """
 CONFIRMED STUDENT CEFR LEVEL: "${normLevel}"
-LEVEL CALIBRATION MANDATE: Keep 'grammar', 'vocabulary', 'pronunciation', and 'fluency' strictly within ${normLevel}. Keep 'upgrade_c1' for C1 reference. In modelSpeech, 'naturalCorrected' must strictly reflect ${normLevel}, and 'targetUpgrade' must reflect exactly i+1.
-ROLE MANDATE: Use 'DOCENTE:' turns exclusively as conversational context. Evaluate, critique, and reformulate ONLY what the 'ESTUDIANTE:' said!
 
 Analyze according to all instructions and output ONLY valid JSON without markdown wrapping.`
             }
@@ -279,13 +299,18 @@ Analyze according to all instructions and output ONLY valid JSON without markdow
       }
     };
 
+    // Enrutamiento inteligente: por defecto 'gemini-3.5-flash-lite' para máxima economía; si highPrecision es true (Re-analizar), usa directamente 'gemini-3.5-flash'
+    const evaluationModels = highPrecision
+      ? [this.primaryModel || 'gemini-3.5-flash']
+      : ['gemini-3.5-flash-lite', this.primaryModel || 'gemini-3.5-flash'];
+
     const maxAttempts = 2; // 1 intento inicial + 1 reintento automático (tolerancia 35s)
     let lastErr = null;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        console.log(`[GEMINI evaluateTranscript] Intento ${attempt}/${maxAttempts} (timeout: 35s)...`);
-        const result = await this.requestGemini('generateContent', payload, 35000);
+        console.log(`[GEMINI evaluateTranscript] Intento ${attempt}/${maxAttempts} (${highPrecision ? 'Alta Precisión' : 'Económico'} - timeout: 35s)...`);
+        const result = await this.requestGemini('generateContent', payload, 35000, evaluationModels);
         let text = result?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
         // Limpiar posibles bloques markdown ```json ... ```
         text = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();

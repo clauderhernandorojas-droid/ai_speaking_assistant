@@ -97,6 +97,7 @@ const btnCloseConfirmLevelModal = document.getElementById('btn-close-confirm-lev
 let pendingAnalysisUtterance = '';
 let pendingTeacherContext = '';
 let tempSelectedConfirmLevel = 'B1';
+let pendingIsReanalyze = false;
 
 // Elementos de captura de micrófono del docente
 const btnToggleTeacherMic = document.getElementById('btn-toggle-teacher-mic');
@@ -801,9 +802,10 @@ function updateConfirmLevelPillSelection(level) {
   });
 }
 
-function openConfirmLevelModal({ studentUtterance, teacherContext }) {
+function openConfirmLevelModal({ studentUtterance, teacherContext, isReanalyze = false }) {
   pendingAnalysisUtterance = (studentUtterance || '').trim();
   pendingTeacherContext = (teacherContext || '').trim();
+  pendingIsReanalyze = !!isReanalyze;
 
   const currentLevel = (state.targetLevel || state.currentStudent?.default_level || 'B1').toUpperCase().trim();
   tempSelectedConfirmLevel = ['A2', 'B1', 'B2', 'C1'].includes(currentLevel) ? currentLevel : 'B1';
@@ -867,14 +869,16 @@ async function executeAnalysisWithConfirmedLevel(confirmedLevel, studentUtteranc
     btnReanalyze.classList.add('is-analyzing');
   }
   if (reanalyzeBtnLabel) reanalyzeBtnLabel.textContent = 'Analizando...';
-  if (transcriptStatus) transcriptStatus.textContent = `Analizando con Gemini (Nivel ${confirmedLevel} / Tolerancia 35s)...`;
+  const isHighPrecision = !!pendingIsReanalyze;
+  if (transcriptStatus) transcriptStatus.textContent = `Analizando con Gemini (${isHighPrecision ? 'Alta Precisión' : 'Económico'} / Nivel ${confirmedLevel} / Tolerancia 35s)...`;
 
   try {
-    console.log(`[Renderer] Ejecutando evaluación con Gemini para nivel ${confirmedLevel}:`, studentUtterance.slice(0, 100));
+    console.log(`[Renderer] Ejecutando evaluación con Gemini para nivel ${confirmedLevel} (highPrecision: ${isHighPrecision}):`, studentUtterance.slice(0, 100));
     const evalResult = await window.electronAPI.evaluateUtterance({
       teacherContext: teacherContext || '',
       studentUtterance,
-      studentLevel: confirmedLevel
+      studentLevel: confirmedLevel,
+      highPrecision: isHighPrecision
     });
 
     let newCards = [];
@@ -1027,8 +1031,8 @@ if (btnReanalyze) {
 
     const payloadUtterance = fullLabeledTranscript.trim() || studentUtterance;
 
-    // Abrir modal de confirmación de nivel antes de llamar a Gemini
-    openConfirmLevelModal({ studentUtterance: payloadUtterance, teacherContext });
+    // Abrir modal de confirmación de nivel antes de llamar a Gemini (Modo Alta Precisión activado)
+    openConfirmLevelModal({ studentUtterance: payloadUtterance, teacherContext, isReanalyze: true });
   });
 }
 
@@ -1317,7 +1321,7 @@ function handleSessionCompleted(summary) {
       transcriptStatus.textContent = 'Transcripción lista. Confirma el nivel para analizar.';
       console.log('[Renderer] Transcripción acumulada lista. Abriendo modal de confirmación de nivel...');
       const payloadUtterance = fullLabeledTranscript.trim() || studentUtterance;
-      openConfirmLevelModal({ studentUtterance: payloadUtterance, teacherContext });
+      openConfirmLevelModal({ studentUtterance: payloadUtterance, teacherContext, isReanalyze: false });
     } else {
       transcriptStatus.textContent = 'Finalizada (Sin voz detectable)';
     }

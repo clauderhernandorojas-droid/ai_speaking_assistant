@@ -7,41 +7,36 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
-    "build": "electron-builder --win",
-    "dist": "electron-builder --win"
+    "postinstall": "electron-builder install-app-deps",
+    "build": "electron-builder --win nsis",
+    "dist": "electron-builder --win nsis"
   },
   "build": {
-    "appId": "com.antigravity.ia-speaking-assistant",
-    "productName": "IA Speaking Assistant - Teacher",
+    "appId": "com.efl.iaspeakingassistant",
+    "productName": "IA Speaking Assistant",
     "directories": {
       "output": "dist"
     },
     "files": [
       "**/*",
-      ".env",
       "!dist/*"
     ],
     "extraResources": [
-      {
-        "from": ".env",
-        "to": ".env"
-      }
+      ".env"
     ],
     "asar": true,
     "asarUnpack": [
       "**/*.node"
     ],
     "win": {
-      "target": [
-        "nsis"
-      ]
+      "target": "nsis"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "IA Speaking Assistant - Teacher"
+      "shortcutName": "IA Speaking Assistant"
     }
   },
   "dependencies": {

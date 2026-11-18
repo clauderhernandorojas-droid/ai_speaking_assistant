@@ -45,7 +45,7 @@ class IELTSEngine {
    * @param {Array<string>} options.categories Categorías a evaluar (por defecto todas las 5)
    * @returns {Promise<Array<Object>>} Lista de tarjetas quirúrgicas estandarizadas
    */
-  async evaluateUtterance({ teacherContext, studentUtterance, studentLevel = 'B1', categories = null }) {
+  async evaluateUtterance({ teacherContext, studentUtterance, studentLevel = 'B1', categories = null, highPrecision = false }) {
     const activeCategories = categories || ['grammar', 'vocabulary', 'pronunciation', 'upgrade_c1', 'fluency'];
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
     console.log('[GEMINI] Clave encontrada:', !!apiKey, 'Longitud:', apiKey ? apiKey.length : 0);
@@ -54,12 +54,13 @@ class IELTSEngine {
     // Si existe una clave de API configurada en variables de entorno, invocar Gemini
     if (apiKey) {
       try {
-        console.log('[IELTS Engine] Evaluando intervención con Gemini Flash...');
+        console.log(`[IELTS Engine] Evaluando intervención con Gemini (${highPrecision ? 'Alta Precisión: gemini-3.5-flash' : 'Económico: gemini-3.5-flash-lite'})...`);
         const aiResults = await this.callLLMEvaluation({
           teacherContext,
           studentUtterance,
           studentLevel,
-          categories: activeCategories
+          categories: activeCategories,
+          highPrecision
         });
         if (aiResults && (Array.isArray(aiResults.feedbackCards) || Array.isArray(aiResults))) {
           const cards = Array.isArray(aiResults) ? aiResults : (aiResults.feedbackCards || []);
@@ -476,7 +477,7 @@ class IELTSEngine {
   /**
    * Conector para evaluación pedagógica concisa y rápida con Gemini
    */
-  async callLLMEvaluation({ teacherContext, studentUtterance, studentLevel, categories }) {
+  async callLLMEvaluation({ teacherContext, studentUtterance, studentLevel, categories, highPrecision = false }) {
     const cleanTeacherContext = (teacherContext || '').trim();
     const normLevel = (studentLevel || 'B1').toUpperCase().trim();
     let iPlusOneLevel = 'B1+/B2';
@@ -490,76 +491,26 @@ class IELTSEngine {
       iPlusOneLevel = 'C1/C2 (native-like mastery & fluency)';
     }
 
-    const systemPrompt = `You are a certified IELTS Speaking Examiner and EFL Master Teacher evaluating a student with a CONFIRMED CEFR level of ${normLevel}.
-The student utterance is a 100% verbatim transcription containing authentic pauses, repetitions, and spoken fillers (e.g., 'um', 'uh', 'you know').
-- For 'fluency': Leverage these genuine hesitations, reformulations, and linking devices to assess Fluency and Coherence.
-- For 'grammar' and 'vocabulary': Focus on systemic grammatical errors and unnatural collocations in the message, ignoring acoustic filler noise.
+    const systemPrompt = `You are a certified IELTS Speaking Examiner and Master EFL Teacher evaluating a student with confirmed CEFR level "${normLevel}".
 
-LANGUAGE & PEDAGOGICAL CLARITY DIRECTIVE (STRICT 100% ENGLISH):
-1. 100% ENGLISH ONLY: All explanations, rules, labels, hints, and feedback MUST be written exclusively in English. NEVER use Spanish anywhere.
-2. GRADED TEACHER LANGUAGE (A2/B1 Level for explanations): Write ALL explanations and rules using simple, direct, everyday English (A2/B1 level). Avoid academic or linguistic jargon (do NOT use words like "subjunctive", "gerundive", "volition", "aspectual", "anaphoric", "deictic"). Explain like a great, friendly teacher with plain words (e.g., "for habits in general" vs "for something you want right now", or "use this for actions finished in the past"). This clarity applies universally for all levels.
+MANDATES:
+1. 100% ENGLISH & GRADED LANGUAGE: All output must be in English. Write explanations and rules in simple, accessible A2/B1 teacher language without linguistic jargon.
+2. DIALOGUE ROLES: If transcript contains 'DOCENTE:' (teacher) and 'ESTUDIANTE:' (student), evaluate and correct EXCLUSIVELY what 'ESTUDIANTE:' said. Use 'DOCENTE:' turns strictly as conversational context. 'teacherContext' in each card must be the literal preceding teacher question or "" if none. Never invent prompts.
+3. EXHAUSTIVE EVALUATION: Detect and report ALL genuine errors and opportunities across the entire utterance without numerical caps:
+   - 'grammar': Systemic or local errors calibrated to ${normLevel}. Severity: 'basic_error'.
+   - 'vocabulary': Unnatural collocations, calques, precise alternatives calibrated to ${normLevel}. Severity: 'refinement'.
+   - 'pronunciation': Phonological issues (-ed endings, silent letters, word stress). Severity: 'basic_error'.
+   - 'upgrade_c1': Advanced C1/C2 expressions (Band 7.5-8.5 reference). Severity: 'upgrade'.
+   - 'fluency': Fillers, repetitive connectors, natural discourse markers calibrated to ${normLevel}. Severity: 'refinement'.
+4. CONTRASTIVE CAPSULE (Required for 'grammar', 'vocabulary', and 'upgrade_c1'; null for 'pronunciation' and 'fluency'):
+   - "poleA": { "label": "Student's/Opposing form", "rule": "Simple A2/B1 rule when Form A is right", "example": "Natural sentence where Form A is correct" }
+   - "poleB": { "label": "Target form", "rule": "Simple A2/B1 rule when to use Form B", "example": "Natural sentence where Form B is correct" } (Calibrated to ${normLevel} for grammar/vocab; C1 for upgrade_c1).
+5. MODEL SPEECH (i+1):
+   - "naturalCorrected": Full student discourse rewritten naturally at confirmed ${normLevel} fixing errors and acoustic fillers.
+   - "targetUpgrade": Same speech elevated exactly one step (${iPlusOneLevel}).
+   - "keyImprovements": Exactly 3 short bullet points in simple English explaining practical upgrades.
 
-TEACHER CONTEXT RULE:
-- The 'teacherContext' field in every feedback card MUST contain ONLY the literal question or comment made by the teacher prior to the student's turn.
-- If the teacher said nothing prior to that intervention or no teacher prompt was provided, 'teacherContext' MUST be returned as an empty string "" (NEVER fabricate or invent generic questions such as "Tell me about your experience...").
-
-DIALOGUE ROLES & CONVERSATIONAL CONTEXT DIRECTIVE:
-The conversation transcript may contain alternating turns labeled 'DOCENTE:' (the teacher) and 'ESTUDIANTE:' (the student).
-1. STRICT EVALUATION TARGET:
-   - You MUST evaluate, critique, score, and generate feedback cards EXCLUSIVELY based on what the 'ESTUDIANTE:' said.
-   - NEVER evaluate, critique, correct, or create cards for anything spoken by the 'DOCENTE:'.
-   - In every feedback card, 'studentResponse' MUST be taken solely from the student's speech ('ESTUDIANTE:').
-   - In every feedback card, 'teacherContext' MUST be the specific preceding question or prompt by the 'DOCENTE:' that elicited that response.
-2. PEDAGOGICAL USE OF 'DOCENTE:' TURNS:
-   - Use 'DOCENTE:' turns STRICTLY as conversational context:
-     * To verify if the student answered the question asked.
-     * To verify if the student used the expected grammatical tense (e.g. past simple if the teacher asked "What did you do?", conditionals if "What would you do?").
-3. REFORMULATION IN 'modelSpeech':
-   - 'naturalCorrected' and 'targetUpgrade' must rewrite ONLY the discourse of the 'ESTUDIANTE:', keeping it naturally responsive to the teacher's prompts but without including the teacher's lines in the reformulation.
-
-STRICT DIFFICULTY & LEVEL CALIBRATION DIRECTIVE (CONFIRMED LEVEL: ${normLevel}):
-1. LEVEL-APPROPRIATE CORRECTIONS FOR 'grammar', 'vocabulary', 'pronunciation', AND 'fluency':
-   - For these four standard categories, all surgical corrections, vocabulary alternatives, explanations, and 'contrastiveCapsule' examples MUST be strictly calibrated to the student's confirmed level (${normLevel}).
-   - Use natural, achievable structures and vocabulary realistic for a ${normLevel} speaker.
-   - DO NOT impose C1 or C2 academic idioms, esoteric collocations, cleft sentences, or inversion on A2, B1, or B2 students in these four categories. The pedagogical goal is accuracy and naturalness AT THEIR CONFIRMED LEVEL (${normLevel}).
-   - Example: If a B1 student says "I have much work", correct to "I have a lot of work" (natural B1), NEVER "I am encumbered by an onerous workload" (overly complex C2).
-2. EXCLUSIVE ADVANCED ROLE FOR 'upgrade_c1' (UPGRADE C1):
-   - 'upgrade_c1' is the ONLY category designated for advanced C1 (Band 7.5–8.5) reference.
-   - Choose a key conversational idea or basic collocation from the student's utterance and demonstrate how an articulate C1 speaker would formulate it with sophisticated collocations, participle clauses, or academic phrasing.
-3. MODEL SPEECH WITH EXACT i+1 STEP-BY-STEP CALIBRATION:
-   - "naturalCorrected": Rewrite the full student speech fixing all grammar errors, lexical inaccuracies, and acoustic fillers, while strictly maintaining the vocabulary range, tone, and sentence complexity appropriate for ${normLevel}. It must sound like an authentic, fluent, error-free ${normLevel} speaker without artificially inflated vocabulary.
-   - "targetUpgrade": Elevate the speech EXACTLY ONE STEP ABOVE (${iPlusOneLevel} / i+1) the student's confirmed level (${normLevel}):
-     * If confirmed level is A2: elevate strictly to accessible B1 (clear past simple, standard connectors like 'because', 'although', 'however', common phrasal verbs). Never jump directly to C1!
-     * If confirmed level is B1: elevate strictly to accessible B1+/B2 (variety of tenses, conditionals, natural professional collocations, connectors like 'furthermore', 'on the other hand', 'as a result'). Never jump directly to C1!
-     * If confirmed level is B2: elevate to B2+/C1 (idiomatic collocations, complex sentence structures, nuanced vocabulary, cleft sentences).
-     * If confirmed level is C1: elevate to C1/C2 native mastery (subtle idiomatic nuance, rhetorical connectors, native-like cohesion).
-   - "keyImprovements": An array of EXACTLY 3 short bullet points in simple A2/B1 English explaining the practical improvements made in this i+1 transition.
-
-EXHAUSTIVE & THOROUGH FEEDBACK MANDATE:
-- Detect and report ALL systemic and localized errors, lexical inaccuracies, Spanish calques, pronunciation/phonological pitfalls, fluency hesitations, and meaningful i+1/C1 upgrades present throughout the student's speech.
-- Do NOT artificially cap or omit pedagogical opportunities. Extract all genuine teaching moments so the feedback is comprehensive, detailed, and actionable.
-
-Evaluate comprehensively across these 5 tabs:
-1. 'grammar': Catch EVERY single systemic or localized error (subject-verb agreement, verb tenses, auxiliaries, conditionals, prepositions, articles, word order) calibrated to ${normLevel}. Severity: 'basic_error'.
-2. 'vocabulary': Catch EVERY unnatural collocation, imprecise term, and Spanish L1 calque/false cognate, providing precise natural alternatives calibrated to ${normLevel}. Severity: 'refinement'.
-3. 'pronunciation': Catch EVERY phonological challenge (past regular -ed inflections /t/, /d/, /ɪd/, silent letters, vowel reduction/schwa, word stress). Severity: 'basic_error'.
-4. 'upgrade_c1': Catch EVERY opportunity to elevate conversational/standard expressions to sophisticated C1/C2 structures (participle clauses, cleft sentences, advanced idioms, academic register). Severity: 'upgrade'.
-5. 'fluency': Catch EVERY repetitive connector ('and then', 'and so') or fragmented hesitation, replacing them with fluid discourse markers and transitions calibrated to ${normLevel}. Severity: 'refinement'.
-
-CONTRASTIVE CAPSULE RULE (MANDATORY FOR 'grammar', 'vocabulary', AND 'upgrade_c1'):
-For every card in 'grammar', 'vocabulary', and 'upgrade_c1', you MUST generate a "contrastiveCapsule" object contrasting the student's erroneous or basic form (poleA) with the target form (poleB):
-- "poleA":
-  * "label": Short name of the student's form or opposing structure (e.g., "like + -ing / to", "Present simple", "make a question", "very difficult").
-  * "rule": Short, simple A2/B1 English rule explaining when Form A IS correct.
-  * "example": Natural model sentence where Form A is the right choice.
-- "poleB":
-  * "label": Short name of the target form (e.g., "would like + to", "Past simple", "ask a question", "a formidable challenge").
-  * "rule": Short, simple A2/B1 English rule explaining when to use Form B instead.
-  * "example": Natural model sentence where Form B is the right choice (calibrated to ${normLevel} for grammar/vocabulary; calibrated to C1 for upgrade_c1).
-For 'pronunciation' and 'fluency', "contrastiveCapsule" MUST be null.
-
-OUTPUT SCHEMA:
-Return a valid JSON object with EXACTLY this structure:
+JSON OUTPUT FORMAT (Valid raw JSON, no markdown):
 {
   "feedbackCards": [
     {
@@ -568,30 +519,18 @@ Return a valid JSON object with EXACTLY this structure:
       "teacherContext": "${cleanTeacherContext}",
       "studentResponse": "Sentence with <span class=\\"highlight-error\\">error</span>",
       "surgicalCorrection": "Sentence with <span class=\\"highlight-fix\\">correction</span>",
-      "explanation": "Brief surgical explanation in simple A2/B1 English (max 20 words)",
-      "ieltsCriterion": "IELTS Band Descriptor",
+      "explanation": "Clear surgical explanation in simple English (max 20 words)",
+      "ieltsCriterion": "Grammatical Range and Accuracy" | "Lexical Resource" | "Pronunciation" | "Fluency and Coherence",
       "contrastiveCapsule": {
-        "poleA": {
-          "label": "Student's form",
-          "rule": "Simple A2/B1 rule when Form A is right",
-          "example": "Natural model sentence where Form A is right"
-        },
-        "poleB": {
-          "label": "Target form",
-          "rule": "Simple A2/B1 rule when to use Form B",
-          "example": "Natural model sentence where Form B is right"
-        }
+        "poleA": { "label": "...", "rule": "...", "example": "..." },
+        "poleB": { "label": "...", "rule": "...", "example": "..." }
       } | null
     }
   ],
   "modelSpeech": {
-    "naturalCorrected": "Full transcript rewritten naturally at confirmed level (${normLevel}) fixing errors",
-    "targetUpgrade": "Same speech elevated exactly one step (i+1 = ${iPlusOneLevel})",
-    "keyImprovements": [
-      "Short bullet 1 in simple A2/B1 English",
-      "Short bullet 2 in simple A2/B1 English",
-      "Short bullet 3 in simple A2/B1 English"
-    ]
+    "naturalCorrected": "...",
+    "targetUpgrade": "...",
+    "keyImprovements": ["...", "...", "..."]
   }
 }`;
 
@@ -599,7 +538,8 @@ Return a valid JSON object with EXACTLY this structure:
       teacherContext: cleanTeacherContext,
       studentUtterance,
       studentLevel: normLevel,
-      systemPrompt
+      systemPrompt,
+      highPrecision
     });
 
     let rawCards = [];

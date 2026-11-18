@@ -4,38 +4,45 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 
 // Cargar variables de entorno tanto en desarrollo como en la app empaquetada (NSIS / asar)
 function loadEnvironmentVariables() {
-  const envCandidates = [];
+  let envPath = null;
 
-  // En producción (app.isPackaged), revisar en userData (personalización) y resourcesPath (.env empaquetado)
-  try {
-    if (app && typeof app.getPath === 'function') {
-      envCandidates.push(path.join(app.getPath('userData'), '.env'));
+  // 1. En producción (cuando la app esté empaquetada), buscar en process.resourcesPath/.env
+  if (app && app.isPackaged && process.resourcesPath) {
+    const prodEnv = path.join(process.resourcesPath, '.env');
+    if (fs.existsSync(prodEnv)) {
+      envPath = prodEnv;
     }
-  } catch (_) {}
-
-  if (process.resourcesPath) {
-    envCandidates.push(path.join(process.resourcesPath, '.env'));
   }
 
-  // En desarrollo o raíz del proyecto
-  envCandidates.push(path.join(__dirname, '.env'));
-  envCandidates.push(path.join(process.cwd(), '.env'));
-
-  for (const envPath of envCandidates) {
-    try {
-      if (fs.existsSync(envPath)) {
-        require('dotenv').config({ path: envPath, override: false });
+  // 2. En desarrollo, buscar el .env de teacher-app/.env o en el directorio de trabajo
+  if (!envPath) {
+    const devCandidates = [
+      path.join(__dirname, '.env'),
+      path.join(process.cwd(), '.env'),
+      path.join(process.cwd(), 'teacher-app', '.env')
+    ];
+    for (const cand of devCandidates) {
+      if (fs.existsSync(cand)) {
+        envPath = cand;
+        break;
       }
-    } catch (_) {}
+    }
   }
 
-  // Si la app está empaquetada y no existe .env en userData, copiar una copia inicial para que el usuario pueda editarla
+  if (envPath) {
+    require('dotenv').config({ path: envPath, override: true });
+    console.log(`[MAIN] Variables de entorno cargadas desde: ${envPath} (app.isPackaged: ${app?.isPackaged || false})`);
+  } else {
+    console.warn('[MAIN] No se encontró archivo .env ni en resourcesPath ni en directorio de desarrollo.');
+  }
+
+  // Personalización opcional del usuario en app.getPath('userData')/.env si existe
   try {
     if (app && app.isPackaged && typeof app.getPath === 'function') {
       const userDataEnv = path.join(app.getPath('userData'), '.env');
-      const resourcesEnv = path.join(process.resourcesPath, '.env');
-      if (!fs.existsSync(userDataEnv) && fs.existsSync(resourcesEnv)) {
-        fs.copyFileSync(resourcesEnv, userDataEnv);
+      if (fs.existsSync(userDataEnv)) {
+        require('dotenv').config({ path: userDataEnv, override: true });
+        console.log('[MAIN] Variables de entorno personalizadas cargadas desde userData:', userDataEnv);
       }
     }
   } catch (_) {}

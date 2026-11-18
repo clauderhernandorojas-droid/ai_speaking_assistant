@@ -44,7 +44,27 @@ class TeacherSessionService {
    * Inicializa el cliente de Supabase con variables de entorno o configuración local
    */
   initClient() {
-    require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') });
+    let envPath = null;
+    try {
+      const electron = require('electron');
+      const electronApp = electron.app || electron.remote?.app;
+      if (electronApp && electronApp.isPackaged && process.resourcesPath) {
+        const prodEnv = path.join(process.resourcesPath, '.env');
+        if (fs.existsSync(prodEnv)) envPath = prodEnv;
+      }
+    } catch (_) {}
+    if (!envPath && process.resourcesPath) {
+      const prodEnv = path.join(process.resourcesPath, '.env');
+      if (fs.existsSync(prodEnv)) envPath = prodEnv;
+    }
+    if (!envPath) {
+      const devEnv = path.join(__dirname, '..', '..', '.env');
+      if (fs.existsSync(devEnv)) envPath = devEnv;
+    }
+    if (envPath) {
+      require('dotenv').config({ path: envPath, override: false });
+    }
+
     const url = process.env.SUPABASE_URL;
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 
