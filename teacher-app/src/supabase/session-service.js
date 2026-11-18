@@ -28,6 +28,7 @@ class TeacherSessionService {
     this.processedStoragePaths = new Set(); // Registro de rutas para evitar duplicados entre sesiones
     this.isProcessingQueue = false;
     this.sessionTranscript = ''; // Transcripción acumulada en vivo
+    this.sessionPronunciationIssues = []; // Errores acústicos de pronunciación detectados por Gemini en una sola pasada
     this.eventListeners = {
       onStudentJoined: () => {},
       onStudentMicStatus: () => {},
@@ -263,10 +264,10 @@ class TeacherSessionService {
           continue;
         }
 
-        // Guardia de tamaño mínimo en el servidor: descartar buffers menores a 8192 bytes (8 KB)
-        // para evitar transcribir cabeceras WebM vacías o micro-ruidos
-        if (segmentBuffer.length < 8192) {
-          console.log(`[Audio Pipeline] ⏩ Segmento #${segment.sequence} omitido: tamaño insuficiente (${segmentBuffer.length} bytes < 8192 bytes / 8 KB).`);
+        // Guardia de tamaño mínimo en el servidor: descartar buffers menores a 2800 bytes
+        // para evitar transcribir cabeceras WebM vacías o micro-ruidos, permitiendo frases cortas finales
+        if (segmentBuffer.length < 2800) {
+          console.log(`[Audio Pipeline] ⏩ Segmento #${segment.sequence} omitido: tamaño insuficiente (${segmentBuffer.length} bytes < 2800 bytes).`);
           if (segment.fromStorage && segment.storagePath && this.client) {
             this.client.storage.from('session-audio').remove([segment.storagePath]).catch(() => {});
           }
@@ -291,13 +292,26 @@ class TeacherSessionService {
           console.warn('[Audio Pipeline] No se pudo escribir last_session_debug.webm:', fsErr.message);
         }
 
-        // 3. Transcribir con Gemini si hay API Key disponible
+        // 3. Transcribir con Gemini si hay API Key disponible (en una sola pasada acústica estructurada)
         if (apiKey && segmentBuffer.length > 0) {
           console.log(`[Audio Pipeline] Transcribiendo bloque WebM #${segment.sequence} (${segmentBuffer.length} bytes, 24kbps) con Gemini...`);
           const previousContext = (this.sessionTranscript && this.sessionTranscript.length > 0)
             ? this.sessionTranscript.slice(-100).trim()
             : '';
-          const rawSegmentText = await geminiService.transcribeAudio(segmentBuffer, mimeType, previousContext);
+          const transResult = await geminiService.transcribeAudio(segmentBuffer, mimeType, previousContext);
+          
+          const rawSegmentText = (typeof transResult === 'object' && transResult !== null)
+            ? (transResult.transcript || '')
+            : (transResult || '');
+          const newPronunciationIssues = (typeof transResult === 'object' && Array.isArray(transResult.pronunciationIssues))
+            ? transResult.pronunciationIssues
+            : [];
+
+          if (newPronunciationIssues.length > 0) {
+            console.log(`[Audio Pipeline] 🗣️ Errores de pronunciación acústicos detectados en bloque #${segment.sequence}:`, newPronunciationIssues);
+            this.sessionPronunciationIssues.push(...newPronunciationIssues);
+          }
+
           console.log(`[Audio Pipeline] Segmento #${segment.sequence} transcrito:`, rawSegmentText);
 
           if (rawSegmentText &&
@@ -316,7 +330,8 @@ class TeacherSessionService {
                 this.eventListeners.onTranscriptSegment({
                   segmentText: cleanedSegment,
                   fullTranscript: this.sessionTranscript,
-                  sequence: segment.sequence
+                  sequence: segment.sequence,
+                  pronunciationIssues: newPronunciationIssues
                 });
               }
             }
@@ -373,6 +388,7 @@ class TeacherSessionService {
     this.processedStoragePaths.clear();
     this.isProcessingQueue = false;
     this.sessionTranscript = '';
+    this.sessionPronunciationIssues = [];
 
     // 1. Sincronizar en la tabla 'sessions' con estado 'waiting'
     if (this.client) {
@@ -482,6 +498,7 @@ class TeacherSessionService {
     this.transcriptionQueue = [];
     this.processedStoragePaths.clear();
     this.sessionTranscript = '';
+    this.sessionPronunciationIssues = [];
     this.isProcessingQueue = false;
 
     // 1. Sincronizar en la tabla 'sessions' de Supabase con status 'active'
@@ -688,6 +705,7 @@ class TeacherSessionService {
     this.transcriptionQueue = [];
     this.processedStoragePaths.clear();
     this.sessionTranscript = '';
+    this.sessionPronunciationIssues = [];
     this.isProcessingQueue = false;
     if (this.currentSession) {
       this.currentSession.status = 'completed';
@@ -748,7 +766,8 @@ class TeacherSessionService {
       const evalResult = await ieltsEngine.evaluateUtterance({
         teacherContext,
         studentUtterance: verbatimStudentSpeech,
-        studentLevel
+        studentLevel,
+        pronunciationIssues: this.sessionPronunciationIssues || []
       });
       if (Array.isArray(evalResult)) {
         feedbackCards = evalResult;
@@ -768,6 +787,7 @@ class TeacherSessionService {
       verbatimStudentSpeech,
       feedbackCards,
       modelSpeech,
+      pronunciationIssues: [...(this.sessionPronunciationIssues || [])],
       needsLevelConfirmation: !shouldEvaluateImmediately
     };
   }

@@ -30,6 +30,7 @@ const state = {
   currentExercise: null,
   sessionExercises: [],
   sessionTranscript: '',
+  currentPronunciationIssues: [],
   currentModelSpeech: null,
   isModelSpeechProjected: false,
   feedbackCounts: {
@@ -228,9 +229,12 @@ function startTeacherBlockRecording() {
               base64Data: base64,
               mimeType
             });
-            if (transcribed && transcribed.trim()) {
-              console.log('[TeacherMic] Docente transcrito:', transcribed.trim());
-              addTranscriptTurn('Profesor', transcribed.trim());
+            const textToUse = (typeof transcribed === 'object' && transcribed !== null)
+              ? (transcribed.transcript || '')
+              : (transcribed || '');
+            if (textToUse && textToUse.trim()) {
+              console.log('[TeacherMic] Docente transcrito:', textToUse.trim());
+              addTranscriptTurn('Profesor', textToUse.trim());
             }
           }
         } catch (err) {
@@ -372,6 +376,7 @@ async function regenerateRoomCode() {
   state.isDemoData = false;
   state.sessionExercises = [];
   state.sessionTranscript = '';
+  state.currentPronunciationIssues = [];
   state.currentModelSpeech = null;
   state.isModelSpeechProjected = false;
   renderModelSpeechTab(null);
@@ -878,7 +883,8 @@ async function executeAnalysisWithConfirmedLevel(confirmedLevel, studentUtteranc
       teacherContext: teacherContext || '',
       studentUtterance,
       studentLevel: confirmedLevel,
-      highPrecision: isHighPrecision
+      highPrecision: isHighPrecision,
+      pronunciationIssues: state.currentPronunciationIssues || []
     });
 
     let newCards = [];
@@ -1129,6 +1135,7 @@ async function proceedToStartNewSession() {
   state.isDemoData = false;
   state.sessionExercises = [];
   state.sessionTranscript = '';
+  state.currentPronunciationIssues = [];
   state.currentModelSpeech = null;
   state.isModelSpeechProjected = false;
   renderModelSpeechTab(null);
@@ -1261,6 +1268,9 @@ function handleSessionCompleted(summary) {
   state.isSessionSummaryHandled = true;
   state.hasEvaluatedSession = true;
   state.isDemoData = false;
+  if (Array.isArray(summary.pronunciationIssues)) {
+    state.currentPronunciationIssues = summary.pronunciationIssues;
+  }
 
   console.log('[Renderer] Desplegando transcripción verbatim y tarjetas quirúrgicas en la UI:', summary);
 
@@ -2092,6 +2102,11 @@ function handleLiveTranscriptSegment(data) {
   if (transcriptEmptyState) transcriptEmptyState.classList.add('hidden');
   if (transcriptStatus && state.isSessionActive) {
     transcriptStatus.textContent = 'Transcribiendo en vivo...';
+  }
+
+  if (Array.isArray(data.pronunciationIssues) && data.pronunciationIssues.length > 0) {
+    if (!state.currentPronunciationIssues) state.currentPronunciationIssues = [];
+    state.currentPronunciationIssues.push(...data.pronunciationIssues);
   }
 
   const segment = (data.segmentText || '').trim();

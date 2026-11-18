@@ -179,10 +179,11 @@ class GeminiService {
 
   /**
    * Transcribe un archivo de audio (WebM, WAV, MP4, etc.) usando Gemini Multimodal
+   * y extrae estructuradamente observaciones acústicas de pronunciación en una sola pasada.
    * @param {Buffer} audioBuffer Buffer binario completo del audio concatenado
    * @param {string} mimeType Tipo MIME (ej. 'audio/webm', 'audio/wav')
    * @param {string} previousContext Contexto previo inmediato del segmento anterior
-   * @returns {Promise<string>} Transcripción verbatim del alumno
+   * @returns {Promise<Object>} Objeto estructurado { transcript, pronunciationIssues } con compatibilidad string
    */
   async transcribeAudio(audioBuffer, mimeType = 'audio/webm', previousContext = '') {
     const apiKey = this.getApiKey();
@@ -200,13 +201,28 @@ class GeminiService {
     console.log(`[GEMINI] Enviando audio multimodal: ${audioBuffer.length} bytes, MIME: ${cleanMimeType}`);
     const base64Data = audioBuffer.toString('base64');
 
-    let promptText = "Transcribe verbatim in English. Return only the spoken words, or empty string if silent. If a word is notably mispronounced, unclear, or has phonetic interference affecting intelligibility, transcribe the word followed by a brief tag [pronunciation: what it sounded like] (do not fix grammar).";
+    let promptText = `Transcribe the audio verbatim in English and analyze audible pronunciation.
+Return strictly a JSON object with this exact schema:
+{
+  "transcript": "exact verbatim words spoken, or empty string if silent",
+  "pronunciationIssues": [
+    {
+      "word": "word as intended or spoken",
+      "heardAs": "approximate phonetic or misspelled representation heard",
+      "issue": "brief description of the phonological or stress error"
+    }
+  ]
+}
+RULES:
+1. "transcript": Verbatim spoken words in English without fixing grammar. If silent or no speech, set "transcript": "".
+2. "pronunciationIssues": Report ONLY words with audible, genuine phonetic errors, mispronounced sounds, silent letter mistakes, or incorrect word stress. If pronunciation is clear or acceptable, set "pronunciationIssues": []. Do NOT invent issues if there are none.`;
+
     const cleanContext = (previousContext || '').trim();
     if (cleanContext) {
       promptText += `\nContext from immediately preceding audio (do NOT repeat it, only transcribe new speech): "${cleanContext}"`;
     }
 
-    // Prompt mínimo y límite estricto de 350 tokens para reducir latencia y costo
+    // Configuración estricta JSON con 600 tokens para alojar transcripción y pronunciationIssues
     const payload = {
       contents: [
         {
@@ -225,7 +241,8 @@ class GeminiService {
       ],
       generationConfig: {
         temperature: 0.1,
-        maxOutputTokens: 350
+        maxOutputTokens: 600,
+        responseMimeType: 'application/json'
       }
     };
 
@@ -237,8 +254,35 @@ class GeminiService {
 
     try {
       const result = await this.requestGemini('generateContent', payload, 15000, transcribeModels);
-      let text = result?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      text = text.trim();
+      let rawText = result?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      rawText = rawText.trim();
+
+      let parsed = null;
+      try {
+        const cleanJson = rawText.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
+        parsed = JSON.parse(cleanJson);
+      } catch (parseErr) {
+        console.warn('[GEMINI transcribeAudio] No se pudo parsear JSON directo, intentando extraer bloque:', parseErr.message);
+        const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          try {
+            parsed = JSON.parse(jsonMatch[0]);
+          } catch (_) {}
+        }
+      }
+
+      let text = '';
+      let pronunciationIssues = [];
+
+      if (parsed && typeof parsed === 'object') {
+        text = typeof parsed.transcript === 'string' ? parsed.transcript.trim() : '';
+        if (Array.isArray(parsed.pronunciationIssues)) {
+          pronunciationIssues = parsed.pronunciationIssues.filter(item => item && (item.word || item.issue));
+        }
+      } else {
+        // Fallback si no fue JSON: usar rawText directamente
+        text = rawText;
+      }
 
       // Limpiar comillas, prefijos residuales del prompt o alucinaciones de formato
       text = text.replace(/^["']|["']$/g, '').trim();
@@ -257,10 +301,26 @@ class GeminiService {
         text.toLowerCase() === 'empty string' ||
         text.toLowerCase() === 'empty string.'
       ) {
-        return '';
+        text = '';
       }
 
-      return text.trim();
+      const cleanTranscript = text.trim();
+
+      // Objeto estructurado con emulación completa de String para máxima retrocompatibilidad
+      const output = {
+        transcript: cleanTranscript,
+        pronunciationIssues,
+        toString() { return this.transcript; },
+        valueOf() { return this.transcript; },
+        trim() { return this.transcript.trim(); },
+        toLowerCase() { return this.transcript.toLowerCase(); },
+        toUpperCase() { return this.transcript.toUpperCase(); },
+        includes(searchStr) { return this.transcript.includes(searchStr); },
+        slice(...args) { return this.transcript.slice(...args); },
+        length: cleanTranscript.length
+      };
+
+      return output;
     } catch (err) {
       console.error('[GEMINI ERROR DETALLADO]:', err);
       throw err;

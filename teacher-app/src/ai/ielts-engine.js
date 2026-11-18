@@ -43,9 +43,11 @@ class IELTSEngine {
    * @param {string} options.studentUtterance Respuesta limpia del estudiante
    * @param {string} options.studentLevel Nivel del alumno ('B1', 'B2', 'C1')
    * @param {Array<string>} options.categories Categorías a evaluar (por defecto todas las 5)
+   * @param {boolean} options.highPrecision Forzar modelo gemini-3.5-flash de máxima precisión
+   * @param {Array<Object>} options.pronunciationIssues Observaciones acústicas de pronunciación detectadas en la pasada de audio
    * @returns {Promise<Array<Object>>} Lista de tarjetas quirúrgicas estandarizadas
    */
-  async evaluateUtterance({ teacherContext, studentUtterance, studentLevel = 'B1', categories = null, highPrecision = false }) {
+  async evaluateUtterance({ teacherContext, studentUtterance, studentLevel = 'B1', categories = null, highPrecision = false, pronunciationIssues = [] }) {
     const activeCategories = categories || ['grammar', 'vocabulary', 'pronunciation', 'upgrade_c1', 'fluency'];
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
     console.log('[GEMINI] Clave encontrada:', !!apiKey, 'Longitud:', apiKey ? apiKey.length : 0);
@@ -60,7 +62,8 @@ class IELTSEngine {
           studentUtterance,
           studentLevel,
           categories: activeCategories,
-          highPrecision
+          highPrecision,
+          pronunciationIssues
         });
         if (aiResults && (Array.isArray(aiResults.feedbackCards) || Array.isArray(aiResults))) {
           const cards = Array.isArray(aiResults) ? aiResults : (aiResults.feedbackCards || []);
@@ -477,7 +480,7 @@ class IELTSEngine {
   /**
    * Conector para evaluación pedagógica concisa y rápida con Gemini
    */
-  async callLLMEvaluation({ teacherContext, studentUtterance, studentLevel, categories, highPrecision = false }) {
+  async callLLMEvaluation({ teacherContext, studentUtterance, studentLevel, categories, highPrecision = false, pronunciationIssues = [] }) {
     const cleanTeacherContext = (teacherContext || '').trim();
     const normLevel = (studentLevel || 'B1').toUpperCase().trim();
     let targetUpgradeLevel = 'B2';
@@ -496,6 +499,17 @@ class IELTSEngine {
       iPlusOneLevel = 'C1/C2 (native-like mastery & fluency)';
     }
 
+    let acousticPronunciationSection = '';
+    if (Array.isArray(pronunciationIssues) && pronunciationIssues.length > 0) {
+      acousticPronunciationSection = `\nVERIFIED ACOUSTIC PRONUNCIATION OBSERVATIONS (Detected directly from the student's spoken audio during single-pass transcription):
+${JSON.stringify(pronunciationIssues, null, 2)}
+INSTRUCTION FOR PRONUNCIATION: You MUST generate dedicated 'pronunciation' feedbackCards for these genuine acoustic errors heard during the session. Highlight the mispronounced word in studentResponse and provide the clean phonetic model / target pronunciation in surgicalCorrection.`;
+    } else {
+      acousticPronunciationSection = `\nVERIFIED ACOUSTIC PRONUNCIATION OBSERVATIONS:
+No acoustic pronunciation errors were flagged during audio transcription.
+INSTRUCTION FOR PRONUNCIATION: Do NOT invent or fabricate pronunciation errors if there is no genuine phonological issue or phonetic marker in the student's speech. If the student's pronunciation is intelligible and clear, output ZERO pronunciation cards (empty).`;
+    }
+
     const systemPrompt = `You are a certified IELTS Speaking Examiner and Master EFL Teacher evaluating a student with confirmed CEFR level "${normLevel}".
 
 MANDATES:
@@ -504,7 +518,7 @@ MANDATES:
 3. EXHAUSTIVE EVALUATION: Detect and report ALL genuine errors and opportunities across the entire utterance without numerical caps:
    - 'grammar': Systemic or local errors calibrated to ${normLevel}. Severity: 'basic_error'.
    - 'vocabulary': Unnatural collocations, calques, precise alternatives calibrated to ${normLevel}. Severity: 'refinement'.
-   - 'pronunciation': Phonological issues (-ed endings, silent letters, vowel reduction/schwa, word stress) AND any word marked with [pronunciation: ...] in the transcript. Generate clear pronunciation cards whenever these tags or authentic phonetic risks appear in the student's speech (without fabricating if there is no evidence). Highlight the mispronounced word in studentResponse and provide the clean phonetic model / target pronunciation in surgicalCorrection. Severity: 'basic_error'.
+   - 'pronunciation': Phonological issues (-ed endings, silent letters, vowel reduction/schwa, word stress) grounded in the acoustic observations provided below or tags in the transcript. Highlight the mispronounced word in studentResponse and provide the clean phonetic model / target pronunciation in surgicalCorrection. If no acoustic observations exist and no obvious phonetic mistakes appear, do NOT fabricate pronunciation errors. Severity: 'basic_error'.
    - 'upgrade_c1': Step-by-step i+1 upgrade calibrated strictly to target level "${targetUpgradeLevel}". NEVER jump to C1/C2 vocabulary or complex idioms if the student is A1, A2, or B1:
      * If student is A1/A2 -> upgrade strictly to B1 (e.g. 'decided to quit' instead of 'felt compelled to tender my resignation').
      * If student is B1 -> upgrade strictly to B2 (clear connectors, practical professional collocations, natural variety).
@@ -517,6 +531,7 @@ MANDATES:
    - "naturalCorrected": Full student discourse rewritten naturally at confirmed ${normLevel} fixing errors and acoustic fillers.
    - "targetUpgrade": Same speech elevated exactly one step to target level ${targetUpgradeLevel} (${iPlusOneLevel}).
    - "keyImprovements": Exactly 3 short bullet points in simple English explaining practical upgrades.
+${acousticPronunciationSection}
 
 JSON OUTPUT FORMAT (Valid raw JSON, no markdown):
 {

@@ -11,11 +11,23 @@ class SpeechCleaner {
 
   /**
    * Retorna el texto transcrito de forma 100% literal (verbatim) sin alteraciones.
-   * @param {string} rawText Texto transcrito crudo de Gemini
+   * Compatible con strings o con objetos estructurados { transcript, pronunciationIssues }.
+   * @param {string|Object} rawText Texto transcrito crudo de Gemini u objeto estructurado
    * @returns {string} Texto literal intacto
    */
   cleanText(rawText) {
-    if (!rawText || typeof rawText !== 'string') return '';
+    if (!rawText) return '';
+    if (typeof rawText === 'object') {
+      if (typeof rawText.transcript === 'string') {
+        return rawText.transcript.trim();
+      }
+      if (typeof rawText.toString === 'function') {
+        const str = rawText.toString();
+        if (str !== '[object Object]') return str.trim();
+      }
+      return '';
+    }
+    if (typeof rawText !== 'string') return '';
     return rawText.trim();
   }
 }
