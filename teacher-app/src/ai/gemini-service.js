@@ -299,10 +299,7 @@ Analyze according to all instructions and output ONLY valid JSON without markdow
       generationConfig: {
         temperature: 0.1,
         maxOutputTokens: 6000,
-        responseMimeType: 'application/json',
-        thinkingConfig: {
-          thinkingBudget: 0
-        }
+        responseMimeType: 'application/json'
       }
     };
 

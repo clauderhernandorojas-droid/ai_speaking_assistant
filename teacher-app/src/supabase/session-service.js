@@ -646,9 +646,9 @@ class TeacherSessionService {
       }
     }
 
-    // 2. Margen de espera (3000 ms) para recibir el último bloque transmitido (flush) por el alumno
-    console.log('[Audio Pipeline] Margen de espera (3000ms) para vaciado (flush) del último bloque de audio...');
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    // 2. Margen de espera (6000 ms) para recibir el último bloque transmitido (flush) por el alumno
+    console.log('[Audio Pipeline] Margen de espera (6000ms) para vaciado (flush) del último bloque de audio...');
+    await new Promise((resolve) => setTimeout(resolve, 6000));
     console.log(`[Audio Pipeline] Vaciado completado. Total de bloques recibidos en sesión: ${this.audioChunks.length}`);
 
     // 3. Esperar a que la cola secuencial de transcripción termine de procesar todos los bloques pendientes

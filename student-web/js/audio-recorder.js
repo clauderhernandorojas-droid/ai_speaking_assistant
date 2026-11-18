@@ -1,12 +1,12 @@
 /**
  * Gestor de captura de audio y hardware del micrófono para el estudiante.
  * Utiliza MediaRecorder con bitrate optimizado de voz (24 kbps) y ciclo de bloques WebM autocontenidos
- * de máximo 45s (o 1.8s de silencio tras voz) con VAD Adaptativo (piso de ruido dinámico acotado a 0.015).
+ * de máximo 25s (o 1.8s de silencio tras voz) con VAD Adaptativo (piso de ruido dinámico acotado a 0.012).
  */
 
 export class AudioCaptureService {
   constructor(options = {}) {
-    this.maxBlockDuration = options.maxBlockDuration || 45000; // Máximo 45 segundos por bloque (~110-135 KB a 24 kbps)
+    this.maxBlockDuration = options.maxBlockDuration || 25000; // Máximo 25 segundos por bloque (~60-75 KB a 24 kbps)
     this.silenceTimeoutMs = options.silenceTimeoutMs || 1800;  // 1.8s de silencio continuo tras haber detectado voz
     this.audioBitsPerSecond = options.audioBitsPerSecond || 24000; // 24 kbps: calidad de voz cristalina ultraligera
     this.onChunk = options.onChunk || (() => {});
@@ -19,6 +19,7 @@ export class AudioCaptureService {
     this.audioContext = null;
     this.analyser = null;
     this.animationFrameId = null;
+    this.watchdogInterval = null;
     this.isMuted = false;
     this.isActive = false;
 
@@ -68,6 +69,7 @@ export class AudioCaptureService {
 
     this.isActive = true;
     this.setupAudioAnalysis(this.mediaStream);
+    this.startWatchdog();
     this.startNewRecordingBlock();
   }
 
@@ -79,6 +81,7 @@ export class AudioCaptureService {
 
     if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
       try {
+        this.mediaRecorder.onstop = null;
         this.mediaRecorder.stop();
       } catch (_) {}
     }
@@ -187,19 +190,36 @@ export class AudioCaptureService {
         }
       }
 
-      // Iniciar el siguiente bloque de inmediato si la sesión sigue activa y no está silenciado
+      // Iniciar el siguiente bloque con retraso seguro (80ms) para que el MediaRecorder anterior se libere completamente
       if (this.isActive && !this.isMuted) {
-        this.startNewRecordingBlock();
+        setTimeout(() => {
+          if (this.isActive && !this.isMuted) {
+            try {
+              this.startNewRecordingBlock();
+            } catch (cycleErr) {
+              console.error('[AudioCapture] Error reiniciando MediaRecorder tras onstop:', cycleErr);
+            }
+          }
+        }, 80);
       }
     };
 
-    // Iniciar sin timeslice para generar un archivo WebM autocontenido al llamar .stop()
-    this.mediaRecorder.start();
+    // Iniciar con timeslice de 1000ms para recolectar chunks continuamente y no depender de un único flush al detenerse
+    try {
+      this.mediaRecorder.start(1000);
+    } catch (startErr) {
+      console.warn('[AudioCapture] Error iniciando con timeslice 1000ms, intentando sin timeslice:', startErr);
+      try {
+        this.mediaRecorder.start();
+      } catch (fallbackStartErr) {
+        console.error('[AudioCapture] Error crítico en start():', fallbackStartErr);
+      }
+    }
 
-    // Límite máximo: 45 segundos por bloque
+    // Límite máximo: 25 segundos por bloque
     if (this.blockTimer) clearTimeout(this.blockTimer);
     this.blockTimer = setTimeout(() => {
-      this.cycleBlock('max_duration_45s');
+      this.cycleBlock('max_duration_25s');
     }, this.maxBlockDuration);
   }
 
@@ -547,11 +567,65 @@ export class AudioCaptureService {
   }
 
   /**
+   * Vigilante activo cada 3000ms: si la sesión está en curso y sin mute,
+   * detecta si el MediaRecorder se detuvo inesperadamente o si el MediaStream
+   * perdió el micrófono (readyState === 'ended') y lo recupera de inmediato.
+   */
+  startWatchdog() {
+    this.stopWatchdog();
+    this.watchdogInterval = setInterval(async () => {
+      if (!this.isActive || this.isMuted) return;
+
+      // 1. Verificar si el MediaStream o su pista de audio terminaron
+      const audioTrack = this.mediaStream ? this.mediaStream.getAudioTracks()[0] : null;
+      if (!this.mediaStream || !audioTrack || audioTrack.readyState === 'ended') {
+        console.warn('[AudioCapture Watchdog] Track de micrófono finalizado o ausente. Solicitando getUserMedia de nuevo...');
+        try {
+          const audioConstraints = {
+            deviceId: this.deviceId ? { exact: this.deviceId } : undefined,
+            autoGainControl: true,
+            noiseSuppression: true,
+            echoCancellation: true
+          };
+          this.mediaStream = await navigator.mediaDevices.getUserMedia({
+            audio: audioConstraints,
+            video: false
+          });
+          this.setupAudioAnalysis(this.mediaStream);
+          this.startNewRecordingBlock();
+          return;
+        } catch (reopenErr) {
+          console.error('[AudioCapture Watchdog] Error reabriendo getUserMedia:', reopenErr);
+          return;
+        }
+      }
+
+      // 2. Verificar si el MediaRecorder no está en estado 'recording'
+      if (!this.isCycling && (!this.mediaRecorder || this.mediaRecorder.state !== 'recording')) {
+        console.warn(`[AudioCapture Watchdog] MediaRecorder inactivo o caído (state: ${this.mediaRecorder?.state || 'null'}). Forzando nuevo bloque...`);
+        try {
+          this.startNewRecordingBlock();
+        } catch (recErr) {
+          console.error('[AudioCapture Watchdog] Error forzando startNewRecordingBlock:', recErr);
+        }
+      }
+    }, 3000);
+  }
+
+  stopWatchdog() {
+    if (this.watchdogInterval) {
+      clearInterval(this.watchdogInterval);
+      this.watchdogInterval = null;
+    }
+  }
+
+  /**
    * Detiene la captura, vacía cualquier bloque pendiente con voz acumulada (activeSpeechMs >= 300) y libera el hardware del micrófono.
    */
   async stop() {
     this.isActive = false;
     this.lastCycleReason = 'stop';
+    this.stopWatchdog();
     if (typeof this.onVolumeChange === 'function') {
       this.onVolumeChange(0, 0);
     }
