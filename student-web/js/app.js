@@ -247,6 +247,38 @@ if (sessionMicSelect) {
   });
 }
 
+/**
+ * Restaura el estado visual y funcional del botón Mute y del micrófono
+ * para asegurar un arranque limpio al ingresar a una sala o recibir session_start.
+ */
+function resetMuteUI() {
+  if (btnToggleMute) {
+    btnToggleMute.disabled = false;
+    btnToggleMute.classList.remove('muted');
+  }
+  if (muteButtonText) {
+    muteButtonText.textContent = 'Silenciar';
+  }
+  if (micStatusCircle) {
+    micStatusCircle.classList.remove('muted');
+    micStatusCircle.style.transform = 'scale(1)';
+  }
+  if (iconMicOn) iconMicOn.classList.remove('hidden');
+  if (iconMicOff) iconMicOff.classList.add('hidden');
+  if (visualizerContainer) {
+    visualizerContainer.classList.remove('muted');
+  }
+  if (sessionVuMeterLevel) {
+    sessionVuMeterLevel.classList.remove('muted');
+  }
+  if (sessionVuMeterLabel) {
+    sessionVuMeterLabel.classList.remove('muted');
+  }
+  if (audioService && typeof audioService.setMuted === 'function') {
+    audioService.setMuted(false);
+  }
+}
+
 // 2. Manejo de formulario de ingreso
 joinForm.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -347,38 +379,43 @@ joinForm.addEventListener('submit', async (e) => {
         sessionVuMeterLabel.classList.add('muted');
         sessionVuMeterLabel.classList.remove('active');
       }
-    } else if (isAlreadyActive) {
-      console.log('[Student] La sesión ya se encuentra ACTIVA en Supabase al unirse. Pasando UI a estado en curso...');
-      sessionStatusBadge.textContent = 'Sesión en Curso';
-      sessionStatusBadge.className = 'badge badge-active';
-      visualizerContainer.classList.add('recording');
-      micStatusLabel.textContent = micStartOk ? 'Micrófono Activo' : 'Micrófono con Error';
-      micStatusSub.textContent = micStartOk
-        ? 'Sesión iniciada previamente. Habla con naturalidad, tu audio se transmite a tu profesor.'
-        : `Atención: No se pudo activar el micrófono (${micError || 'Sin permisos'}).`;
-      if (sessionVuMeterLevel) {
-        sessionVuMeterLevel.style.width = '0%';
-        sessionVuMeterLevel.classList.remove('muted');
-      }
-      if (sessionVuMeterLabel) {
-        sessionVuMeterLabel.textContent = micStartOk ? 'Señal de micrófono activa' : 'Sin señal de micrófono';
-        sessionVuMeterLabel.classList.remove('muted', 'active');
-      }
     } else {
-      sessionStatusBadge.textContent = 'En Espera del Profesor';
-      sessionStatusBadge.className = 'badge badge-waiting';
-      visualizerContainer.classList.add('recording');
-      micStatusLabel.textContent = micStartOk ? 'Micrófono Activo (En Espera)' : 'Micrófono con Error';
-      micStatusSub.textContent = micStartOk
-        ? 'El micrófono está listo. Tu profesor iniciará la sesión en breve.'
-        : `Atención: No se pudo activar el micrófono (${micError || 'Sin permisos'}).`;
-      if (sessionVuMeterLevel) {
-        sessionVuMeterLevel.style.width = '0%';
-        sessionVuMeterLevel.classList.remove('muted');
-      }
-      if (sessionVuMeterLabel) {
-        sessionVuMeterLabel.textContent = micStartOk ? 'Señal de micrófono activa' : 'Sin señal de micrófono';
-        sessionVuMeterLabel.classList.remove('muted', 'active');
+      // Reset limpio obligatorio del botón Mute y del hardware del micrófono al entrar
+      resetMuteUI();
+
+      if (isAlreadyActive) {
+        console.log('[Student] La sesión ya se encuentra ACTIVA en Supabase al unirse. Pasando UI a estado en curso...');
+        sessionStatusBadge.textContent = 'Sesión en Curso';
+        sessionStatusBadge.className = 'badge badge-active';
+        visualizerContainer.classList.add('recording');
+        micStatusLabel.textContent = micStartOk ? 'Micrófono Activo' : 'Micrófono con Error';
+        micStatusSub.textContent = micStartOk
+          ? 'Sesión iniciada previamente. Habla con naturalidad, tu audio se transmite a tu profesor.'
+          : `Atención: No se pudo activar el micrófono (${micError || 'Sin permisos'}).`;
+        if (sessionVuMeterLevel) {
+          sessionVuMeterLevel.style.width = '0%';
+          sessionVuMeterLevel.classList.remove('muted');
+        }
+        if (sessionVuMeterLabel) {
+          sessionVuMeterLabel.textContent = micStartOk ? 'Señal de micrófono activa' : 'Sin señal de micrófono';
+          sessionVuMeterLabel.classList.remove('muted', 'active');
+        }
+      } else {
+        sessionStatusBadge.textContent = 'En Espera del Profesor';
+        sessionStatusBadge.className = 'badge badge-waiting';
+        visualizerContainer.classList.add('recording');
+        micStatusLabel.textContent = micStartOk ? 'Micrófono Activo (En Espera)' : 'Micrófono con Error';
+        micStatusSub.textContent = micStartOk
+          ? 'El micrófono está listo. Tu profesor iniciará la sesión en breve.'
+          : `Atención: No se pudo activar el micrófono (${micError || 'Sin permisos'}).`;
+        if (sessionVuMeterLevel) {
+          sessionVuMeterLevel.style.width = '0%';
+          sessionVuMeterLevel.classList.remove('muted');
+        }
+        if (sessionVuMeterLabel) {
+          sessionVuMeterLabel.textContent = micStartOk ? 'Señal de micrófono activa' : 'Sin señal de micrófono';
+          sessionVuMeterLabel.classList.remove('muted', 'active');
+        }
       }
     }
 
@@ -454,14 +491,20 @@ btnLeaveSession.addEventListener('click', async () => {
 // 5. Manejo de eventos del docente recibidos vía Realtime
 async function handleTeacherEvent(eventType, payload) {
   if (eventType === 'session_start') {
+    // Reset limpio obligatorio de Mute y pistas de audio al arrancar la sesión
+    resetMuteUI();
     sessionStatusBadge.textContent = 'Sesión en Curso';
     sessionStatusBadge.className = 'badge badge-active';
+    visualizerContainer.classList.add('recording');
+
     if (audioService && audioService.isActive) {
+      await audioService.setMuted(false);
       micStatusLabel.textContent = 'Micrófono Activo';
       micStatusSub.textContent = 'Habla con naturalidad. Tu audio se transmite a tu profesor.';
     } else if (audioService && !audioService.isActive) {
       try {
         await audioService.start(selectedDeviceId);
+        resetMuteUI();
         micStatusLabel.textContent = 'Micrófono Activo';
         micStatusSub.textContent = 'Habla con naturalidad. Tu audio se transmite a tu profesor.';
         if (supabaseService) {
@@ -1327,6 +1370,7 @@ async function cleanupSession() {
   sessionScreen.classList.remove('active');
   joinScreen.classList.add('active');
   visualizerContainer.classList.remove('recording', 'muted');
+  resetMuteUI();
 
   // Reactivar monitor de prueba al volver a la pantalla de inicio
   if (selectedDeviceId) {
