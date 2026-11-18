@@ -19,6 +19,7 @@ export class StudentSupabaseService {
     this.sequenceId = 0;
     this.uploadQueue = [];
     this.isProcessingUploadQueue = false;
+    this.lastMicStatus = null;
   }
 
   init() {
@@ -100,6 +101,11 @@ export class StudentSupabaseService {
             sessionCode: this.sessionCode,
             joinedAt: Date.now()
           });
+
+          // Transmitir telemetría de micrófono al docente si ya fue calculada
+          if (this.lastMicStatus) {
+            this.sendMicStatus(this.lastMicStatus);
+          }
         }
       });
 
@@ -252,6 +258,20 @@ export class StudentSupabaseService {
     if (!this.channel) return;
     this.broadcastEvent('student:mute_change', {
       isMuted,
+      timestamp: Date.now()
+    });
+  }
+
+  /**
+   * Envía la telemetría diagnóstica del micrófono al docente en tiempo real.
+   */
+  sendMicStatus(statusPayload) {
+    this.lastMicStatus = statusPayload;
+    if (!this.channel) return;
+    this.broadcastEvent('student:mic_status', {
+      sessionCode: (this.sessionCode || '').toUpperCase().trim(),
+      studentName: this.studentName || 'Estudiante',
+      ...statusPayload,
       timestamp: Date.now()
     });
   }

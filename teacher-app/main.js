@@ -88,6 +88,12 @@ function createWindow() {
         mainWindow.webContents.send('session:studentJoined', data);
       }
     },
+    onStudentMicStatus: (data) => {
+      console.log('[MAIN session:studentMicStatus]', data);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('session:studentMicStatus', data);
+      }
+    },
     onAudioChunk: (data) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('session:audioChunk', data);

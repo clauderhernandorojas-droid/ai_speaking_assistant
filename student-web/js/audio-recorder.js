@@ -22,8 +22,8 @@ export class AudioCaptureService {
     this.isMuted = false;
     this.isActive = false;
 
-    // VAD Adaptativo por piso de ruido dinámico (SNR) + AGC
-    this.noiseFloor = 0.004; // Inicializado en 0.004, acotado entre 0.0015 y 0.015
+    // VAD Adaptativo por piso de ruido dinámico (SNR) + AGC calibrado para laptop/PC
+    this.noiseFloor = 0.003; // Inicializado en 0.003, acotado entre 0.001 y 0.012
     this.hangoverMs = 0;     // Retención de 400ms para pausas entre sílabas
 
     // Métricas y control del ciclo de bloques
@@ -35,7 +35,7 @@ export class AudioCaptureService {
       continuousSilenceMs: 0,
       hasSpeech: false,
       peakRms: 0,
-      noiseFloorAtEnd: 0.004
+      noiseFloorAtEnd: 0.003
     };
     this.isCycling = false;
     this.lastCycleReason = null;
@@ -83,15 +83,9 @@ export class AudioCaptureService {
       } catch (_) {}
     }
 
-    // Determinar MIME type compatible una sola vez
+    // Determinar MIME type compatible con fallback ordenado: webm (opus) -> webm -> mp4 -> default
     if (!this.supportedMime) {
-      const mimeTypes = [
-        'audio/webm;codecs=opus',
-        'audio/webm',
-        'audio/ogg;codecs=opus',
-        'audio/mp4'
-      ];
-      this.supportedMime = mimeTypes.find(type => MediaRecorder.isTypeSupported(type)) || '';
+      this.supportedMime = this.resolveSupportedMime();
     }
 
     this.currentBlockChunks = [];
@@ -107,23 +101,50 @@ export class AudioCaptureService {
     this.isCycling = false;
     this.lastCycleReason = null;
 
-    // Configurar 24 kbps (audioBitsPerSecond: 24000) para generar WebM ultraligeros
-    try {
-      const recorderOptions = { audioBitsPerSecond: this.audioBitsPerSecond };
-      if (this.supportedMime) recorderOptions.mimeType = this.supportedMime;
-      this.mediaRecorder = new MediaRecorder(this.mediaStream, recorderOptions);
-    } catch (err) {
-      console.warn('[AudioCaptureService] Fallback MediaRecorder sin audioBitsPerSecond:', err.message);
+    // Instanciación con fallback limpio si el navegador no soporta el MIME o audioBitsPerSecond
+    let recorder = null;
+    const candidates = [
+      this.supportedMime,
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/mp4',
+      '' // browser default
+    ].filter((m, idx, arr) => m !== undefined && arr.indexOf(m) === idx);
+
+    for (const mime of candidates) {
+      if (mime && typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported) {
+        try {
+          if (!MediaRecorder.isTypeSupported(mime)) continue;
+        } catch (_) {}
+      }
       try {
-        this.mediaRecorder = new MediaRecorder(
-          this.mediaStream,
-          this.supportedMime ? { mimeType: this.supportedMime } : {}
-        );
+        const opts = { audioBitsPerSecond: this.audioBitsPerSecond };
+        if (mime) opts.mimeType = mime;
+        recorder = new MediaRecorder(this.mediaStream, opts);
+        this.supportedMime = mime || recorder.mimeType || '';
+        break;
+      } catch (e1) {
+        try {
+          const opts2 = mime ? { mimeType: mime } : {};
+          recorder = new MediaRecorder(this.mediaStream, opts2);
+          this.supportedMime = mime || recorder.mimeType || '';
+          break;
+        } catch (e2) {
+          continue;
+        }
+      }
+    }
+
+    if (!recorder) {
+      try {
+        recorder = new MediaRecorder(this.mediaStream);
+        this.supportedMime = recorder.mimeType || '';
       } catch (fallbackErr) {
         console.error('[AudioCaptureService] Error instanciando MediaRecorder:', fallbackErr);
         return;
       }
     }
+    this.mediaRecorder = recorder;
 
     this.mediaRecorder.ondataavailable = (event) => {
       if (event.data && event.data.size > 0) {
@@ -142,12 +163,13 @@ export class AudioCaptureService {
         const mime = this.mediaRecorder?.mimeType || this.supportedMime || 'audio/webm';
         const blob = new Blob(chunks, { type: mime });
 
-        const speechGateRms = Math.max(0.025, this.noiseFloor * 4.5);
+        // Calibración adaptativa para micrófonos de PC / laptop: techo máx 0.012 y piso mín 0.003
+        const speechGateRms = Math.max(0.003, Math.min(this.noiseFloor * 2.2, 0.012));
         const isFlush = cycleReason === 'mute' || cycleReason === 'stop' || cycleReason === 'session_end' || this.isMuted || !this.isActive;
 
         // Criterio VAD:
         // Si es un flush por Mute o Finalización de Sesión: exige activeSpeechMs >= 300 para no perder las últimas palabras.
-        // En ciclo continuo normal: exige activeSpeechMs >= 550 Y peakRms >= speechGateRms para evitar ruidos de fondo.
+        // En ciclo continuo normal: exige activeSpeechMs >= 550 Y peakRms >= speechGateRms para micrófonos de laptop.
         const hasValidSpeech = isFlush
           ? (metrics.activeSpeechMs >= 300)
           : (metrics.activeSpeechMs >= 550 && metrics.peakRms >= speechGateRms);
@@ -204,13 +226,47 @@ export class AudioCaptureService {
   }
 
   /**
+   * Resuelve el mejor MIME type soportado por el navegador con fallback ordenado:
+   * audio/webm;codecs=opus -> audio/webm -> audio/mp4 -> audio/ogg;codecs=opus -> default
+   */
+  resolveSupportedMime() {
+    if (this.supportedMime) return this.supportedMime;
+    if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) {
+      return '';
+    }
+    const candidates = [
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/mp4',
+      'audio/ogg;codecs=opus'
+    ];
+    for (const mime of candidates) {
+      try {
+        if (MediaRecorder.isTypeSupported(mime)) {
+          return mime;
+        }
+      } catch (_) {}
+    }
+    return '';
+  }
+
+  /**
+   * Obtiene la etiqueta descriptiva del micrófono activo actual.
+   */
+  getDeviceLabel() {
+    if (!this.mediaStream) return '';
+    const track = this.mediaStream.getAudioTracks()[0];
+    return track ? (track.label || 'Micrófono de Entrada') : '';
+  }
+
+  /**
    * Cambia el micrófono activo durante la sesión sin perder la conexión.
    * Reinicia el piso de ruido dinámico para calibrarse con el nuevo hardware.
    */
   async setDevice(newDeviceId) {
     if (this.deviceId === newDeviceId && this.mediaStream) return;
     this.deviceId = newDeviceId;
-    this.noiseFloor = 0.004; // Reiniciar piso de ruido al cambiar de hardware
+    this.noiseFloor = 0.003; // Reiniciar piso de ruido al cambiar de hardware
     this.hangoverMs = 0;
 
     const wasActive = !!this.mediaStream;
@@ -360,15 +416,15 @@ export class AudioCaptureService {
           this.onVolumeChange(average, rms);
         }
 
-        // VAD Adaptativo por Piso de Ruido Dinámico
-        const dynamicThreshold = Math.max(0.005, this.noiseFloor * 2.8);
+        // VAD Adaptativo por Piso de Ruido Dinámico calibrado para laptop/PC (techo máx 0.012 y piso mín 0.003)
+        const dynamicThreshold = Math.max(0.003, Math.min(this.noiseFloor * 2.2, 0.012));
 
         // Congelar actualización de noiseFloor mientras haya voz activa o hangover.
         // Solo actualizar cuando la señal esté en calma real (rms < dynamicThreshold y hangoverMs === 0).
-        // Acotado entre 0.0015 y 0.015 para evitar que el umbral suba mientras el alumno habla.
+        // Acotado entre 0.001 y 0.012 para evitar que el umbral suba excesivamente en micrófonos de baja ganancia.
         const isSignalQuiet = rms < dynamicThreshold && this.hangoverMs === 0;
         if (isSignalQuiet) {
-          this.noiseFloor = Math.min(0.015, Math.max(0.0015, this.noiseFloor * 0.95 + rms * 0.05));
+          this.noiseFloor = Math.min(0.012, Math.max(0.001, this.noiseFloor * 0.95 + rms * 0.05));
         }
 
         // Rastreo de VAD si hay un bloque activo
@@ -395,8 +451,9 @@ export class AudioCaptureService {
             if (this.blockMetrics.hasSpeech) {
               this.blockMetrics.continuousSilenceMs += dt;
 
+              const speechGateRms = Math.max(0.003, Math.min(this.noiseFloor * 2.2, 0.012));
               const isEligibleBlock = this.blockMetrics.activeSpeechMs >= 550 &&
-                this.blockMetrics.peakRms >= Math.max(0.025, this.noiseFloor * 4.5);
+                this.blockMetrics.peakRms >= speechGateRms;
 
               // Si detecta 1.8s de silencio continuo tras haber captado voz válida:
               if (this.blockMetrics.continuousSilenceMs >= this.silenceTimeoutMs && isEligibleBlock) {

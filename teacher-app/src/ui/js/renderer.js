@@ -1862,6 +1862,21 @@ function setupEventListeners() {
       });
     }
 
+    if (typeof window.electronAPI.onStudentMicStatus === 'function') {
+      window.electronAPI.onStudentMicStatus((data) => {
+        if (data) {
+          if (data.ok) {
+            console.log(`[Supabase Realtime] Estado micrófono alumno: OK (Dispositivo: "${data.deviceLabel || 'Default'}", MIME: ${data.mimeType || 'audio/webm'})`);
+          } else {
+            console.warn(`[Supabase Realtime] Estado micrófono alumno: ERROR: ${data.error || 'No disponible / Permiso denegado'}`);
+            if (transcriptStatus && !state.isSessionActive) {
+              transcriptStatus.textContent = `Aviso alumno: Micrófono bloqueado (${data.error || 'Sin permiso'})`;
+            }
+          }
+        }
+      });
+    }
+
     if (typeof window.electronAPI.onAudioChunk === 'function') {
       window.electronAPI.onAudioChunk((data) => {
         if (transcriptStatus && state.isSessionActive) {

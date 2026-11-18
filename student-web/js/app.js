@@ -236,6 +236,13 @@ if (sessionMicSelect) {
     if (audioService) {
       await audioService.setDevice(selectedDeviceId);
       console.log('[Student Audio] Micrófono cambiado durante sesión a:', selectedDeviceId);
+      if (supabaseService) {
+        supabaseService.sendMicStatus({
+          ok: true,
+          deviceLabel: audioService.getDeviceLabel ? audioService.getDeviceLabel() : '',
+          mimeType: audioService.supportedMime || ''
+        });
+      }
     }
   });
 }
@@ -257,8 +264,9 @@ joinForm.addEventListener('submit', async (e) => {
   btnJoin.querySelector('span').textContent = 'Conectando...';
 
   try {
-    // Validar sesión en Supabase
-    await supabaseService.validateSession(sessionCode);
+    // Validar sesión en Supabase y chequear si el docente ya la inició ('active')
+    const sessionData = await supabaseService.validateSession(sessionCode);
+    const isAlreadyActive = sessionData && sessionData.status === 'active';
 
     // Detener monitor de prueba previo antes de iniciar la captura oficial
     if (activePreviewMonitor) {
@@ -270,7 +278,7 @@ joinForm.addEventListener('submit', async (e) => {
       selectedDeviceId = micSelect.value;
     }
 
-    // Inicializar captura de audio con bitrate de voz optimizado (24 kbps), bloques de 45s y VAD Adaptativo
+    // Inicializar captura de audio con bitrate de voz optimizado (24 kbps), bloques de 45s y VAD Adaptativo sensible
     audioService = new AudioCaptureService({
       deviceId: selectedDeviceId,
       maxBlockDuration: 45000,
@@ -285,10 +293,31 @@ joinForm.addEventListener('submit', async (e) => {
       }
     });
 
-    await audioService.start(selectedDeviceId);
+    let micStartOk = false;
+    let micError = null;
+    let deviceLabel = '';
+    let selectedMime = '';
+
+    try {
+      await audioService.start(selectedDeviceId);
+      micStartOk = true;
+      deviceLabel = audioService.getDeviceLabel ? audioService.getDeviceLabel() : '';
+      selectedMime = audioService.supportedMime || '';
+    } catch (micErr) {
+      micError = micErr.message || String(micErr);
+      console.error('[Student] Error al iniciar captura de micrófono:', micErr);
+    }
 
     // Unirse al canal de Realtime
     await supabaseService.joinSessionChannel(sessionCode, studentName, handleTeacherEvent);
+
+    // Enviar telemetría de diagnóstico de micrófono al docente
+    supabaseService.sendMicStatus({
+      ok: micStartOk,
+      error: micError,
+      deviceLabel,
+      mimeType: selectedMime
+    });
 
     // Cambiar a la vista de sesión
     displayRoomCode.textContent = `SALA: ${sessionCode}`;
@@ -296,13 +325,31 @@ joinForm.addEventListener('submit', async (e) => {
     sessionScreen.classList.add('active');
     visualizerContainer.classList.add('recording');
 
+    // 1. Si la sesión ya estaba activa en Supabase al unirse:
+    if (isAlreadyActive) {
+      console.log('[Student] La sesión ya se encuentra ACTIVA en Supabase al unirse. Pasando UI a estado en curso...');
+      sessionStatusBadge.textContent = 'Sesión en Curso';
+      sessionStatusBadge.className = 'badge badge-active';
+      micStatusLabel.textContent = micStartOk ? 'Micrófono Activo' : 'Micrófono con Error';
+      micStatusSub.textContent = micStartOk
+        ? 'Sesión iniciada previamente. Habla con naturalidad, tu audio se transmite a tu profesor.'
+        : `Atención: No se pudo activar el micrófono (${micError || 'Sin permisos'}).`;
+    } else {
+      sessionStatusBadge.textContent = 'En Espera del Profesor';
+      sessionStatusBadge.className = 'badge badge-waiting';
+      micStatusLabel.textContent = micStartOk ? 'Micrófono Activo (En Espera)' : 'Micrófono con Error';
+      micStatusSub.textContent = micStartOk
+        ? 'El micrófono está listo. Tu profesor iniciará la sesión en breve.'
+        : `Atención: No se pudo activar el micrófono (${micError || 'Sin permisos'}).`;
+    }
+
     // Inicializar medidor en sesión activa
     if (sessionVuMeterLevel) {
       sessionVuMeterLevel.style.width = '0%';
       sessionVuMeterLevel.classList.remove('muted');
     }
     if (sessionVuMeterLabel) {
-      sessionVuMeterLabel.textContent = 'Señal de micrófono activa';
+      sessionVuMeterLabel.textContent = micStartOk ? 'Señal de micrófono activa' : 'Sin señal de micrófono';
       sessionVuMeterLabel.classList.remove('muted', 'active');
     }
 
@@ -380,6 +427,32 @@ async function handleTeacherEvent(eventType, payload) {
   if (eventType === 'session_start') {
     sessionStatusBadge.textContent = 'Sesión en Curso';
     sessionStatusBadge.className = 'badge badge-active';
+    if (audioService && audioService.isActive) {
+      micStatusLabel.textContent = 'Micrófono Activo';
+      micStatusSub.textContent = 'Habla con naturalidad. Tu audio se transmite a tu profesor.';
+    } else if (audioService && !audioService.isActive) {
+      try {
+        await audioService.start(selectedDeviceId);
+        micStatusLabel.textContent = 'Micrófono Activo';
+        micStatusSub.textContent = 'Habla con naturalidad. Tu audio se transmite a tu profesor.';
+        if (supabaseService) {
+          supabaseService.sendMicStatus({
+            ok: true,
+            deviceLabel: audioService.getDeviceLabel ? audioService.getDeviceLabel() : '',
+            mimeType: audioService.supportedMime || ''
+          });
+        }
+      } catch (err) {
+        micStatusLabel.textContent = 'Error de Micrófono';
+        micStatusSub.textContent = `No se pudo activar el micrófono (${err.message || err}).`;
+        if (supabaseService) {
+          supabaseService.sendMicStatus({
+            ok: false,
+            error: err.message || String(err)
+          });
+        }
+      }
+    }
   } else if (eventType === 'session_end') {
     sessionStatusBadge.textContent = 'Sesión Finalizada';
     sessionStatusBadge.className = 'badge badge-ended';

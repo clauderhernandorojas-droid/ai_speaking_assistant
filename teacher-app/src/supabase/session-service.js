@@ -30,6 +30,7 @@ class TeacherSessionService {
     this.sessionTranscript = ''; // Transcripción acumulada en vivo
     this.eventListeners = {
       onStudentJoined: () => {},
+      onStudentMicStatus: () => {},
       onAudioChunk: () => {},
       onTranscriptSegment: () => {},
       onMuteChange: () => {},
@@ -423,6 +424,10 @@ class TeacherSessionService {
           console.log('[Supabase Realtime] Alumno conectado a sala en espera:', payload.payload);
           this.eventListeners.onStudentJoined(payload.payload);
         })
+        .on('broadcast', { event: 'student:mic_status' }, (payload) => {
+          console.log('[Supabase Realtime] Estado micrófono alumno:', payload.payload);
+          this.eventListeners.onStudentMicStatus(payload.payload);
+        })
         .on('broadcast', { event: 'audio_segment_uploaded' }, (payload) => {
           console.log('[Supabase Realtime] Notificación audio_segment_uploaded recibida en espera:', payload.payload);
           this.handleIncomingAudioStorageSegment(payload.payload);
@@ -573,6 +578,10 @@ class TeacherSessionService {
         .on('broadcast', { event: 'student:joined' }, (payload) => {
           console.log('[Supabase Realtime] Alumno conectado:', payload.payload);
           this.eventListeners.onStudentJoined(payload.payload);
+        })
+        .on('broadcast', { event: 'student:mic_status' }, (payload) => {
+          console.log('[Supabase Realtime] Estado micrófono alumno:', payload.payload);
+          this.eventListeners.onStudentMicStatus(payload.payload);
         })
         .on('broadcast', { event: 'audio_segment_uploaded' }, (payload) => {
           console.log('[Supabase Realtime] Notificación audio_segment_uploaded recibida en sesión:', payload.payload);
