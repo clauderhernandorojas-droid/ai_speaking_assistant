@@ -64,9 +64,9 @@ class IELTSEngine {
         if (aiResults && (Array.isArray(aiResults.feedbackCards) || Array.isArray(aiResults))) {
           const cards = Array.isArray(aiResults) ? aiResults : (aiResults.feedbackCards || []);
           console.log('[IELTS Engine] Evaluación completada en:', Date.now() - startTime, 'ms');
-          console.log(`[IELTS Engine] Gemini retornó ${cards.length} tarjetas de evaluación pedagógica (acotando a máx 10).`);
+          console.log(`[IELTS Engine] Gemini retornó ${cards.length} tarjetas de evaluación pedagógica.`);
           return {
-            feedbackCards: cards.slice(0, 10),
+            feedbackCards: cards,
             modelSpeech: aiResults.modelSpeech || this.generateFallbackModelSpeech(studentUtterance, studentLevel)
           };
         }
@@ -535,9 +535,9 @@ STRICT DIFFICULTY & LEVEL CALIBRATION DIRECTIVE (CONFIRMED LEVEL: ${normLevel}):
      * If confirmed level is C1: elevate to C1/C2 native mastery (subtle idiomatic nuance, rhetorical connectors, native-like cohesion).
    - "keyImprovements": An array of EXACTLY 3 short bullet points in simple A2/B1 English explaining the practical improvements made in this i+1 transition.
 
-SURGICAL FEEDBACK LIMIT & HIGH-IMPACT MANDATE (MAXIMUM 8-10 CARDS):
-- Focus strictly on the highest pedagogical impact errors, key vocabulary refinements, pronunciation challenges, and fluency markers.
-- Output a MAXIMUM of 8 to 10 feedback cards in total across all categories combined (never exceed 10 cards). Avoid redundant micro-variations or inflating the list with minor or repetitive observations. Select only the 8 to 10 most impactful teaching points.
+EXHAUSTIVE & THOROUGH FEEDBACK MANDATE:
+- Detect and report ALL systemic and localized errors, lexical inaccuracies, Spanish calques, pronunciation/phonological pitfalls, fluency hesitations, and meaningful i+1/C1 upgrades present throughout the student's speech.
+- Do NOT artificially cap or omit pedagogical opportunities. Extract all genuine teaching moments so the feedback is comprehensive, detailed, and actionable.
 
 Evaluate comprehensively across these 5 tabs:
 1. 'grammar': Catch EVERY single systemic or localized error (subject-verb agreement, verb tenses, auxiliaries, conditionals, prepositions, articles, word order) calibrated to ${normLevel}. Severity: 'basic_error'.
@@ -678,11 +678,8 @@ Return a valid JSON object with EXACTLY this structure:
         }
       : this.generateFallbackModelSpeech(studentUtterance, studentLevel);
 
-    // Limitar estrictamente las tarjetas quirúrgicas a un máximo de 8 a 10 de mayor impacto pedagógico
-    const finalCards = (normalizedCards || []).slice(0, 10);
-
     return {
-      feedbackCards: finalCards,
+      feedbackCards: normalizedCards,
       modelSpeech: normalizedModelSpeech
     };
   }
