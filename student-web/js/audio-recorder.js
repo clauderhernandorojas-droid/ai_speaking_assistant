@@ -1,12 +1,12 @@
 /**
  * Gestor de captura de audio y hardware del micrófono para el estudiante.
  * Utiliza MediaRecorder con bitrate optimizado de voz (24 kbps) y ciclo de bloques WebM autocontenidos
- * de máximo 15s (o 1.8s de silencio tras voz) con VAD Adaptativo (piso de ruido dinámico acotado a 0.015).
+ * de máximo 45s (o 1.8s de silencio tras voz) con VAD Adaptativo (piso de ruido dinámico acotado a 0.015).
  */
 
 export class AudioCaptureService {
   constructor(options = {}) {
-    this.maxBlockDuration = options.maxBlockDuration || 28000; // Máximo 28 segundos por bloque (~70-80 KB a 24 kbps)
+    this.maxBlockDuration = options.maxBlockDuration || 45000; // Máximo 45 segundos por bloque (~110-135 KB a 24 kbps)
     this.silenceTimeoutMs = options.silenceTimeoutMs || 1800;  // 1.8s de silencio continuo tras haber detectado voz
     this.audioBitsPerSecond = options.audioBitsPerSecond || 24000; // 24 kbps: calidad de voz cristalina ultraligera
     this.onChunk = options.onChunk || (() => {});
@@ -174,10 +174,10 @@ export class AudioCaptureService {
     // Iniciar sin timeslice para generar un archivo WebM autocontenido al llamar .stop()
     this.mediaRecorder.start();
 
-    // Límite máximo: 28 segundos por bloque
+    // Límite máximo: 45 segundos por bloque
     if (this.blockTimer) clearTimeout(this.blockTimer);
     this.blockTimer = setTimeout(() => {
-      this.cycleBlock('max_duration_28s');
+      this.cycleBlock('max_duration_45s');
     }, this.maxBlockDuration);
   }
 

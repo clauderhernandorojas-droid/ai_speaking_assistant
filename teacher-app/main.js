@@ -186,11 +186,11 @@ ipcMain.handle('ai:evaluateUtterance', async (event, options) => {
   return ieltsEngine.evaluateUtterance(options);
 });
 
-ipcMain.handle('ai:transcribeAudio', async (event, { base64Data, mimeType }) => {
+ipcMain.handle('ai:transcribeAudio', async (event, { base64Data, mimeType, previousContext }) => {
   try {
     if (!base64Data) return '';
     const audioBuffer = Buffer.from(base64Data, 'base64');
-    return await geminiService.transcribeAudio(audioBuffer, mimeType || 'audio/webm');
+    return await geminiService.transcribeAudio(audioBuffer, mimeType || 'audio/webm', previousContext || '');
   } catch (err) {
     console.error('[MAIN ai:transcribeAudio ERROR]', err);
     return '';

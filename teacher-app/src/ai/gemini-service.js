@@ -181,9 +181,10 @@ class GeminiService {
    * Transcribe un archivo de audio (WebM, WAV, MP4, etc.) usando Gemini Multimodal
    * @param {Buffer} audioBuffer Buffer binario completo del audio concatenado
    * @param {string} mimeType Tipo MIME (ej. 'audio/webm', 'audio/wav')
+   * @param {string} previousContext Contexto previo inmediato del segmento anterior
    * @returns {Promise<string>} Transcripción verbatim del alumno
    */
-  async transcribeAudio(audioBuffer, mimeType = 'audio/webm') {
+  async transcribeAudio(audioBuffer, mimeType = 'audio/webm', previousContext = '') {
     const apiKey = this.getApiKey();
     console.log('[GEMINI] Clave encontrada:', !!apiKey, 'Longitud:', apiKey ? apiKey.length : 0);
 
@@ -199,13 +200,19 @@ class GeminiService {
     console.log(`[GEMINI] Enviando audio multimodal: ${audioBuffer.length} bytes, MIME: ${cleanMimeType}`);
     const base64Data = audioBuffer.toString('base64');
 
+    let promptText = "Transcribe verbatim in English. Return only the spoken words, or empty string if silent.";
+    const cleanContext = (previousContext || '').trim();
+    if (cleanContext) {
+      promptText += `\nContext from immediately preceding audio (do NOT repeat it, only transcribe new speech): "${cleanContext}"`;
+    }
+
     // Prompt mínimo y límite estricto de 350 tokens para reducir latencia y costo
     const payload = {
       contents: [
         {
           parts: [
             {
-              text: "Transcribe verbatim in English. Return only the spoken words, or empty string if silent."
+              text: promptText
             },
             {
               inlineData: {

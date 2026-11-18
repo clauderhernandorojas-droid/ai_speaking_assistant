@@ -270,10 +270,10 @@ joinForm.addEventListener('submit', async (e) => {
       selectedDeviceId = micSelect.value;
     }
 
-    // Inicializar captura de audio con bitrate de voz optimizado (24 kbps), bloques de 15s y VAD Adaptativo
+    // Inicializar captura de audio con bitrate de voz optimizado (24 kbps), bloques de 45s y VAD Adaptativo
     audioService = new AudioCaptureService({
       deviceId: selectedDeviceId,
-      maxBlockDuration: 15000,
+      maxBlockDuration: 45000,
       silenceTimeoutMs: 1800,
       audioBitsPerSecond: 24000,
       onChunk: async (blob, mimeType, metrics) => {

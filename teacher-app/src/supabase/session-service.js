@@ -293,7 +293,10 @@ class TeacherSessionService {
         // 3. Transcribir con Gemini si hay API Key disponible
         if (apiKey && segmentBuffer.length > 0) {
           console.log(`[Audio Pipeline] Transcribiendo bloque WebM #${segment.sequence} (${segmentBuffer.length} bytes, 24kbps) con Gemini...`);
-          const rawSegmentText = await geminiService.transcribeAudio(segmentBuffer, mimeType);
+          const previousContext = (this.sessionTranscript && this.sessionTranscript.length > 0)
+            ? this.sessionTranscript.slice(-100).trim()
+            : '';
+          const rawSegmentText = await geminiService.transcribeAudio(segmentBuffer, mimeType, previousContext);
           console.log(`[Audio Pipeline] Segmento #${segment.sequence} transcrito:`, rawSegmentText);
 
           if (rawSegmentText &&
