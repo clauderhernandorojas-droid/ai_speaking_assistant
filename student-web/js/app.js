@@ -320,10 +320,10 @@ joinForm.addEventListener('submit', async (e) => {
 });
 
 // 3. Control de Hardware: Mute / Unmute
-btnToggleMute.addEventListener('click', () => {
+btnToggleMute.addEventListener('click', async () => {
   if (!audioService) return;
 
-  const isMuted = audioService.toggleMute();
+  const isMuted = await audioService.toggleMute();
   supabaseService.sendMuteChange(isMuted);
 
   if (isMuted) {

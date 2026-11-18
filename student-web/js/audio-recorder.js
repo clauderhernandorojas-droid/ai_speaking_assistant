@@ -38,6 +38,7 @@ export class AudioCaptureService {
       noiseFloorAtEnd: 0.004
     };
     this.isCycling = false;
+    this.lastCycleReason = null;
     this.supportedMime = '';
   }
 
@@ -104,6 +105,7 @@ export class AudioCaptureService {
     };
     this.hangoverMs = 0;
     this.isCycling = false;
+    this.lastCycleReason = null;
 
     // Configurar 24 kbps (audioBitsPerSecond: 24000) para generar WebM ultraligeros
     try {
@@ -133,19 +135,25 @@ export class AudioCaptureService {
       const chunks = this.currentBlockChunks;
       const metrics = { ...this.blockMetrics };
       this.currentBlockChunks = [];
+      const cycleReason = this.lastCycleReason || 'vad';
+      this.lastCycleReason = null;
 
       if (chunks.length > 0) {
         const mime = this.mediaRecorder?.mimeType || this.supportedMime || 'audio/webm';
         const blob = new Blob(chunks, { type: mime });
 
-        // Criterio VAD Adaptativo Anti-ruido Estricto:
-        // Exige AMBAS condiciones para evitar falsos positivos por micro-ruidos o clics de mute:
-        // activeSpeechMs >= 550 Y peakRms >= Math.max(0.025, noiseFloor * 4.5)
         const speechGateRms = Math.max(0.025, this.noiseFloor * 4.5);
-        const hasValidSpeech = metrics.activeSpeechMs >= 550 && metrics.peakRms >= speechGateRms;
+        const isFlush = cycleReason === 'mute' || cycleReason === 'stop' || cycleReason === 'session_end' || this.isMuted || !this.isActive;
+
+        // Criterio VAD:
+        // Si es un flush por Mute o Finalización de Sesión: exige activeSpeechMs >= 300 para no perder las últimas palabras.
+        // En ciclo continuo normal: exige activeSpeechMs >= 550 Y peakRms >= speechGateRms para evitar ruidos de fondo.
+        const hasValidSpeech = isFlush
+          ? (metrics.activeSpeechMs >= 300)
+          : (metrics.activeSpeechMs >= 550 && metrics.peakRms >= speechGateRms);
 
         if (hasValidSpeech) {
-          console.log(`[AudioCapture] Bloque autocontenido con voz válida (${blob.size} bytes, voz: ${Math.round(metrics.activeSpeechMs)}ms, peakRms: ${metrics.peakRms.toFixed(3)}, noiseFloor: ${this.noiseFloor.toFixed(4)}, gateRms: ${speechGateRms.toFixed(3)}). Transmitiendo...`);
+          console.log(`[AudioCapture] Bloque autocontenido con voz válida (${blob.size} bytes, voz: ${Math.round(metrics.activeSpeechMs)}ms${isFlush ? ' [FLUSH >=300ms]' : ''}, peakRms: ${metrics.peakRms.toFixed(3)}, noiseFloor: ${this.noiseFloor.toFixed(4)}, gateRms: ${speechGateRms.toFixed(3)}). Transmitiendo...`);
           try {
             // Se entrega el Blob directo (y su MIME y métricas) para subida a Supabase Storage
             await this.onChunk(blob, mime, metrics);
@@ -153,7 +161,7 @@ export class AudioCaptureService {
             console.error('[AudioCapture] Error en onChunk:', chunkErr);
           }
         } else {
-          console.log(`[AudioCapture] Bloque descartado localmente por falta de voz (${blob.size} bytes, voz: ${Math.round(metrics.activeSpeechMs)}ms < 550ms, peakRms: ${metrics.peakRms.toFixed(3)} < ${speechGateRms.toFixed(3)}). 0 tokens IA consumidos.`);
+          console.log(`[AudioCapture] Bloque descartado localmente por falta de voz (${blob.size} bytes, voz: ${Math.round(metrics.activeSpeechMs)}ms < ${isFlush ? '300ms' : '550ms'}, peakRms: ${metrics.peakRms.toFixed(3)}). 0 tokens IA consumidos.`);
         }
       }
 
@@ -179,6 +187,7 @@ export class AudioCaptureService {
   cycleBlock(reason = 'vad') {
     if (this.isCycling) return;
     this.isCycling = true;
+    this.lastCycleReason = reason;
 
     if (this.blockTimer) {
       clearTimeout(this.blockTimer);
@@ -408,25 +417,69 @@ export class AudioCaptureService {
 
   /**
    * Alterna el estado de silencio (Mute / Unmute).
-   * Al silenciar, detiene el bloque actual y no inicia otro hasta reactivar.
+   * Al silenciar, realiza un flush del bloque actual si tiene voz acumulada (activeSpeechMs >= 300)
+   * antes de pausar la captura, y no inicia otro hasta reactivar.
    */
-  toggleMute() {
+  async toggleMute() {
     if (!this.mediaStream) return this.isMuted;
 
     this.isMuted = !this.isMuted;
-    this.mediaStream.getAudioTracks().forEach(track => {
-      track.enabled = !this.isMuted;
-    });
 
     if (this.isMuted) {
       if (typeof this.onVolumeChange === 'function') {
         this.onVolumeChange(0, 0);
       }
-      // Detiene y cierra el bloque actual (se enviará en onstop solo si tenía voz previa)
+
+      // Flush obligatorio al silenciar: si hay grabación activa con voz acumulada,
+      // detener MediaRecorder y esperar a que onstop suba el bloque a Storage antes de desactivar el track
       if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
-        this.cycleBlock('mute');
+        this.lastCycleReason = 'mute';
+        await new Promise((resolve) => {
+          let resolved = false;
+          const complete = () => {
+            if (!resolved) {
+              resolved = true;
+              resolve();
+            }
+          };
+
+          const prevOnStop = this.mediaRecorder.onstop;
+          this.mediaRecorder.onstop = async (e) => {
+            if (typeof prevOnStop === 'function') {
+              try {
+                await prevOnStop(e);
+              } catch (err) {
+                console.error('[AudioCapture] Error en onstop durante flush de mute:', err);
+              }
+            }
+            complete();
+          };
+
+          try {
+            this.mediaRecorder.stop();
+          } catch (err) {
+            console.warn('[AudioCapture] Error deteniendo recorder en mute:', err);
+            complete();
+          }
+
+          setTimeout(complete, 1200);
+        });
+      }
+
+      // Desactivar pistas de audio solo tras haber vaciado el bloque a Storage
+      if (this.mediaStream) {
+        this.mediaStream.getAudioTracks().forEach(track => {
+          track.enabled = false;
+        });
       }
     } else {
+      // Reactivar pistas de audio
+      if (this.mediaStream) {
+        this.mediaStream.getAudioTracks().forEach(track => {
+          track.enabled = true;
+        });
+      }
+
       // Al reactivar el micrófono, inicia un nuevo bloque limpio
       if (this.isActive && (!this.mediaRecorder || this.mediaRecorder.state === 'inactive')) {
         this.startNewRecordingBlock();
@@ -437,10 +490,11 @@ export class AudioCaptureService {
   }
 
   /**
-   * Detiene la captura, vacía cualquier bloque pendiente y libera el hardware del micrófono.
+   * Detiene la captura, vacía cualquier bloque pendiente con voz acumulada (activeSpeechMs >= 300) y libera el hardware del micrófono.
    */
   async stop() {
     this.isActive = false;
+    this.lastCycleReason = 'stop';
     if (typeof this.onVolumeChange === 'function') {
       this.onVolumeChange(0, 0);
     }
@@ -457,6 +511,14 @@ export class AudioCaptureService {
 
     if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
       await new Promise((resolve) => {
+        let finished = false;
+        const complete = () => {
+          if (!finished) {
+            finished = true;
+            resolve();
+          }
+        };
+
         const prevOnStop = this.mediaRecorder.onstop;
         this.mediaRecorder.onstop = async (e) => {
           if (typeof prevOnStop === 'function') {
@@ -466,14 +528,16 @@ export class AudioCaptureService {
               console.error('[AudioCapture] Error en onstop durante stop():', err);
             }
           }
-          resolve();
+          complete();
         };
 
         try {
           this.mediaRecorder.stop();
         } catch (_) {
-          resolve();
+          complete();
         }
+
+        setTimeout(complete, 1200);
       });
     }
 
