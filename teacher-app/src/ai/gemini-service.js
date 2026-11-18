@@ -68,9 +68,17 @@ class GeminiService {
             }
           }
 
-          // Si el modelo da Timeout, 404 o 429 (cuota de solicitudes por modelo agotada en Free Tier), cambiar automáticamente al siguiente modelo
-          if (err.message && (err.message.includes('Timeout') || err.message.includes('404') || err.message.includes('NOT_FOUND') || err.message.includes('429') || err.message.includes('quota'))) {
-            console.warn(`[GEMINI] Modelo '${model}' con cuota agotada o no disponible (${err.message.slice(0, 80)}...). Probando siguiente modelo de fallback...`);
+          // Si el modelo da Timeout, 404, 400 (ej. incompatibilidad INVALID_ARGUMENT) o 429 (cuota agotada), cambiar automáticamente al siguiente modelo
+          if (err.message && (
+            err.message.includes('Timeout') ||
+            err.message.includes('404') ||
+            err.message.includes('NOT_FOUND') ||
+            err.message.includes('400') ||
+            err.message.includes('INVALID_ARGUMENT') ||
+            err.message.includes('429') ||
+            err.message.includes('quota')
+          )) {
+            console.warn(`[GEMINI] Modelo '${model}' devolvió error o no disponible (${err.message.slice(0, 100)}...). Probando siguiente modelo de fallback...`);
             break;
           }
 
@@ -187,18 +195,15 @@ class GeminiService {
         }
       ],
       generationConfig: {
-        temperature: 0.0,
-        maxOutputTokens: 350,
-        thinkingConfig: {
-          thinkingBudget: 0
-        }
+        temperature: 0.1,
+        maxOutputTokens: 350
       }
     };
 
     // Intentar primero modelo ligero de transcripción (gemini-3.5-flash-lite) con fallback directo al modelo primario (gemini-3.5-flash)
     const transcribeModels = [
       'gemini-3.5-flash-lite',
-      'gemini-3.5-flash'
+      this.primaryModel || 'gemini-3.5-flash'
     ];
 
     try {
