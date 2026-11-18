@@ -480,14 +480,19 @@ class IELTSEngine {
   async callLLMEvaluation({ teacherContext, studentUtterance, studentLevel, categories, highPrecision = false }) {
     const cleanTeacherContext = (teacherContext || '').trim();
     const normLevel = (studentLevel || 'B1').toUpperCase().trim();
-    let iPlusOneLevel = 'B1+/B2';
+    let targetUpgradeLevel = 'B2';
+    let iPlusOneLevel = 'B2 (accessible upper-intermediate)';
     if (normLevel === 'A1' || normLevel === 'A2') {
+      targetUpgradeLevel = 'B1';
       iPlusOneLevel = 'B1 (accessible intermediate)';
     } else if (normLevel === 'B1') {
-      iPlusOneLevel = 'B1+/B2 (accessible upper-intermediate)';
+      targetUpgradeLevel = 'B2';
+      iPlusOneLevel = 'B2 (accessible upper-intermediate)';
     } else if (normLevel === 'B2') {
-      iPlusOneLevel = 'B2+/C1 (effective operational proficiency)';
+      targetUpgradeLevel = 'C1';
+      iPlusOneLevel = 'C1 (effective operational proficiency)';
     } else if (normLevel === 'C1' || normLevel === 'C2') {
+      targetUpgradeLevel = 'C1/C2';
       iPlusOneLevel = 'C1/C2 (native-like mastery & fluency)';
     }
 
@@ -499,15 +504,18 @@ MANDATES:
 3. EXHAUSTIVE EVALUATION: Detect and report ALL genuine errors and opportunities across the entire utterance without numerical caps:
    - 'grammar': Systemic or local errors calibrated to ${normLevel}. Severity: 'basic_error'.
    - 'vocabulary': Unnatural collocations, calques, precise alternatives calibrated to ${normLevel}. Severity: 'refinement'.
-   - 'pronunciation': Phonological issues (-ed endings, silent letters, word stress). Severity: 'basic_error'.
-   - 'upgrade_c1': Advanced C1/C2 expressions (Band 7.5-8.5 reference). Severity: 'upgrade'.
+   - 'pronunciation': Phonological issues (-ed endings, silent letters, vowel reduction/schwa, word stress) AND any word marked with [pronunciation: ...] in the transcript. Generate clear pronunciation cards whenever these tags or authentic phonetic risks appear in the student's speech (without fabricating if there is no evidence). Highlight the mispronounced word in studentResponse and provide the clean phonetic model / target pronunciation in surgicalCorrection. Severity: 'basic_error'.
+   - 'upgrade_c1': Step-by-step i+1 upgrade calibrated strictly to target level "${targetUpgradeLevel}". NEVER jump to C1/C2 vocabulary or complex idioms if the student is A1, A2, or B1:
+     * If student is A1/A2 -> upgrade strictly to B1 (e.g. 'decided to quit' instead of 'felt compelled to tender my resignation').
+     * If student is B1 -> upgrade strictly to B2 (clear connectors, practical professional collocations, natural variety).
+     * Only if student is B2/C1 -> upgrade to C1. Severity: 'upgrade'.
    - 'fluency': Fillers, repetitive connectors, natural discourse markers calibrated to ${normLevel}. Severity: 'refinement'.
 4. CONTRASTIVE CAPSULE (Required for 'grammar', 'vocabulary', and 'upgrade_c1'; null for 'pronunciation' and 'fluency'):
    - "poleA": { "label": "Student's/Opposing form", "rule": "Simple A2/B1 rule when Form A is right", "example": "Natural sentence where Form A is correct" }
-   - "poleB": { "label": "Target form", "rule": "Simple A2/B1 rule when to use Form B", "example": "Natural sentence where Form B is correct" } (Calibrated to ${normLevel} for grammar/vocab; C1 for upgrade_c1).
+   - "poleB": { "label": "Target form", "rule": "Simple A2/B1 rule when to use Form B", "example": "Natural sentence where Form B is correct" } (Calibrated to ${normLevel} for grammar/vocab; strictly calibrated to ${targetUpgradeLevel} for upgrade_c1).
 5. MODEL SPEECH (i+1):
    - "naturalCorrected": Full student discourse rewritten naturally at confirmed ${normLevel} fixing errors and acoustic fillers.
-   - "targetUpgrade": Same speech elevated exactly one step (${iPlusOneLevel}).
+   - "targetUpgrade": Same speech elevated exactly one step to target level ${targetUpgradeLevel} (${iPlusOneLevel}).
    - "keyImprovements": Exactly 3 short bullet points in simple English explaining practical upgrades.
 
 JSON OUTPUT FORMAT (Valid raw JSON, no markdown):
@@ -600,20 +608,32 @@ JSON OUTPUT FORMAT (Valid raw JSON, no markdown):
         }
       }
 
+      // Limpiar etiquetas residuales [pronunciation: ...] en studentResponse de tarjetas que no sean de pronunciación
+      let cleanStudentResponse = card.studentResponse || '';
+      let cleanSurgicalCorrection = card.surgicalCorrection || '';
+      if (cat !== 'pronunciation') {
+        cleanStudentResponse = cleanStudentResponse.replace(/\s*\[pronunciation:[^\]]*\]/gi, '');
+        cleanSurgicalCorrection = cleanSurgicalCorrection.replace(/\s*\[pronunciation:[^\]]*\]/gi, '');
+      }
+
       return {
         ...card,
         category: cat,
         teacherContext: ctx,
+        studentResponse: cleanStudentResponse,
+        surgicalCorrection: cleanSurgicalCorrection,
         contrastiveCapsule
       };
     });
 
+    const cleanModelSpeech = (txt) => String(txt || '').replace(/\s*\[pronunciation:[^\]]*\]/gi, '').trim();
+
     const normalizedModelSpeech = (rawModelSpeech && rawModelSpeech.naturalCorrected)
       ? {
-          naturalCorrected: String(rawModelSpeech.naturalCorrected || '').trim(),
-          targetUpgrade: String(rawModelSpeech.targetUpgrade || '').trim(),
+          naturalCorrected: cleanModelSpeech(rawModelSpeech.naturalCorrected),
+          targetUpgrade: cleanModelSpeech(rawModelSpeech.targetUpgrade),
           keyImprovements: Array.isArray(rawModelSpeech.keyImprovements)
-            ? rawModelSpeech.keyImprovements.map(k => String(k).trim()).filter(Boolean)
+            ? rawModelSpeech.keyImprovements.map(k => cleanModelSpeech(k)).filter(Boolean)
             : []
         }
       : this.generateFallbackModelSpeech(studentUtterance, studentLevel);

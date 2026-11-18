@@ -264,9 +264,10 @@ joinForm.addEventListener('submit', async (e) => {
   btnJoin.querySelector('span').textContent = 'Conectando...';
 
   try {
-    // Validar sesión en Supabase y chequear si el docente ya la inició ('active')
+    // Validar sesión en Supabase y chequear su estado actual ('active', 'waiting', 'completed')
     const sessionData = await supabaseService.validateSession(sessionCode);
     const isAlreadyActive = sessionData && sessionData.status === 'active';
+    const isCompleted = sessionData && sessionData.status === 'completed';
 
     // Detener monitor de prueba previo antes de iniciar la captura oficial
     if (activePreviewMonitor) {
@@ -278,34 +279,39 @@ joinForm.addEventListener('submit', async (e) => {
       selectedDeviceId = micSelect.value;
     }
 
-    // Inicializar captura de audio con bitrate de voz optimizado (24 kbps), bloques de 25s y VAD Adaptativo sensible
-    audioService = new AudioCaptureService({
-      deviceId: selectedDeviceId,
-      maxBlockDuration: 25000,
-      silenceTimeoutMs: 1800,
-      audioBitsPerSecond: 24000,
-      onChunk: async (blob, mimeType, metrics) => {
-        console.log(`[AudioCapture] Bloque listo para subir a Storage (${blob.size} bytes, voz: ${Math.round(metrics?.activeSpeechMs || 0)}ms, peakRms: ${metrics?.peakRms?.toFixed(3) || 0}, noiseFloor: ${metrics?.noiseFloorAtEnd?.toFixed(4) || 0})`);
-        await supabaseService.uploadAudioSegment(blob, mimeType);
-      },
-      onVolumeChange: (level, _rms = 0) => {
-        handleVolumeFeedback(level);
-      }
-    });
-
     let micStartOk = false;
     let micError = null;
     let deviceLabel = '';
     let selectedMime = '';
 
-    try {
-      await audioService.start(selectedDeviceId);
-      micStartOk = true;
-      deviceLabel = audioService.getDeviceLabel ? audioService.getDeviceLabel() : '';
-      selectedMime = audioService.supportedMime || '';
-    } catch (micErr) {
-      micError = micErr.message || String(micErr);
-      console.error('[Student] Error al iniciar captura de micrófono:', micErr);
+    // Si la sesión ya está COMPLETADA (modo post-sesión de revisión de tarjetas), NO iniciar captura de audio
+    if (!isCompleted) {
+      // Inicializar captura de audio con bitrate de voz optimizado (24 kbps), bloques de 25s y VAD Adaptativo sensible
+      audioService = new AudioCaptureService({
+        deviceId: selectedDeviceId,
+        maxBlockDuration: 25000,
+        silenceTimeoutMs: 1800,
+        audioBitsPerSecond: 24000,
+        onChunk: async (blob, mimeType, metrics) => {
+          console.log(`[AudioCapture] Bloque listo para subir a Storage (${blob.size} bytes, voz: ${Math.round(metrics?.activeSpeechMs || 0)}ms, peakRms: ${metrics?.peakRms?.toFixed(3) || 0}, noiseFloor: ${metrics?.noiseFloorAtEnd?.toFixed(4) || 0})`);
+          await supabaseService.uploadAudioSegment(blob, mimeType);
+        },
+        onVolumeChange: (level, _rms = 0) => {
+          handleVolumeFeedback(level);
+        }
+      });
+
+      try {
+        await audioService.start(selectedDeviceId);
+        micStartOk = true;
+        deviceLabel = audioService.getDeviceLabel ? audioService.getDeviceLabel() : '';
+        selectedMime = audioService.supportedMime || '';
+      } catch (micErr) {
+        micError = micErr.message || String(micErr);
+        console.error('[Student] Error al iniciar captura de micrófono:', micErr);
+      }
+    } else {
+      console.log('[Student] Sesión finalizada previamente en Supabase. Ingresando en modo revisión sin captura de audio.');
     }
 
     // Unirse al canal de Realtime
@@ -313,9 +319,9 @@ joinForm.addEventListener('submit', async (e) => {
 
     // Enviar telemetría de diagnóstico de micrófono al docente
     supabaseService.sendMicStatus({
-      ok: micStartOk,
-      error: micError,
-      deviceLabel,
+      ok: isCompleted ? false : micStartOk,
+      error: isCompleted ? 'Sesión concluida (modo revisión)' : micError,
+      deviceLabel: isCompleted ? 'Inactivo (Revisión)' : deviceLabel,
       mimeType: selectedMime
     });
 
@@ -323,34 +329,57 @@ joinForm.addEventListener('submit', async (e) => {
     displayRoomCode.textContent = `SALA: ${sessionCode}`;
     joinScreen.classList.remove('active');
     sessionScreen.classList.add('active');
-    visualizerContainer.classList.add('recording');
 
-    // 1. Si la sesión ya estaba activa en Supabase al unirse:
-    if (isAlreadyActive) {
+    // 1. Configurar estado visual de la UI según el estado de la sesión en Supabase:
+    if (isCompleted) {
+      sessionStatusBadge.textContent = 'Sesión Finalizada';
+      sessionStatusBadge.className = 'badge badge-ended';
+      micStatusLabel.textContent = 'Modo Revisión';
+      micStatusSub.textContent = 'La sesión oral ha concluido. Puedes revisar las correcciones con tu profesor.';
+      visualizerContainer.classList.remove('recording');
+      if (btnToggleMute) btnToggleMute.disabled = true;
+      if (sessionVuMeterLevel) {
+        sessionVuMeterLevel.style.width = '0%';
+        sessionVuMeterLevel.classList.add('muted');
+      }
+      if (sessionVuMeterLabel) {
+        sessionVuMeterLabel.textContent = 'Micrófono inactivo (Sesión finalizada)';
+        sessionVuMeterLabel.classList.add('muted');
+        sessionVuMeterLabel.classList.remove('active');
+      }
+    } else if (isAlreadyActive) {
       console.log('[Student] La sesión ya se encuentra ACTIVA en Supabase al unirse. Pasando UI a estado en curso...');
       sessionStatusBadge.textContent = 'Sesión en Curso';
       sessionStatusBadge.className = 'badge badge-active';
+      visualizerContainer.classList.add('recording');
       micStatusLabel.textContent = micStartOk ? 'Micrófono Activo' : 'Micrófono con Error';
       micStatusSub.textContent = micStartOk
         ? 'Sesión iniciada previamente. Habla con naturalidad, tu audio se transmite a tu profesor.'
         : `Atención: No se pudo activar el micrófono (${micError || 'Sin permisos'}).`;
+      if (sessionVuMeterLevel) {
+        sessionVuMeterLevel.style.width = '0%';
+        sessionVuMeterLevel.classList.remove('muted');
+      }
+      if (sessionVuMeterLabel) {
+        sessionVuMeterLabel.textContent = micStartOk ? 'Señal de micrófono activa' : 'Sin señal de micrófono';
+        sessionVuMeterLabel.classList.remove('muted', 'active');
+      }
     } else {
       sessionStatusBadge.textContent = 'En Espera del Profesor';
       sessionStatusBadge.className = 'badge badge-waiting';
+      visualizerContainer.classList.add('recording');
       micStatusLabel.textContent = micStartOk ? 'Micrófono Activo (En Espera)' : 'Micrófono con Error';
       micStatusSub.textContent = micStartOk
         ? 'El micrófono está listo. Tu profesor iniciará la sesión en breve.'
         : `Atención: No se pudo activar el micrófono (${micError || 'Sin permisos'}).`;
-    }
-
-    // Inicializar medidor en sesión activa
-    if (sessionVuMeterLevel) {
-      sessionVuMeterLevel.style.width = '0%';
-      sessionVuMeterLevel.classList.remove('muted');
-    }
-    if (sessionVuMeterLabel) {
-      sessionVuMeterLabel.textContent = micStartOk ? 'Señal de micrófono activa' : 'Sin señal de micrófono';
-      sessionVuMeterLabel.classList.remove('muted', 'active');
+      if (sessionVuMeterLevel) {
+        sessionVuMeterLevel.style.width = '0%';
+        sessionVuMeterLevel.classList.remove('muted');
+      }
+      if (sessionVuMeterLabel) {
+        sessionVuMeterLabel.textContent = micStartOk ? 'Señal de micrófono activa' : 'Sin señal de micrófono';
+        sessionVuMeterLabel.classList.remove('muted', 'active');
+      }
     }
 
   } catch (error) {
@@ -458,8 +487,25 @@ async function handleTeacherEvent(eventType, payload) {
     sessionStatusBadge.className = 'badge badge-ended';
     micStatusLabel.textContent = 'Tiempo Terminado';
     micStatusSub.textContent = 'La sesión oral ha concluido. ¡Buen trabajo!';
+    if (btnToggleMute) {
+      btnToggleMute.disabled = true;
+    }
+    if (sessionVuMeterLevel) {
+      sessionVuMeterLevel.style.width = '0%';
+      sessionVuMeterLevel.classList.add('muted');
+    }
+    if (sessionVuMeterLabel) {
+      sessionVuMeterLabel.textContent = 'Micrófono inactivo (Sesión concluida)';
+      sessionVuMeterLabel.classList.add('muted');
+      sessionVuMeterLabel.classList.remove('active');
+    }
     if (audioService) {
-      await audioService.stop();
+      try {
+        await audioService.stop();
+      } catch (stopErr) {
+        console.warn('[Student Audio] Error deteniendo audioService al finalizar:', stopErr);
+      }
+      audioService = null;
     }
     if (supabaseService) {
       await supabaseService.waitForPendingUploads(10000);

@@ -677,6 +677,14 @@ export class AudioCaptureService {
       this.mediaStream = null;
     }
 
+    if (this.mediaRecorder) {
+      try {
+        this.mediaRecorder.ondataavailable = null;
+        this.mediaRecorder.onstop = null;
+      } catch (_) {}
+      this.mediaRecorder = null;
+    }
+
     if (this.audioContext && this.audioContext.state !== 'closed') {
       try {
         await this.audioContext.close();

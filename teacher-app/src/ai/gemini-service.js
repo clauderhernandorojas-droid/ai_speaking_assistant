@@ -200,7 +200,7 @@ class GeminiService {
     console.log(`[GEMINI] Enviando audio multimodal: ${audioBuffer.length} bytes, MIME: ${cleanMimeType}`);
     const base64Data = audioBuffer.toString('base64');
 
-    let promptText = "Transcribe verbatim in English. Return only the spoken words, or empty string if silent.";
+    let promptText = "Transcribe verbatim in English. Return only the spoken words, or empty string if silent. If a word is notably mispronounced, unclear, or has phonetic interference affecting intelligibility, transcribe the word followed by a brief tag [pronunciation: what it sounded like] (do not fix grammar).";
     const cleanContext = (previousContext || '').trim();
     if (cleanContext) {
       promptText += `\nContext from immediately preceding audio (do NOT repeat it, only transcribe new speech): "${cleanContext}"`;
