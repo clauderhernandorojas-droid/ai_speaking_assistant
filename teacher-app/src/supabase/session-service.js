@@ -657,7 +657,9 @@ class TeacherSessionService {
     this.processedStoragePaths.clear();
     this.sessionTranscript = '';
     this.isProcessingQueue = false;
-    this.currentSession = null;
+    if (this.currentSession) {
+      this.currentSession.status = 'completed';
+    }
 
     return sessionSummary;
   }

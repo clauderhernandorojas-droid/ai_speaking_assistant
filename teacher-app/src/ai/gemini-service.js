@@ -16,8 +16,7 @@ class GeminiService {
     // Lista de modelos de fallback prioritarios
     this.fallbackModels = [
       'gemini-3.5-flash',
-      'gemini-3.8-flash',
-      'gemini-flash-latest'
+      'gemini-3.8-flash'
     ];
 
     if (process.env.GEMINI_MODEL && !this.fallbackModels.includes(process.env.GEMINI_MODEL)) {
@@ -196,11 +195,10 @@ class GeminiService {
       }
     };
 
-    // Intentar primero modelo ligero económico con fallback automático al modelo primario actual
+    // Intentar primero modelo ligero de transcripción (gemini-3.5-flash-lite) con fallback directo al modelo primario (gemini-3.5-flash)
     const transcribeModels = [
-      'gemini-2.5-flash-lite',
-      'gemini-flash-lite-latest',
-      ...this.fallbackModels
+      'gemini-3.5-flash-lite',
+      'gemini-3.5-flash'
     ];
 
     try {

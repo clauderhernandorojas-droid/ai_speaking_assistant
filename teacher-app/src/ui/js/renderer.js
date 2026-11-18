@@ -325,6 +325,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 
 // Inicializa la sala en Supabase en modo espera ('waiting') para que el alumno pueda unirse
 async function initStandbyRoom() {
+  if (state.isRoomInitialized) return;
   if (window.electronAPI && typeof window.electronAPI.initRealtimeRoom === 'function') {
     try {
       await window.electronAPI.initRealtimeRoom({
@@ -341,7 +342,7 @@ async function initStandbyRoom() {
   }
 }
 
-// Regenera manualmente el código de sala (EFL-XXX) limpiando el anterior
+// Regenera manualmente el código de sala (EFL-XXX), limpia la pantalla para una nueva clase y registra la nueva sala en espera
 async function regenerateRoomCode() {
   const previousCode = state.roomCode;
   if (previousCode && window.electronAPI) {
@@ -352,10 +353,47 @@ async function regenerateRoomCode() {
       if (typeof window.electronAPI.broadcastMicroExercise === 'function') {
         window.electronAPI.broadcastMicroExercise({ action: 'hide_exercise', sessionCode: previousCode }).catch(() => {});
       }
+      if (typeof window.electronAPI.broadcastModelSpeech === 'function') {
+        window.electronAPI.broadcastModelSpeech({ action: 'hide', sessionCode: previousCode }).catch(() => {});
+      }
     } catch (_) {}
   }
 
+  // 1. Limpiar pantalla de datos para la nueva clase
+  transcriptFeed.innerHTML = '';
+  if (transcriptEmptyState) transcriptEmptyState.classList.remove('hidden');
+  tabPanes.forEach(pane => (pane.innerHTML = ''));
+  Object.keys(state.feedbackCounts).forEach(cat => {
+    state.feedbackCounts[cat] = 0;
+    updateBadgeCounter(cat);
+  });
+  state.hasEvaluatedSession = false;
+  state.isDemoData = false;
+  state.sessionExercises = [];
+  state.sessionTranscript = '';
+  state.currentModelSpeech = null;
+  state.isModelSpeechProjected = false;
+  renderModelSpeechTab(null);
+
+  const teacherObsEl = document.getElementById('teacher-observations');
+  if (teacherObsEl) teacherObsEl.value = '';
+
+  if (btnExportReport) btnExportReport.disabled = true;
+  if (btnReanalyze) btnReanalyze.disabled = true;
+
+  btnToggleSession.disabled = false;
+  btnToggleSession.className = 'btn btn-start';
+  sessionBtnText.textContent = 'Iniciar Sesión';
+  sessionTimer.classList.remove('running');
+  recordingPulse.classList.add('hidden');
+  transcriptStatus.textContent = 'Listo para Iniciar';
+
+  state.secondsRemaining = state.durationMinutes * 60;
+  updateTimerDisplay();
+
+  // 2. Generar nuevo código EFL-XXX
   state.roomCode = generateRoomCode();
+  state.lastEvaluatedSessionCode = null;
   roomCodeDisplay.textContent = state.roomCode;
   state.studentConnected = false;
   if (studentConnectionPill) {
@@ -363,8 +401,10 @@ async function regenerateRoomCode() {
     studentConnectionPill.className = 'connection-pill disconnected';
   }
 
+  // 3. Registrar inmediatamente la nueva sala en espera en Supabase para el siguiente alumno
+  state.isRoomInitialized = false;
   await initStandbyRoom();
-  console.log('[UI] Código de sala regenerado manualmente:', state.roomCode);
+  console.log('[UI] Código de sala regenerado manualmente y sala en espera registrada:', state.roomCode);
 }
 
 // Generador de código de sala limpio (EFL-XXX)
@@ -1203,15 +1243,9 @@ async function stopSession() {
     sessionBtnText.textContent = 'Iniciar Sesión';
   }
 
-  // Generar automáticamente nuevo código para la próxima clase
-  state.roomCode = generateRoomCode();
-  roomCodeDisplay.textContent = state.roomCode;
-  state.studentConnected = false;
-  if (studentConnectionPill) {
-    studentConnectionPill.textContent = 'Estudiante Desconectado';
-    studentConnectionPill.className = 'connection-pill disconnected';
-  }
-  console.log('[UI] Nuevo código de sala generado tras finalizar sesión (stopSession):', state.roomCode);
+  // Conservar el código de sala activo durante la fase de revisión y proyecciones
+  state.lastEvaluatedSessionCode = state.roomCode;
+  console.log('[UI] Sesión finalizada conservando código de sala para revisión y proyección:', state.roomCode);
 }
 
 /**
