@@ -33,16 +33,19 @@ class GeminiService {
    * Petición HTTP nativa a Gemini con soporte IPv4 garantizado para Windows,
    * reintentos automáticos para Error 503 (High Demand) y fallback entre modelos.
    */
-  async requestGemini(endpoint, payload, timeoutMs = 15000) {
+  async requestGemini(endpoint, payload, timeoutMs = 15000, preferredModels = null) {
     const apiKey = this.getApiKey();
     if (!apiKey) {
       throw new Error('No se encontró GEMINI_API_KEY ni GOOGLE_API_KEY en variables de entorno.');
     }
 
     let lastError = null;
+    const modelsToTry = Array.isArray(preferredModels) && preferredModels.length > 0
+      ? preferredModels
+      : this.fallbackModels;
 
-    // Iterar por la lista de modelos de fallback
-    for (const model of this.fallbackModels) {
+    // Iterar por la lista de modelos
+    for (const model of modelsToTry) {
       const max503Retries = 2; // Máximo 2 reintentos por picos de demanda 503
       let attempt = 0;
 
@@ -68,7 +71,7 @@ class GeminiService {
 
           // Si el modelo da Timeout, 404 o 429 (cuota de solicitudes por modelo agotada en Free Tier), cambiar automáticamente al siguiente modelo
           if (err.message && (err.message.includes('Timeout') || err.message.includes('404') || err.message.includes('NOT_FOUND') || err.message.includes('429') || err.message.includes('quota'))) {
-            console.warn(`[GEMINI] Modelo '${model}' con cuota agotada o no disponible. Probando siguiente modelo de fallback...`);
+            console.warn(`[GEMINI] Modelo '${model}' con cuota agotada o no disponible (${err.message.slice(0, 80)}...). Probando siguiente modelo de fallback...`);
             break;
           }
 
@@ -116,6 +119,13 @@ class GeminiService {
               console.error('[GEMINI API RAW ERROR RESPONSE]:', JSON.stringify(data, null, 2));
               return reject(new Error(`[Gemini API Error ${data.error.code}]: ${data.error.message}`));
             }
+
+            // Monitoreo de consumo y tokens por clase
+            if (data.usageMetadata) {
+              const u = data.usageMetadata;
+              console.log(`[GEMINI USAGE] Modelo: ${model} | Prompt: ${u.promptTokenCount || 0} tok | Candidatos: ${u.candidatesTokenCount || 0} tok | Total: ${u.totalTokenCount || 0} tok`);
+            }
+
             resolve(data);
           } catch (e) {
             reject(new Error(`Error al parsear respuesta JSON de Gemini: ${e.message} - Body: ${responseBody.slice(0, 300)}`));
@@ -160,23 +170,13 @@ class GeminiService {
     console.log(`[GEMINI] Enviando audio multimodal: ${audioBuffer.length} bytes, MIME: ${cleanMimeType}`);
     const base64Data = audioBuffer.toString('base64');
 
-    // Estructura oficial requerida: texto descriptivo primero y luego inlineData con audio
+    // Prompt mínimo y límite estricto de 350 tokens para reducir latencia y costo
     const payload = {
       contents: [
         {
           parts: [
             {
-              text: `You are an expert verbatim English audio transcriber.
-Transcribe the following audio recording verbatim. Output ONLY the transcribed text in English without commentary.
-Keep all grammatical errors, stuttering, hesitations, and false starts intact.
-
-ACCENT AND VOLUME INSTRUCTIONS:
-- Transcribe ALL spoken English, including quiet speech, low volume, non-native accents, and Spanish phonetic interference (e.g. pronouncing "eschool", "I sink", "goed", "yesterday I go").
-- Never judge or drop speech because of accent or grammatical errors. If human speech is present, transcribe what you hear literally.
-
-SILENCE RULE:
-- Output EXCLUSIVELY [SILENCE] ONLY if the audio contains 100% dead silence, background noise, or static with ABSOLUTELY ZERO spoken words.
-- If ANY words or attempts at speaking English are heard, transcribe them and do NOT output [SILENCE].`
+              text: "Transcribe verbatim in English. Return only the spoken words, or empty string if silent."
             },
             {
               inlineData: {
@@ -189,29 +189,41 @@ SILENCE RULE:
       ],
       generationConfig: {
         temperature: 0.0,
+        maxOutputTokens: 350,
         thinkingConfig: {
           thinkingBudget: 0
         }
       }
     };
 
+    // Intentar primero modelo ligero económico con fallback automático al modelo primario actual
+    const transcribeModels = [
+      'gemini-2.5-flash-lite',
+      'gemini-flash-lite-latest',
+      ...this.fallbackModels
+    ];
+
     try {
-      const result = await this.requestGemini('generateContent', payload);
+      const result = await this.requestGemini('generateContent', payload, 15000, transcribeModels);
       let text = result?.candidates?.[0]?.content?.parts?.[0]?.text || '';
       text = text.trim();
 
-      // Limpiar prefijos residuales del prompt o alucinaciones de formato
+      // Limpiar comillas, prefijos residuales del prompt o alucinaciones de formato
+      text = text.replace(/^["']|["']$/g, '').trim();
       text = text.replace(/^(and\s+)?output\s+only\s+the\s+transcribed\s+text:?\s*/i, '');
       text = text.replace(/^transcribed\s+text:?\s*/i, '');
       text = text.replace(/^transcription:?\s*/i, '');
 
-      // Descartar si el audio fue silencio o devolvió el token [SILENCE]
+      // Descartar si el audio fue silencio o devolvió tokens de silencio
       if (
         !text ||
         text.toUpperCase().includes('[SILENCE]') ||
         text.toLowerCase() === 'silence' ||
         text.toLowerCase() === '[silence].' ||
-        text.toLowerCase() === '""'
+        text.toLowerCase() === '""' ||
+        text.toLowerCase() === "''" ||
+        text.toLowerCase() === 'empty string' ||
+        text.toLowerCase() === 'empty string.'
       ) {
         return '';
       }
@@ -256,7 +268,7 @@ Analyze according to all instructions and output ONLY valid JSON without markdow
       ],
       generationConfig: {
         temperature: 0.1,
-        maxOutputTokens: 8192,
+        maxOutputTokens: 2800,
         responseMimeType: 'application/json',
         thinkingConfig: {
           thinkingBudget: 0

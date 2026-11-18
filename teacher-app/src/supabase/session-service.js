@@ -236,6 +236,19 @@ class TeacherSessionService {
 
         if (!segmentBuffer || segmentBuffer.length === 0) {
           console.warn(`[Audio Pipeline] Segmento #${segment.sequence} sin datos binarios.`);
+          if (segment.fromStorage && segment.storagePath && this.client) {
+            this.client.storage.from('session-audio').remove([segment.storagePath]).catch(() => {});
+          }
+          continue;
+        }
+
+        // Guardia de tamaño mínimo en el servidor: descartar buffers menores a 8192 bytes (8 KB)
+        // para evitar transcribir cabeceras WebM vacías o micro-ruidos
+        if (segmentBuffer.length < 8192) {
+          console.log(`[Audio Pipeline] ⏩ Segmento #${segment.sequence} omitido: tamaño insuficiente (${segmentBuffer.length} bytes < 8192 bytes / 8 KB).`);
+          if (segment.fromStorage && segment.storagePath && this.client) {
+            this.client.storage.from('session-audio').remove([segment.storagePath]).catch(() => {});
+          }
           continue;
         }
 

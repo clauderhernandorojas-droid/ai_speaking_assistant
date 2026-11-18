@@ -214,8 +214,8 @@ function startTeacherBlockRecording() {
       startTeacherBlockRecording();
     }
 
-    // Si el bloque tuvo actividad vocal relevante (>400ms) y el docente no estaba silenciado, transcribir
-    if (chunks.length > 0 && speechMs >= 400 && !isTeacherMicMuted) {
+    // Si el bloque tuvo actividad vocal relevante (>=650ms) y el docente no estaba silenciado, transcribir
+    if (chunks.length > 0 && speechMs >= 650 && !isTeacherMicMuted) {
       const blob = new Blob(chunks, { type: mimeType });
       const reader = new FileReader();
       reader.onloadend = async () => {
@@ -261,20 +261,20 @@ function startTeacherBlockRecording() {
       lastVoiceTimestamp = Date.now();
     }
 
-    // Corte temprano en 1.6s de silencio tras detectar voz
-    if (hasVoice && (Date.now() - lastVoiceTimestamp > 1600)) {
+    // Corte temprano en 2.0s de silencio tras detectar voz
+    if (hasVoice && (Date.now() - lastVoiceTimestamp > 2000)) {
       if (teacherMediaRecorder.state === 'recording') {
         teacherMediaRecorder.stop();
       }
     }
   }, 100);
 
-  // Duración máxima de seguridad del bloque (12 segundos)
+  // Duración máxima de seguridad del bloque (25 segundos)
   teacherMaxBlockTimer = setTimeout(() => {
     if (teacherMediaRecorder && teacherMediaRecorder.state === 'recording') {
       teacherMediaRecorder.stop();
     }
-  }, 12000);
+  }, 25000);
 }
 
 function stopTeacherAudioCapture() {

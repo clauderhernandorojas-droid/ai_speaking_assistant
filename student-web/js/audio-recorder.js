@@ -6,7 +6,7 @@
 
 export class AudioCaptureService {
   constructor(options = {}) {
-    this.maxBlockDuration = options.maxBlockDuration || 15000; // Máximo 15 segundos por bloque (~35-45 KB a 24 kbps)
+    this.maxBlockDuration = options.maxBlockDuration || 28000; // Máximo 28 segundos por bloque (~70-80 KB a 24 kbps)
     this.silenceTimeoutMs = options.silenceTimeoutMs || 1800;  // 1.8s de silencio continuo tras haber detectado voz
     this.audioBitsPerSecond = options.audioBitsPerSecond || 24000; // 24 kbps: calidad de voz cristalina ultraligera
     this.onChunk = options.onChunk || (() => {});
@@ -138,10 +138,11 @@ export class AudioCaptureService {
         const mime = this.mediaRecorder?.mimeType || this.supportedMime || 'audio/webm';
         const blob = new Blob(chunks, { type: mime });
 
-        // Criterio VAD Adaptativo:
-        // Acepta el bloque como voz válida si activeSpeechMs >= 250 O si peakRms >= Math.max(0.02, noiseFloor * 4.5)
-        const speechGateRms = Math.max(0.02, this.noiseFloor * 4.5);
-        const hasValidSpeech = metrics.activeSpeechMs >= 250 || metrics.peakRms >= speechGateRms;
+        // Criterio VAD Adaptativo Anti-ruido Estricto:
+        // Exige AMBAS condiciones para evitar falsos positivos por micro-ruidos o clics de mute:
+        // activeSpeechMs >= 550 Y peakRms >= Math.max(0.025, noiseFloor * 4.5)
+        const speechGateRms = Math.max(0.025, this.noiseFloor * 4.5);
+        const hasValidSpeech = metrics.activeSpeechMs >= 550 && metrics.peakRms >= speechGateRms;
 
         if (hasValidSpeech) {
           console.log(`[AudioCapture] Bloque autocontenido con voz válida (${blob.size} bytes, voz: ${Math.round(metrics.activeSpeechMs)}ms, peakRms: ${metrics.peakRms.toFixed(3)}, noiseFloor: ${this.noiseFloor.toFixed(4)}, gateRms: ${speechGateRms.toFixed(3)}). Transmitiendo...`);
@@ -152,7 +153,7 @@ export class AudioCaptureService {
             console.error('[AudioCapture] Error en onChunk:', chunkErr);
           }
         } else {
-          console.log(`[AudioCapture] Bloque descartado localmente por falta de voz (${blob.size} bytes, voz: ${Math.round(metrics.activeSpeechMs)}ms < 250ms, peakRms: ${metrics.peakRms.toFixed(3)} < ${speechGateRms.toFixed(3)}). 0 tokens IA consumidos.`);
+          console.log(`[AudioCapture] Bloque descartado localmente por falta de voz (${blob.size} bytes, voz: ${Math.round(metrics.activeSpeechMs)}ms < 550ms, peakRms: ${metrics.peakRms.toFixed(3)} < ${speechGateRms.toFixed(3)}). 0 tokens IA consumidos.`);
         }
       }
 
@@ -165,10 +166,10 @@ export class AudioCaptureService {
     // Iniciar sin timeslice para generar un archivo WebM autocontenido al llamar .stop()
     this.mediaRecorder.start();
 
-    // Límite máximo: 15 segundos por bloque
+    // Límite máximo: 28 segundos por bloque
     if (this.blockTimer) clearTimeout(this.blockTimer);
     this.blockTimer = setTimeout(() => {
-      this.cycleBlock('max_duration_15s');
+      this.cycleBlock('max_duration_28s');
     }, this.maxBlockDuration);
   }
 
@@ -385,8 +386,8 @@ export class AudioCaptureService {
             if (this.blockMetrics.hasSpeech) {
               this.blockMetrics.continuousSilenceMs += dt;
 
-              const isEligibleBlock = this.blockMetrics.activeSpeechMs >= 250 ||
-                this.blockMetrics.peakRms >= Math.max(0.02, this.noiseFloor * 4.5);
+              const isEligibleBlock = this.blockMetrics.activeSpeechMs >= 550 &&
+                this.blockMetrics.peakRms >= Math.max(0.025, this.noiseFloor * 4.5);
 
               // Si detecta 1.8s de silencio continuo tras haber captado voz válida:
               if (this.blockMetrics.continuousSilenceMs >= this.silenceTimeoutMs && isEligibleBlock) {
