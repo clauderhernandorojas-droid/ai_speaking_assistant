@@ -219,7 +219,8 @@ RULES:
 
     const cleanContext = (previousContext || '').trim();
     if (cleanContext) {
-      promptText += `\nContext from immediately preceding audio (do NOT repeat it, only transcribe new speech): "${cleanContext}"`;
+      promptText += `\nCRITICAL CONTEXT: The text below represents the exact end of the immediately preceding audio segment (the first ~300ms of this audio may overlap with it). You MUST NEVER repeat or re-transcribe any words or phrases that already appear at the end of this preceding context. Only transcribe genuinely new speech:
+"${cleanContext}"`;
     }
 
     // Configuración estricta JSON con 600 tokens para alojar transcripción y pronunciationIssues
@@ -246,10 +247,11 @@ RULES:
       }
     };
 
-    // Intentar primero modelo ligero de transcripción (gemini-3.5-flash-lite) con fallback directo al modelo primario (gemini-3.5-flash)
+    // Usar gemini-3.5-flash como modelo primario para máxima fidelidad acústica y reconocimiento de hispanohablantes
     const transcribeModels = [
-      'gemini-3.5-flash-lite',
-      this.primaryModel || 'gemini-3.5-flash'
+      this.primaryModel || 'gemini-3.5-flash',
+      'gemini-3.8-flash',
+      'gemini-3.5-flash-lite'
     ];
 
     try {
@@ -348,7 +350,7 @@ Analyze according to all instructions and output ONLY valid JSON without markdow
       ],
       generationConfig: {
         temperature: 0.1,
-        maxOutputTokens: 6000,
+        maxOutputTokens: 8192,
         responseMimeType: 'application/json'
       }
     };

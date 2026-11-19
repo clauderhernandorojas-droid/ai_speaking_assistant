@@ -318,12 +318,12 @@ joinForm.addEventListener('submit', async (e) => {
 
     // Si la sesión ya está COMPLETADA (modo post-sesión de revisión de tarjetas), NO iniciar captura de audio
     if (!isCompleted) {
-      // Inicializar captura de audio con bitrate de voz optimizado (24 kbps), bloques de 25s y VAD Adaptativo sensible
+      // Inicializar captura de audio con bitrate de voz optimizado (32 kbps), bloques de 25s y VAD Adaptativo sensible
       audioService = new AudioCaptureService({
         deviceId: selectedDeviceId,
         maxBlockDuration: 25000,
         silenceTimeoutMs: 1800,
-        audioBitsPerSecond: 24000,
+        audioBitsPerSecond: 32000,
         onChunk: async (blob, mimeType, metrics) => {
           console.log(`[AudioCapture] Bloque listo para subir a Storage (${blob.size} bytes, voz: ${Math.round(metrics?.activeSpeechMs || 0)}ms, peakRms: ${metrics?.peakRms?.toFixed(3) || 0}, noiseFloor: ${metrics?.noiseFloorAtEnd?.toFixed(4) || 0})`);
           await supabaseService.uploadAudioSegment(blob, mimeType);

@@ -8,7 +8,7 @@ export class AudioCaptureService {
   constructor(options = {}) {
     this.maxBlockDuration = options.maxBlockDuration || 25000; // Máximo 25 segundos por bloque (~60-75 KB a 24 kbps)
     this.silenceTimeoutMs = options.silenceTimeoutMs || 1800;  // 1.8s de silencio continuo tras haber detectado voz
-    this.audioBitsPerSecond = options.audioBitsPerSecond || 24000; // 24 kbps: calidad de voz cristalina ultraligera
+    this.audioBitsPerSecond = options.audioBitsPerSecond || 32000; // 32 kbps Opus: preserva consonantes finales y fricativas con nitidez
     this.onChunk = options.onChunk || (() => {});
     this.onVolumeChange = options.onVolumeChange || options.onVolume || (() => {});
     this.onVolume = this.onVolumeChange;

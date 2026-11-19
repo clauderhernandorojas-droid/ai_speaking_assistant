@@ -292,11 +292,11 @@ class TeacherSessionService {
           console.warn('[Audio Pipeline] No se pudo escribir last_session_debug.webm:', fsErr.message);
         }
 
-        // 3. Transcribir con Gemini si hay API Key disponible (en una sola pasada acústica estructurada)
+        // 3. Transcribir con Gemini si hay API Key disponible (en una sola pasada acústica estructurada con gemini-3.5-flash)
         if (apiKey && segmentBuffer.length > 0) {
-          console.log(`[Audio Pipeline] Transcribiendo bloque WebM #${segment.sequence} (${segmentBuffer.length} bytes, 24kbps) con Gemini...`);
+          console.log(`[Audio Pipeline] Transcribiendo bloque WebM #${segment.sequence} (${segmentBuffer.length} bytes, 32kbps) con Gemini...`);
           const previousContext = (this.sessionTranscript && this.sessionTranscript.length > 0)
-            ? this.sessionTranscript.slice(-100).trim()
+            ? this.sessionTranscript.slice(-250).trim()
             : '';
           const transResult = await geminiService.transcribeAudio(segmentBuffer, mimeType, previousContext);
           
