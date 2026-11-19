@@ -183,7 +183,7 @@ class GeminiService {
    * @param {Buffer} audioBuffer Buffer binario completo del audio concatenado
    * @param {string} mimeType Tipo MIME (ej. 'audio/webm', 'audio/wav')
    * @param {string} previousContext Contexto previo inmediato del segmento anterior
-   * @returns {Promise<Object>} Objeto estructurado { transcript, pronunciationIssues } con compatibilidad string
+   * @returns {Promise<{ transcript: string, pronunciationIssues: Array<{ word: string, heardAs: string, issue: string }> }>} Objeto plano serializable puro
    */
   async transcribeAudio(audioBuffer, mimeType = 'audio/webm', previousContext = '') {
     const apiKey = this.getApiKey();
@@ -306,21 +306,11 @@ RULES:
 
       const cleanTranscript = text.trim();
 
-      // Objeto estructurado con emulación completa de String para máxima retrocompatibilidad
-      const output = {
+      // Objeto estructurado plano serializable puro (sin métodos adjuntos para compatibilidad total con Structured Clone de Electron IPC)
+      return {
         transcript: cleanTranscript,
-        pronunciationIssues,
-        toString() { return this.transcript; },
-        valueOf() { return this.transcript; },
-        trim() { return this.transcript.trim(); },
-        toLowerCase() { return this.transcript.toLowerCase(); },
-        toUpperCase() { return this.transcript.toUpperCase(); },
-        includes(searchStr) { return this.transcript.includes(searchStr); },
-        slice(...args) { return this.transcript.slice(...args); },
-        length: cleanTranscript.length
+        pronunciationIssues
       };
-
-      return output;
     } catch (err) {
       console.error('[GEMINI ERROR DETALLADO]:', err);
       throw err;

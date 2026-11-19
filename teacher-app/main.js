@@ -194,12 +194,19 @@ ipcMain.handle('ai:evaluateUtterance', async (event, options) => {
 
 ipcMain.handle('ai:transcribeAudio', async (event, { base64Data, mimeType, previousContext }) => {
   try {
-    if (!base64Data) return '';
+    if (!base64Data) return { transcript: '', pronunciationIssues: [] };
     const audioBuffer = Buffer.from(base64Data, 'base64');
-    return await geminiService.transcribeAudio(audioBuffer, mimeType || 'audio/webm', previousContext || '');
+    const result = await geminiService.transcribeAudio(audioBuffer, mimeType || 'audio/webm', previousContext || '');
+    if (typeof result === 'string') {
+      return { transcript: result, pronunciationIssues: [] };
+    }
+    return {
+      transcript: result?.transcript || '',
+      pronunciationIssues: Array.isArray(result?.pronunciationIssues) ? result.pronunciationIssues : []
+    };
   } catch (err) {
     console.error('[MAIN ai:transcribeAudio ERROR]', err);
-    return '';
+    return { transcript: '', pronunciationIssues: [] };
   }
 });
 
