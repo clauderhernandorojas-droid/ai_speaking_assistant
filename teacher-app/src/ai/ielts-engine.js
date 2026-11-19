@@ -43,7 +43,7 @@ class IELTSEngine {
    * @param {string} options.studentUtterance Respuesta limpia del estudiante
    * @param {string} options.studentLevel Nivel del alumno ('B1', 'B2', 'C1')
    * @param {Array<string>} options.categories Categorías a evaluar (por defecto todas las 5)
-   * @param {boolean} options.highPrecision Forzar modelo gemini-3.5-flash de máxima precisión
+   * @param {boolean} options.highPrecision Forzar evaluación de máxima precisión
    * @param {Array<Object>} options.pronunciationIssues Observaciones acústicas de pronunciación detectadas en la pasada de audio
    * @returns {Promise<Array<Object>>} Lista de tarjetas quirúrgicas estandarizadas
    */
@@ -56,7 +56,7 @@ class IELTSEngine {
     // Si existe una clave de API configurada en variables de entorno, invocar Gemini
     if (apiKey) {
       try {
-        console.log(`[IELTS Engine] Evaluando intervención con Gemini (${highPrecision ? 'Alta Precisión: gemini-3.5-flash' : 'Económico: gemini-3.5-flash-lite'})...`);
+        console.log(`[IELTS Engine] Evaluando intervención con Gemini (${highPrecision ? 'Alta Precisión' : 'Estándar'} - modelo principal gemini-3.8-flash)...`);
         const aiResults = await this.callLLMEvaluation({
           teacherContext,
           studentUtterance,

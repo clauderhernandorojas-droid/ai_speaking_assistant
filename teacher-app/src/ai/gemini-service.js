@@ -33,12 +33,13 @@ const fs = require('fs');
 class GeminiService {
   constructor() {
     // Modelo primario rápido por defecto
-    this.primaryModel = process.env.GEMINI_MODEL || 'gemini-3.5-flash';
+    this.primaryModel = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
     
     // Lista de modelos de fallback prioritarios
     this.fallbackModels = [
+      'gemini-3.8-flash',
       'gemini-3.5-flash',
-      'gemini-3.8-flash'
+      'gemini-3.5-flash-lite'
     ];
 
     if (process.env.GEMINI_MODEL && !this.fallbackModels.includes(process.env.GEMINI_MODEL)) {
@@ -72,7 +73,23 @@ class GeminiService {
 
       while (attempt <= max503Retries) {
         try {
-          const result = await this.executeHttpRequest(model, endpoint, payload, apiKey, timeoutMs);
+          // Adaptar payload dinámicamente según el modelo:
+          // gemini-3.8-flash soporta thinkingConfig: { thinkingLevel: 'LOW' } para evitar sobrecosto de tokens de razonamiento.
+          // gemini-3.5-* no soporta thinkingLevel y arrojaría HTTP 400 INVALID_ARGUMENT si se envía.
+          let adaptedPayload = payload;
+          if (payload && typeof payload === 'object') {
+            adaptedPayload = JSON.parse(JSON.stringify(payload));
+            if (!adaptedPayload.generationConfig) {
+              adaptedPayload.generationConfig = {};
+            }
+            if (model.includes('3.8')) {
+              adaptedPayload.generationConfig.thinkingConfig = { thinkingLevel: 'LOW' };
+            } else {
+              delete adaptedPayload.generationConfig.thinkingConfig;
+            }
+          }
+
+          const result = await this.executeHttpRequest(model, endpoint, adaptedPayload, apiKey, timeoutMs);
           return result;
         } catch (err) {
           lastError = err;
@@ -247,10 +264,10 @@ RULES:
       }
     };
 
-    // Usar gemini-3.5-flash como modelo primario para máxima fidelidad acústica y reconocimiento de hispanohablantes
+    // Usar gemini-3.8-flash como modelo primario para máxima precisión acústica, manteniendo 3.5 en fallback
     const transcribeModels = [
-      this.primaryModel || 'gemini-3.5-flash',
-      'gemini-3.8-flash',
+      this.primaryModel || 'gemini-3.8-flash',
+      'gemini-3.5-flash',
       'gemini-3.5-flash-lite'
     ];
 
@@ -355,10 +372,10 @@ Analyze according to all instructions and output ONLY valid JSON without markdow
       }
     };
 
-    // Enrutamiento inteligente: por defecto 'gemini-3.5-flash-lite' para máxima economía; si highPrecision es true (Re-analizar), usa directamente 'gemini-3.5-flash'
+    // Usar gemini-3.8-flash como modelo principal, manteniendo gemini-3.5-flash y gemini-3.5-flash-lite en la lista de respaldo
     const evaluationModels = highPrecision
-      ? [this.primaryModel || 'gemini-3.5-flash']
-      : ['gemini-3.5-flash-lite', this.primaryModel || 'gemini-3.5-flash'];
+      ? [this.primaryModel || 'gemini-3.8-flash', 'gemini-3.5-flash']
+      : [this.primaryModel || 'gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite'];
 
     const maxAttempts = 2; // 1 intento inicial + 1 reintento automático (tolerancia 35s)
     let lastErr = null;
@@ -603,15 +620,18 @@ ${jsonSchemaExample}`;
       generationConfig: {
         temperature: 0.3,
         maxOutputTokens: 1200,
-        responseMimeType: 'application/json',
-        thinkingConfig: {
-          thinkingBudget: 0
-        }
+        responseMimeType: 'application/json'
       }
     };
 
+    const exerciseModels = [
+      this.primaryModel || 'gemini-3.8-flash',
+      'gemini-3.5-flash',
+      'gemini-3.5-flash-lite'
+    ];
+
     try {
-      const result = await this.requestGemini('generateContent', payload);
+      const result = await this.requestGemini('generateContent', payload, 15000, exerciseModels);
       let text = result?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
       text = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
       const parsed = JSON.parse(text);
