@@ -218,6 +218,19 @@ class GeminiService {
     console.log(`[GEMINI] Enviando audio multimodal: ${audioBuffer.length} bytes, MIME: ${cleanMimeType}`);
     const base64Data = audioBuffer.toString('base64');
 
+    // Sanitizar previousContext antes de inyectarlo en el prompt:
+    // Elimina cualquier residuo de JSON ("transcript", "pronunciationIssues", {, }) antes de recortar los últimos 250 caracteres
+    let cleanContext = (previousContext || '')
+      .replace(/"transcript"\s*:\s*/gi, '')
+      .replace(/"pronunciationIssues"\s*:\s*/gi, '')
+      .replace(/[{}\[\]"]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (cleanContext.length > 250) {
+      cleanContext = cleanContext.slice(-250).trim();
+    }
+
     let promptText = `Transcribe the audio verbatim in English and analyze audible pronunciation.
 Return strictly a JSON object with this exact schema:
 {
@@ -234,13 +247,12 @@ RULES:
 1. "transcript": Verbatim spoken words in English without fixing grammar. If silent or no speech, set "transcript": "".
 2. "pronunciationIssues": Report ONLY words with audible, genuine phonetic errors, mispronounced sounds, silent letter mistakes, or incorrect word stress. If pronunciation is clear or acceptable, set "pronunciationIssues": []. Do NOT invent issues if there are none.`;
 
-    const cleanContext = (previousContext || '').trim();
     if (cleanContext) {
       promptText += `\nCRITICAL CONTEXT: The text below represents the exact end of the immediately preceding audio segment (the first ~300ms of this audio may overlap with it). You MUST NEVER repeat or re-transcribe any words or phrases that already appear at the end of this preceding context. Only transcribe genuinely new speech:
 "${cleanContext}"`;
     }
 
-    // Configuración estricta JSON con 600 tokens para alojar transcripción y pronunciationIssues
+    // Configuración estricta JSON con schema obligatorio para obligar al modelo a devolver exclusivamente el objeto JSON y evitar prosa de razonamiento
     const payload = {
       contents: [
         {
@@ -260,7 +272,26 @@ RULES:
       generationConfig: {
         temperature: 0.1,
         maxOutputTokens: 600,
-        responseMimeType: 'application/json'
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: 'OBJECT',
+          properties: {
+            transcript: { type: 'STRING' },
+            pronunciationIssues: {
+              type: 'ARRAY',
+              items: {
+                type: 'OBJECT',
+                properties: {
+                  word: { type: 'STRING' },
+                  heardAs: { type: 'STRING' },
+                  issue: { type: 'STRING' }
+                },
+                required: ['word', 'heardAs', 'issue']
+              }
+            }
+          },
+          required: ['transcript', 'pronunciationIssues']
+        }
       }
     };
 
@@ -276,17 +307,68 @@ RULES:
       let rawText = result?.candidates?.[0]?.content?.parts?.[0]?.text || '';
       rawText = rawText.trim();
 
+      // Patrones de notas de análisis interno o prosa prohibidos
+      const forbiddenAnalysisPatterns = [
+        /The user wants/i,
+        /Audio playback:/i,
+        /Context:/i,
+        /Word check:/i,
+        /\bLet's\b/i
+      ];
+
+      const containsForbiddenNotes = (str) => {
+        if (!str || typeof str !== 'string') return false;
+        return forbiddenAnalysisPatterns.some(pattern => pattern.test(str));
+      };
+
+      // 1. Limpiar fences markdown
+      let cleanJson = rawText
+        .replace(/^```json\s*/i, '')
+        .replace(/^```\s*/i, '')
+        .replace(/```\s*$/i, '')
+        .trim();
+
       let parsed = null;
-      try {
-        const cleanJson = rawText.replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
-        parsed = JSON.parse(cleanJson);
-      } catch (parseErr) {
-        console.warn('[GEMINI transcribeAudio] No se pudo parsear JSON directo, intentando extraer bloque:', parseErr.message);
-        const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          try {
-            parsed = JSON.parse(jsonMatch[0]);
-          } catch (_) {}
+
+      // Intentar parsear el JSON directamente si contiene llaves
+      if (cleanJson.startsWith('{') && cleanJson.endsWith('}')) {
+        try {
+          const direct = JSON.parse(cleanJson);
+          if (direct && typeof direct === 'object' && typeof direct.transcript === 'string') {
+            parsed = direct;
+          }
+        } catch (_) {}
+      }
+
+      // Si no se parseó directamente, buscar el primer objeto JSON válido { ... } que contenga "transcript"
+      if (!parsed && cleanJson.includes('"transcript"')) {
+        const objectMatches = cleanJson.match(/\{[\s\S]*?\}/g) || [];
+        for (const candidate of objectMatches) {
+          if (candidate.includes('"transcript"')) {
+            try {
+              const obj = JSON.parse(candidate);
+              if (obj && typeof obj === 'object' && typeof obj.transcript === 'string') {
+                parsed = obj;
+                break;
+              }
+            } catch (_) {}
+          }
+        }
+
+        if (!parsed) {
+          const firstBrace = cleanJson.indexOf('{');
+          const lastBrace = cleanJson.lastIndexOf('}');
+          if (firstBrace !== -1 && lastBrace > firstBrace) {
+            const candidate = cleanJson.substring(firstBrace, lastBrace + 1);
+            if (candidate.includes('"transcript"')) {
+              try {
+                const obj = JSON.parse(candidate);
+                if (obj && typeof obj === 'object' && typeof obj.transcript === 'string') {
+                  parsed = obj;
+                }
+              } catch (_) {}
+            }
+          }
         }
       }
 
@@ -299,8 +381,38 @@ RULES:
           pronunciationIssues = parsed.pronunciationIssues.filter(item => item && (item.word || item.issue));
         }
       } else {
-        // Fallback si no fue JSON: usar rawText directamente
-        text = rawText;
+        // 2. Si JSON.parse falla, intentar extraer el string de "transcript"\s*:\s*"((?:\\.|[^"\\])*)" con regex
+        const transcriptRegexMatch = cleanJson.match(/"transcript"\s*:\s*"((?:\\.|[^"\\])*)"/);
+        if (transcriptRegexMatch && transcriptRegexMatch[1] !== undefined) {
+          try {
+            text = JSON.parse(`"${transcriptRegexMatch[1]}"`).trim();
+          } catch (_) {
+            text = transcriptRegexMatch[1].trim();
+          }
+
+          const issuesMatch = cleanJson.match(/"pronunciationIssues"\s*:\s*(\[[^\]]*\])/);
+          if (issuesMatch) {
+            try {
+              const issuesArr = JSON.parse(issuesMatch[1]);
+              if (Array.isArray(issuesArr)) {
+                pronunciationIssues = issuesArr.filter(item => item && (item.word || item.issue));
+              }
+            } catch (_) {}
+          }
+        } else {
+          // 3. PROHIBIDO hacer fallback devolviendo rawText crudo cuando contenga notas de análisis o llaves { sin parsear
+          if (containsForbiddenNotes(cleanJson) || cleanJson.includes('{') || cleanJson.includes('}')) {
+            console.warn('[GEMINI transcribeAudio] Texto no parseable contiene notas de análisis o llaves sin procesar. Descartando para no contaminar transcript.');
+            return { transcript: '', pronunciationIssues: [] };
+          }
+          text = cleanJson;
+        }
+      }
+
+      // Validación estricta final: el transcript extraído NO puede contener notas de análisis ni llaves
+      if (containsForbiddenNotes(text) || text.includes('{') || text.includes('}')) {
+        console.warn('[GEMINI transcribeAudio] El transcript extraído contiene notas de análisis o llaves. Descartando:', text);
+        return { transcript: '', pronunciationIssues: [] };
       }
 
       // Limpiar comillas, prefijos residuales del prompt o alucinaciones de formato

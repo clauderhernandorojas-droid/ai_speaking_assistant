@@ -292,12 +292,21 @@ class TeacherSessionService {
           console.warn('[Audio Pipeline] No se pudo escribir last_session_debug.webm:', fsErr.message);
         }
 
-        // 3. Transcribir con Gemini si hay API Key disponible (en una sola pasada acústica estructurada con gemini-3.5-flash)
+        // 3. Transcribir con Gemini si hay API Key disponible (en una sola pasada acústica estructurada con gemini-3.8-flash)
         if (apiKey && segmentBuffer.length > 0) {
           console.log(`[Audio Pipeline] Transcribiendo bloque WebM #${segment.sequence} (${segmentBuffer.length} bytes, 32kbps) con Gemini...`);
-          const previousContext = (this.sessionTranscript && this.sessionTranscript.length > 0)
-            ? this.sessionTranscript.slice(-250).trim()
-            : '';
+          
+          // Sanitizar previousContext: eliminar cualquier residuo de JSON ("transcript", "pronunciationIssues", {, }) antes de recortar los últimos 250 caracteres
+          const sanitizedAccumulated = (this.sessionTranscript || '')
+            .replace(/"transcript"\s*:\s*/gi, '')
+            .replace(/"pronunciationIssues"\s*:\s*/gi, '')
+            .replace(/[{}\[\]"]/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+          const previousContext = sanitizedAccumulated.length > 250
+            ? sanitizedAccumulated.slice(-250).trim()
+            : sanitizedAccumulated;
+
           const transResult = await geminiService.transcribeAudio(segmentBuffer, mimeType, previousContext);
           
           const rawSegmentText = (typeof transResult === 'object' && transResult !== null)
@@ -314,13 +323,16 @@ class TeacherSessionService {
 
           console.log(`[Audio Pipeline] Segmento #${segment.sequence} transcrito:`, rawSegmentText);
 
+          const forbiddenSegmentPatterns = /The user wants|Audio playback:|Context:|Word check:|\bLet's\b|\{|\}|"transcript"|"pronunciationIssues"/i;
+
           if (rawSegmentText &&
               rawSegmentText.trim() !== '' &&
               !rawSegmentText.includes('[No speech detected]') &&
-              !rawSegmentText.toUpperCase().includes('[SILENCE]')) {
+              !rawSegmentText.toUpperCase().includes('[SILENCE]') &&
+              !forbiddenSegmentPatterns.test(rawSegmentText)) {
             
             const cleanedSegment = speechCleaner.cleanText(rawSegmentText).trim();
-            if (cleanedSegment) {
+            if (cleanedSegment && !forbiddenSegmentPatterns.test(cleanedSegment)) {
               this.sessionTranscript = (this.sessionTranscript ? `${this.sessionTranscript.trim()} ${cleanedSegment}` : cleanedSegment).trim();
 
               console.log(`[Audio Pipeline] Transcripción acumulada en vivo (Segmento #${segment.sequence}): "${this.sessionTranscript}"`);
