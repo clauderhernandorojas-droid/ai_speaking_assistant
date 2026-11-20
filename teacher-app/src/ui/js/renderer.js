@@ -885,8 +885,10 @@ async function applyLoadedSessionReport(data) {
   let accumulatedStudentSpeech = '';
   if (Array.isArray(data.transcriptEntries) && data.transcriptEntries.length > 0) {
     data.transcriptEntries.forEach(entry => {
-      appendTranscriptTurn(entry.speaker, entry.text);
-      if (String(entry.speaker).toLowerCase().includes('student') || String(entry.speaker).toLowerCase().includes('alumno')) {
+      addTranscriptTurn(entry.speaker, entry.text);
+      const spk = String(entry.speaker || '').toLowerCase();
+      const isTeacher = spk.includes('profesor') || spk.includes('teacher') || spk.includes('docente');
+      if (!isTeacher) {
         accumulatedStudentSpeech = (accumulatedStudentSpeech ? `${accumulatedStudentSpeech} ${entry.text}` : entry.text).trim();
       }
     });
