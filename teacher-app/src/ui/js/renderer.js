@@ -76,6 +76,7 @@ const reanalyzeBtnLabel = document.getElementById('reanalyze-btn-label');
 const reanalyzeSpinner = document.getElementById('reanalyze-spinner');
 const btnExportReport = document.getElementById('btn-export-report');
 const exportBtnLabel = document.getElementById('export-btn-label');
+const btnLoadReport = document.getElementById('btn-load-report');
 
 const tabButtons = document.querySelectorAll('.tab-btn');
 const tabPanes = document.querySelectorAll('.tab-pane');
@@ -790,6 +791,138 @@ if (btnExportReport) {
   });
 }
 
+// Botón dedicado para cargar un reporte HTML en cualquier momento
+if (btnLoadReport) {
+  btnLoadReport.addEventListener('click', async () => {
+    if (state.isSessionActive) {
+      alert('No puedes cargar un reporte mientras una sesión en vivo está activa.');
+      return;
+    }
+
+    try {
+      const loadFn = window.electronAPI?.loadReport || window.api?.loadReport;
+      if (typeof loadFn !== 'function') {
+        alert('La función de cargar reporte no está disponible en este entorno.');
+        return;
+      }
+
+      const res = await loadFn();
+      if (!res || res.canceled || !res.htmlContent) {
+        return; // El docente canceló el diálogo
+      }
+
+      console.log(`[UI] Archivo de reporte cargado: ${res.filePath} (${res.htmlContent.length} caracteres)`);
+
+      const parsedData = (window.ReportLoader && typeof window.ReportLoader.parseReportHtml === 'function')
+        ? window.ReportLoader.parseReportHtml(res.htmlContent)
+        : null;
+
+      if (!parsedData) {
+        alert('No se pudieron extraer datos válidos del reporte HTML seleccionado.');
+        return;
+      }
+
+      await applyLoadedSessionReport(parsedData);
+    } catch (err) {
+      console.error('[UI btn-load-report ERROR]', err);
+      alert(`Error al cargar el reporte: ${err.message || err}`);
+    }
+  });
+}
+
+/**
+ * Aplica el estado de una sesión restaurada desde un archivo de reporte HTML
+ */
+async function applyLoadedSessionReport(data) {
+  console.log('[UI] Aplicando reporte cargado...', data);
+
+  // 1. Limpiar pantalla de sesión actual
+  transcriptFeed.innerHTML = '';
+  if (transcriptEmptyState) transcriptEmptyState.classList.add('hidden');
+  tabPanes.forEach(pane => (pane.innerHTML = ''));
+  Object.keys(state.feedbackCounts).forEach(cat => {
+    state.feedbackCounts[cat] = 0;
+    updateBadgeCounter(cat);
+  });
+  state.hasEvaluatedSession = true;
+  state.isDemoData = false;
+  state.sessionExercises = data.sessionExercises || [];
+  state.currentPronunciationIssues = data.pronunciationIssues || [];
+  state.currentModelSpeech = data.modelSpeech || null;
+  state.isModelSpeechProjected = false;
+
+  // 2. Sincronizar / Seleccionar estudiante y nivel
+  const studentName = data.studentName || 'Student';
+  const targetLevel = (data.level || 'B1').toUpperCase().trim();
+  const roomCode = data.roomCode || 'EFL-XXX';
+
+  state.targetLevel = targetLevel;
+  if (studentLevelSelect) {
+    studentLevelSelect.value = targetLevel;
+    studentLevelSelect.className = `level-select badge-${targetLevel.toLowerCase()}`;
+  }
+  if (evalLevelLabel) {
+    evalLevelLabel.textContent = targetLevel;
+  }
+  if (roomCodeDisplay && roomCode) {
+    state.roomCode = roomCode;
+    roomCodeDisplay.textContent = roomCode;
+  }
+
+  // Sincronizar estudiante en dropdown y base de datos local
+  await syncStudentFromSession(studentName);
+  if (state.currentStudent) {
+    state.currentStudent.default_level = targetLevel;
+  }
+
+  // 3. Restaurar observaciones del docente si existen
+  const teacherObsEl = document.getElementById('teacher-observations');
+  if (teacherObsEl) {
+    teacherObsEl.value = data.teacherNotes || '';
+  }
+
+  // 4. Renderizar transcripción en el panel izquierdo
+  let accumulatedStudentSpeech = '';
+  if (Array.isArray(data.transcriptEntries) && data.transcriptEntries.length > 0) {
+    data.transcriptEntries.forEach(entry => {
+      appendTranscriptTurn(entry.speaker, entry.text);
+      if (String(entry.speaker).toLowerCase().includes('student') || String(entry.speaker).toLowerCase().includes('alumno')) {
+        accumulatedStudentSpeech = (accumulatedStudentSpeech ? `${accumulatedStudentSpeech} ${entry.text}` : entry.text).trim();
+      }
+    });
+  }
+  state.sessionTranscript = accumulatedStudentSpeech;
+
+  // 5. Renderizar tarjetas de retroalimentación en sus respectivas pestañas
+  if (Array.isArray(data.feedbackCards) && data.feedbackCards.length > 0) {
+    data.feedbackCards.forEach(cardItem => {
+      let cat = cardItem.category;
+      if (cat === 'upgrade') cat = 'upgrade_c1';
+      addSurgicalCard({
+        ...cardItem,
+        category: cat
+      });
+    });
+  }
+
+  // 6. Renderizar pestaña de Discurso Modelo
+  renderModelSpeechTab(data.modelSpeech);
+
+  // 7. Habilitar botones de acción
+  if (btnExportReport) btnExportReport.disabled = false;
+  if (btnReanalyze) btnReanalyze.disabled = false;
+
+  // 8. Cambiar a la primera pestaña con tarjetas
+  const categories = ['grammar', 'vocabulary', 'pronunciation', 'upgrade_c1', 'fluency'];
+  const firstPopulatedCat = categories.find(c => (state.feedbackCounts[c] || 0) > 0) || 'grammar';
+  const targetTabBtn = document.querySelector(`.tab-btn[data-tab="${firstPopulatedCat}"]`);
+  if (targetTabBtn) {
+    targetTabBtn.click();
+  }
+
+  console.log(`[UI] Reporte cargado exitosamente: "${studentName}" (${targetLevel}), ${data.transcriptEntries?.length || 0} turnos, ${data.feedbackCards?.length || 0} tarjetas.`);
+}
+
 // ==============================================================================
 // GESTIÓN DEL MODAL DE CONFIRMACIÓN DE NIVEL Y EJECUCIÓN DEL ANÁLISIS
 // ==============================================================================
@@ -1449,6 +1582,7 @@ function exportSessionReportHTML() {
 
   // Recopilar intervenciones de transcripción
   const turnElements = document.querySelectorAll('#transcript-feed .transcript-turn');
+  const sessionTranscriptEntries = [];
   let transcriptHtml = '';
   if (turnElements.length === 0) {
     transcriptHtml = '<p style="color: #6e7681; font-style: italic;">No transcript recorded for this session.</p>';
@@ -1456,7 +1590,12 @@ function exportSessionReportHTML() {
     turnElements.forEach(el => {
       const isTeacher = el.classList.contains('turn-teacher');
       const speaker = isTeacher ? 'Teacher' : 'Student';
-      const text = el.querySelector('.turn-content')?.innerHTML || el.textContent;
+      const textEl = el.querySelector('.turn-content');
+      const text = textEl ? textEl.innerHTML : el.textContent;
+      const plainText = textEl ? textEl.textContent.trim() : el.textContent.trim();
+      if (plainText) {
+        sessionTranscriptEntries.push({ speaker, text: plainText });
+      }
       transcriptHtml += `
         <div style="margin-bottom: 12px; padding: 12px 16px; border-radius: 8px; background: ${isTeacher ? '#161b22' : '#1a222d'}; border-left: 4px solid ${isTeacher ? '#388bfd' : '#238636'};">
           <div style="font-weight: 700; color: ${isTeacher ? '#58a6ff' : '#3fb950'}; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">${speaker}</div>
@@ -1490,6 +1629,7 @@ function exportSessionReportHTML() {
 
   let cardsHtml = '';
   let totalCardsCount = 0;
+  const sessionFeedbackCards = [];
 
   categories.forEach(cat => {
     const pane = document.getElementById(`tab-pane-${cat.id}`);
@@ -1513,11 +1653,13 @@ function exportSessionReportHTML() {
         const explanation = card.querySelector('.card-explanation')?.innerHTML || '';
         const ieltsDesc = card.querySelector('.card-ielts-footer')?.textContent?.trim() || '';
 
+        let parsedCapsule = null;
         let capsuleHtml = '';
         if (card.dataset.contrastiveCapsule) {
           try {
             const cap = JSON.parse(card.dataset.contrastiveCapsule);
             if (cap && cap.poleA && cap.poleB) {
+              parsedCapsule = cap;
               capsuleHtml = `
                 <div style="margin-top: 10px; margin-bottom: 10px; background: rgba(13, 17, 23, 0.7); border: 1px solid #30363d; border-radius: 6px; padding: 10px 12px;">
                   <div style="font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #c084fc; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
@@ -1548,6 +1690,26 @@ function exportSessionReportHTML() {
             console.warn('[Report] Error parsing contrastive capsule:', e);
           }
         }
+
+        const sevEl = card.querySelector('.severity-pill');
+        let severity = 'basic_error';
+        if (sevEl) {
+          if (sevEl.classList.contains('severity-upgrade')) severity = 'upgrade';
+          else if (sevEl.classList.contains('severity-basic')) severity = 'basic_error';
+          else severity = 'refinement';
+        }
+
+        sessionFeedbackCards.push({
+          id: card.dataset.cardId || `card_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+          category: cat.id,
+          teacherContext: context.replace(/^["']+|["']+$/g, '').trim(),
+          studentResponse: studentResp,
+          surgicalCorrection: fix,
+          explanation,
+          ieltsCriterion: ieltsDesc,
+          severity,
+          contrastiveCapsule: parsedCapsule
+        });
 
         cardsHtml += `
           <div style="background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px 16px; margin-bottom: 14px;">
@@ -1710,6 +1872,21 @@ function exportSessionReportHTML() {
     `;
   }
 
+  // Objeto estructurado completo de sesión para incrustar en el reporte HTML
+  const sessionData = {
+    studentName,
+    level: studentLevel,
+    roomCode,
+    sessionDate: dateStr,
+    transcriptEntries: sessionTranscriptEntries,
+    feedbackCards: sessionFeedbackCards,
+    modelSpeech: state.currentModelSpeech || null,
+    teacherNotes: teacherObservations,
+    sessionExercises: state.sessionExercises || [],
+    pronunciationIssues: state.currentPronunciationIssues || []
+  };
+  const safeSessionJson = JSON.stringify(sessionData).replace(/<\/script/gi, '<\\/script');
+
   const fullReportHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1836,6 +2013,9 @@ function exportSessionReportHTML() {
         }
       }
     }
+  </script>
+  <script id="speaking-assistant-session-data" type="application/json">
+${safeSessionJson}
   </script>
 </body>
 </html>`;

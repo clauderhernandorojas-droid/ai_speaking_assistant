@@ -1,6 +1,6 @@
 const path = require('path');
 const fs = require('fs');
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 
 // Cargar variables de entorno tanto en desarrollo como en la app empaquetada (NSIS / asar)
 function loadEnvironmentVariables() {
@@ -289,6 +289,31 @@ ipcMain.handle('session:closeRoom', async () => {
     return await sessionService.closeRoomDefinitively();
   } catch (err) {
     console.error('[MAIN session:closeRoom ERROR]', err);
+    throw new Error(err && err.message ? err.message : String(err));
+  }
+});
+
+// Carga e importación de reportes pedagógicos HTML
+ipcMain.handle('report:load', async () => {
+  try {
+    const focusedWindow = BrowserWindow.getFocusedWindow() || mainWindow;
+    const result = await dialog.showOpenDialog(focusedWindow || null, {
+      title: 'Cargar Reporte HTML de Sesión',
+      filters: [
+        { name: 'HTML Reports', extensions: ['html', 'htm'] }
+      ],
+      properties: ['openFile']
+    });
+
+    if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+      return { canceled: true, filePath: null, htmlContent: null };
+    }
+
+    const filePath = result.filePaths[0];
+    const htmlContent = fs.readFileSync(filePath, 'utf-8');
+    return { canceled: false, filePath, htmlContent };
+  } catch (err) {
+    console.error('[MAIN report:load ERROR]', err);
     throw new Error(err && err.message ? err.message : String(err));
   }
 });

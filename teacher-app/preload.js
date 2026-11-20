@@ -29,6 +29,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   broadcastMicroExercise: (payload) => ipcRenderer.invoke('session:broadcastMicroExercise', payload),
   broadcastModelSpeech: (payload) => ipcRenderer.invoke('session:broadcastModelSpeech', payload),
 
+  // Reportes Pedagógicos HTML
+  loadReport: () => ipcRenderer.invoke('report:load'),
+
   // Escuchadores de Eventos del Estudiante y Sesión
   onStudentJoined: (callback) => ipcRenderer.on('session:studentJoined', (_event, data) => callback(data)),
   onStudentMicStatus: (callback) => ipcRenderer.on('session:studentMicStatus', (_event, data) => callback(data)),
@@ -38,5 +41,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onStudentLeft: (callback) => ipcRenderer.on('session:studentLeft', (_event, data) => callback(data)),
   onSessionCompleted: (callback) => ipcRenderer.on('session:completed', (_event, data) => callback(data)),
   onMicroExerciseAnswer: (callback) => ipcRenderer.on('session:microExerciseAnswer', (_event, data) => callback(data))
+});
+
+// Alias window.api para conveniencia y compatibilidad
+contextBridge.exposeInMainWorld('api', {
+  loadReport: () => ipcRenderer.invoke('report:load')
 });
 
