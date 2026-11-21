@@ -99,9 +99,11 @@
     const forbiddenPatterns = [
       /The user wants/i,
       /Audio playback:/i,
-      /Context:/i,
+      /Context:\s*["']/i,
       /Word check:/i,
-      /\bLet's\b/i
+      /Let's\s+re-listen/i,
+      /Let's\s+check\s+pronunciation/i,
+      /Let's\s+format\s+JSON/i
     ];
 
     const h2Elements = Array.from(doc.querySelectorAll('h2'));

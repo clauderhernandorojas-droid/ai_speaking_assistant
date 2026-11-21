@@ -43,7 +43,7 @@ export class StudentSupabaseService {
 
     const { data, error } = await this.client
       .from('sessions')
-      .select('id, session_code, status, duration_minutes')
+      .select('id, session_code, status, duration_minutes, started_at, ended_at')
       .eq('session_code', sessionCode)
       .maybeSingle();
 
@@ -110,6 +110,16 @@ export class StudentSupabaseService {
       });
 
     return true;
+  }
+
+  /**
+   * Reinicia el contador de secuencia y vacía cualquier subida pendiente antes del inicio oficial.
+   * Garantiza que el primer bloque de la sesión activa se transmita con sequence = 1.
+   */
+  resetSessionSequence() {
+    this.sequenceId = 0;
+    this.uploadQueue = [];
+    console.log('[StudentSupabaseService] Secuencia y cola de subida reiniciadas (primer bloque será sequence = 1).');
   }
 
   /**

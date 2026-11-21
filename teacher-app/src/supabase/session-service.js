@@ -323,7 +323,7 @@ class TeacherSessionService {
 
           console.log(`[Audio Pipeline] Segmento #${segment.sequence} transcrito:`, rawSegmentText);
 
-          const forbiddenSegmentPatterns = /The user wants|Audio playback:|Context:|Word check:|\bLet's\b|\{|\}|"transcript"|"pronunciationIssues"/i;
+          const forbiddenSegmentPatterns = /The user wants|Audio playback:|Context:\s*["']|Word check:|Let's\s+re-listen|Let's\s+check\s+pronunciation|Let's\s+format\s+JSON|\{|\}|"transcript"|"pronunciationIssues"/i;
 
           if (rawSegmentText &&
               rawSegmentText.trim() !== '' &&

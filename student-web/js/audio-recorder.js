@@ -297,6 +297,90 @@ export class AudioCaptureService {
   }
 
   /**
+   * Verifica si el MediaStream y sus pistas de audio están en estado 'live'.
+   */
+  hasLiveTrack() {
+    if (!this.mediaStream) return false;
+    const tracks = this.mediaStream.getAudioTracks();
+    if (!tracks || tracks.length === 0) return false;
+    return tracks.some(t => t.readyState === 'live');
+  }
+
+  /**
+   * Asegura que el MediaStream tenga pistas activas y el grabador esté funcionando.
+   * Si el stream terminó o se cerró, solicita un nuevo getUserMedia y reinicia la captura.
+   * Si las pistas están vivas pero silenciadas o deshabilitadas, las re-habilita inmediatamente.
+   */
+  async ensureActive(deviceId = null) {
+    if (deviceId) {
+      this.deviceId = deviceId;
+    }
+
+    const hasLive = this.hasLiveTrack();
+    if (!this.isActive || !hasLive) {
+      console.log('[AudioCaptureService] ensureActive: Stream inactivo o sin pistas vivas. Reiniciando captura con getUserMedia...');
+      try {
+        await this.stop();
+      } catch (_) {}
+      await this.start(this.deviceId);
+      return true;
+    }
+
+    // Re-habilitar pistas de audio vivas si estuvieran deshabilitadas
+    if (this.mediaStream) {
+      this.mediaStream.getAudioTracks().forEach(track => {
+        track.enabled = true;
+      });
+    }
+    this.isMuted = false;
+
+    // Reactivar análisis de audio si fue cerrado
+    if (!this.audioContext || this.audioContext.state === 'closed') {
+      this.setupAudioAnalysis(this.mediaStream);
+    }
+
+    // Asegurar que haya un bloque de grabación en marcha
+    if (!this.mediaRecorder || this.mediaRecorder.state !== 'recording') {
+      this.startNewRecordingBlock();
+    }
+
+    this.startWatchdog();
+    return true;
+  }
+
+  /**
+   * Descarta cualquier buffer previo al inicio oficial sin matar el MediaStream ni perder el hardware.
+   * Inicia inmediatamente un nuevo bloque de grabación limpio con cabeceras WebM válidas.
+   */
+  discardPreSessionBuffers() {
+    // 1. Limpiar cualquier recorder en retiro para no disparar onChunk con audio pre-sesión
+    this.retiringRecorders.forEach(rec => {
+      rec.onstop = null;
+      try {
+        if (rec.state === 'recording') rec.stop();
+      } catch (_) {}
+    });
+    this.retiringRecorders.clear();
+
+    // 2. Si el recorder actual ya acumuló datos pre-sesión, detenerlo sin disparar onstop
+    // para arrancar un bloque nuevo fresco sobre el stream activo
+    if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
+      const oldRec = this.mediaRecorder;
+      oldRec.onstop = null;
+      try {
+        oldRec.stop();
+      } catch (_) {}
+      this.mediaRecorder = null;
+    }
+
+    // 3. Arrancar bloque limpio de inmediato sobre el mismo MediaStream
+    if (this.isActive && !this.isMuted && this.mediaStream) {
+      this.startNewRecordingBlock();
+    }
+    console.log('[AudioCaptureService] Buffers pre-sesión descartados limpiamente.');
+  }
+
+  /**
    * Cambia el micrófono activo durante la sesión sin perder la conexión.
    * Reinicia el piso de ruido dinámico para calibrarse con el nuevo hardware.
    */

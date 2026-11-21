@@ -307,13 +307,16 @@ RULES:
       let rawText = result?.candidates?.[0]?.content?.parts?.[0]?.text || '';
       rawText = rawText.trim();
 
-      // Patrones de notas de análisis interno o prosa prohibidos
+      // Encabezados meta explícitos de razonamiento interno del modelo prohibidos
+      // (sin descartar frases habladas legítimas que comiencen con "Let's" o "Now")
       const forbiddenAnalysisPatterns = [
-        /The user wants/i,
+        /The user wants(\s+a\s+verbatim)?/i,
         /Audio playback:/i,
-        /Context:/i,
         /Word check:/i,
-        /\bLet's\b/i
+        /Let's\s+re-listen/i,
+        /Let's\s+check\s+pronunciation/i,
+        /Let's\s+format\s+JSON/i,
+        /Context:\s*["']/i
       ];
 
       const containsForbiddenNotes = (str) => {
