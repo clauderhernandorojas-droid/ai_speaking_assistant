@@ -60,6 +60,10 @@ const sessionService = require('./src/supabase/session-service');
 let mainWindow = null;
 
 function createWindow() {
+  const iconPath = process.platform === 'win32'
+    ? path.join(__dirname, 'assets', 'icon.ico')
+    : path.join(__dirname, 'assets', 'icon.png');
+
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -67,6 +71,7 @@ function createWindow() {
     minHeight: 700,
     title: 'IA Speaking Assistant - Teacher Dashboard',
     backgroundColor: '#0d1117',
+    icon: fs.existsSync(iconPath) ? iconPath : path.join(__dirname, 'assets', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -320,6 +325,9 @@ ipcMain.handle('report:load', async () => {
 
 // Ciclo de vida de la aplicación
 app.whenReady().then(() => {
+  if (process.platform === 'win32') {
+    app.setAppUserModelId('com.efl.iaspeakingassistant');
+  }
   createWindow();
 
   app.on('activate', () => {
