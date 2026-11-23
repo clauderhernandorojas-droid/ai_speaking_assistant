@@ -238,14 +238,14 @@ Return strictly a JSON object with this exact schema:
   "pronunciationIssues": [
     {
       "word": "word as intended or spoken",
-      "heardAs": "approximate phonetic or misspelled representation heard",
+      "heardAs": "approximate IPA transcription of how the student actually pronounced the word, e.g. /ˈsaʊ.sɪdʒ/",
       "issue": "brief description of the phonological or stress error"
     }
   ]
 }
 RULES:
 1. "transcript": Verbatim spoken words in English without fixing grammar. If silent or no speech, set "transcript": "".
-2. "pronunciationIssues": Report ONLY words with audible, genuine phonetic errors, mispronounced sounds, silent letter mistakes, or incorrect word stress. If pronunciation is clear or acceptable, set "pronunciationIssues": []. Do NOT invent issues if there are none.`;
+2. "pronunciationIssues": Report ONLY words with audible, genuine phonetic errors, mispronounced sounds, silent letter mistakes, or incorrect word stress. Always put an approximate IPA transcription in slashes (/.../) in "heardAs" showing how the student actually said the word. If pronunciation is clear or acceptable, set "pronunciationIssues": []. Do NOT invent issues if there are none.`;
 
     if (cleanContext) {
       promptText += `\nCRITICAL CONTEXT: The text below represents the exact end of the immediately preceding audio segment (the first ~300ms of this audio may overlap with it). You MUST NEVER repeat or re-transcribe any words or phrases that already appear at the end of this preceding context. Only transcribe genuinely new speech:

@@ -40,9 +40,11 @@ Return a JSON array of objects with the exact following schema:
     "category": "pronunciation",
     "severity": "basic_error",
     "teacherContext": "<The question or turn from the teacher that preceded this response>",
-    "studentResponse": "<Context sentence indicating the mispronounced word or pattern wrapped in <span class=\\"highlight-error\\">word</span>>",
-    "surgicalCorrection": "<Phonetic guidance with IPA and syllables wrapped in <span class=\\"highlight-fix\\">/IPA/ (guidance)</span>>",
-    "explanation": "<Clear pedagogical explanation in Spanish on how to produce the sound, stress, or silent letter correctly>",
+    "studentResponse": "<Context sentence with the mispronounced word AND the student's approximate IPA wrapped in <span class=\\"highlight-error\\">word /student_ipa/</span>>",
+    "surgicalCorrection": "<Context sentence with the word AND its correct target IPA wrapped in <span class=\\"highlight-fix\\">word /target_ipa/</span>>",
+    "studentIpa": "</approximate_student_ipa/>",
+    "targetIpa": "</correct_target_ipa/>",
+    "explanation": "<Clear pedagogical explanation in simple English on how to produce the sound, stress, or silent letter correctly>",
     "ieltsCriterion": "PR: Band <estimated band> (<Specific IELTS phonological feature>)"
   }
 ]

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -11,12 +11,12 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <!-- Supabase JS Client Local -->
   <script src="js/supabase.js"></script>
-  <script src="env.js" onerror="console.info('env.js no encontrado, usando configuración por defecto.')"></script>
+  <script src="env.js" onerror="console.info('env.js not found, using default config.')"></script>
 </head>
 <body>
   <div class="app-container">
     
-    <!-- PANTALLA 1: INGRESO A LA SALA -->
+    <!-- SCREEN 1: JOIN SESSION -->
     <main id="join-screen" class="card active">
       <header class="header">
         <div class="logo-mark">
@@ -28,17 +28,17 @@
           </svg>
         </div>
         <h1>Speaking Session</h1>
-        <p class="subtitle">Ingresa tus datos para conectarte con tu profesor</p>
+        <p class="subtitle">Enter your details to join your teacher</p>
       </header>
 
       <form id="join-form" class="form">
         <div class="field">
-          <label for="session-code">Código de Sesión</label>
+          <label for="session-code">SESSION CODE</label>
           <input
             type="text"
             id="session-code"
             name="sessionCode"
-            placeholder="Ej. EFL-123"
+            placeholder="e.g. EFL-123"
             maxlength="8"
             required
             autocomplete="off"
@@ -47,12 +47,12 @@
         </div>
 
         <div class="field">
-          <label for="student-name">Tu Nombre</label>
+          <label for="student-name">YOUR NAME</label>
           <input
             type="text"
             id="student-name"
             name="studentName"
-            placeholder="Nombre y Apellido"
+            placeholder="First and last name"
             maxlength="60"
             required
             autocomplete="name"
@@ -60,28 +60,28 @@
         </div>
 
         <div class="field">
-          <label for="mic-select">Micrófono de Entrada</label>
+          <label for="mic-select">MICROPHONE</label>
           <div class="mic-select-row">
             <select id="mic-select" name="micSelect">
-              <option value="">Detectando micrófonos...</option>
+              <option value="">Finding microphones...</option>
             </select>
-            <button type="button" id="btn-refresh-mics" class="btn-icon-subtle" title="Actualizar lista de micrófonos">
+            <button type="button" id="btn-refresh-mics" class="btn-icon-subtle" title="Refresh microphone list">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
               </svg>
             </button>
           </div>
-          <!-- Medidor visual de voz en tiempo real antes de unirse -->
+          <!-- Live voice level meter before joining -->
           <div class="mic-test-container">
             <div class="mic-test-bar-bg">
               <div id="mic-test-level" class="mic-test-level"></div>
             </div>
-            <span id="mic-test-label" class="mic-test-label">Prueba de micrófono: di algo para verificar señal</span>
+            <span id="mic-test-label" class="mic-test-label">Mic test: say something to check sound...</span>
           </div>
         </div>
 
         <button type="submit" id="btn-join" class="btn btn-primary">
-          <span>Unirse a la Sesión</span>
+          <span>Join Session</span>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M5 12h14M12 5l7 7-7 7"/>
           </svg>
@@ -91,17 +91,17 @@
       </form>
     </main>
 
-    <!-- PANTALLA 2: SESIÓN ACTIVA (INTERFAZ MINIMALISTA) -->
+    <!-- SCREEN 2: ACTIVE SESSION -->
     <main id="session-screen" class="card session-card">
       <header class="session-header">
         <div class="room-pill">
           <span class="dot"></span>
-          <span id="display-room-code">SALA: ---</span>
+          <span id="display-room-code">ROOM: ---</span>
         </div>
-        <span id="session-status-badge" class="badge badge-waiting">En Espera del Profesor</span>
+        <span id="session-status-badge" class="badge badge-waiting">Waiting for Teacher</span>
       </header>
 
-      <!-- INDICADOR CENTRAL DE GRABACIÓN / AUDIO ACTIVO -->
+      <!-- CENTRAL RECORDING / AUDIO INDICATOR -->
       <section class="indicator-section">
         <div class="visualizer-container" id="visualizer-container">
           <div class="pulse-ring pulse-1"></div>
@@ -124,33 +124,33 @@
           </div>
         </div>
 
-        <h2 id="mic-status-label" class="status-label">Micrófono Activo</h2>
-        <p id="mic-status-sub" class="status-sub">Habla con naturalidad. Tu audio se transmite a tu profesor.</p>
+        <h2 id="mic-status-label" class="status-label">Microphone On</h2>
+        <p id="mic-status-sub" class="status-sub">Speak naturally. Your teacher can hear you.</p>
 
-        <!-- MEDIDOR VISUAL DE NIVEL DE MICRÓFONO EN SESIÓN ACTIVA (VU METER) -->
+        <!-- ACTIVE SESSION VU METER -->
         <div class="session-vu-meter-container">
           <div class="session-vu-meter-bar-bg mic-test-bar-bg">
             <div id="session-vu-meter-level" class="session-vu-meter-level mic-test-level"></div>
           </div>
-          <span id="session-vu-meter-label" class="session-vu-meter-label">Señal de micrófono activa</span>
+          <span id="session-vu-meter-label" class="session-vu-meter-label">Microphone sound is active</span>
         </div>
         
-        <!-- SELECTOR DE MICRÓFONO EN SESIÓN -->
+        <!-- IN-SESSION MICROPHONE SELECTOR -->
         <div class="session-mic-bar">
           <label for="session-mic-select" class="session-mic-label">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
               <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
             </svg>
-            Micrófono:
+            Microphone:
           </label>
           <select id="session-mic-select" class="session-mic-select"></select>
         </div>
       </section>
 
-      <!-- CONTROLES BÁSICOS DE HARDWARE -->
+      <!-- HARDWARE CONTROLS -->
       <footer class="session-controls">
-        <button id="btn-toggle-mute" class="btn btn-control" title="Silenciar / Activar Micrófono">
+        <button id="btn-toggle-mute" class="btn btn-control" title="Mute / Unmute Microphone">
           <span class="control-icon" id="mute-button-icon">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
@@ -159,37 +159,37 @@
               <line x1="8" y1="23" x2="16" y2="23"/>
             </svg>
           </span>
-          <span id="mute-button-text">Silenciar</span>
+          <span id="mute-button-text">Mute</span>
         </button>
 
-        <button id="btn-leave-session" class="btn btn-secondary" title="Abandonar Sesión">
-          <span>Salir</span>
+        <button id="btn-leave-session" class="btn btn-secondary" title="Leave Session">
+          <span>Leave</span>
         </button>
       </footer>
     </main>
 
-    <!-- MODAL / TARJETA DE AUTOCORRECCIÓN GUIADA -->
+    <!-- GUIDED SELF-CORRECTION MODAL -->
     <div id="guided-modal" class="guided-modal hidden">
       <div class="guided-card">
         <header class="guided-top-bar">
           <div class="guided-badge-group">
             <span class="guided-pulse-dot"></span>
-            <span id="guided-category-badge" class="guided-badge">Gramática</span>
+            <span id="guided-category-badge" class="guided-badge">Grammar</span>
           </div>
           <div class="guided-top-right">
-            <span class="guided-tag">Autocorrección Guiada</span>
-            <button type="button" id="btn-close-guided-modal" class="modal-close-btn" title="Cerrar ventana">✕</button>
+            <span class="guided-tag">Guided Self-Correction</span>
+            <button type="button" id="btn-close-guided-modal" class="modal-close-btn" title="Close window">✕</button>
           </div>
         </header>
 
         <div class="guided-content">
           <div id="guided-context-container" class="guided-section hidden">
-            <span class="guided-section-title">Contexto / Pregunta:</span>
+            <span class="guided-section-title">QUESTION / CONTEXT:</span>
             <p id="guided-context-text" class="guided-context-text"></p>
           </div>
 
           <div class="guided-section">
-            <span class="guided-section-title">Tu frase:</span>
+            <span class="guided-section-title">YOUR SENTENCE:</span>
             <div id="guided-student-quote" class="guided-student-quote"></div>
           </div>
 
@@ -200,13 +200,13 @@
               <line x1="12" y1="19" x2="12" y2="23"/>
               <line x1="8" y1="23" x2="16" y2="23"/>
             </svg>
-            <span>Intenta corregir o mejorar esta frase en voz alta</span>
+            <span id="guided-prompt-banner-text">Try to fix or improve this sentence aloud.</span>
           </div>
 
-          <!-- CONTENEDOR DE RESPUESTA REVELADA POR EL DOCENTE -->
+          <!-- REVEALED ANSWER CONTAINER -->
           <div id="guided-solution-container" class="guided-solution-container hidden">
             <div class="guided-solution-card">
-              <span class="guided-solution-label">Corrección Sugerida:</span>
+              <span class="guided-solution-label">Suggested Correction:</span>
               <div id="guided-solution-text" class="guided-solution-text"></div>
               <div id="guided-explanation-text" class="guided-explanation-text"></div>
 
@@ -310,18 +310,18 @@
             </div>
           </div>
 
-          <!-- FORMATO 3: KEY WORD TRANSFORMATION (Base, Keyword, Template, Input) -->
+          <!-- FORMAT 3: KEY WORD TRANSFORMATION -->
           <div id="exercise-transform-container" class="exercise-transform-container hidden">
             <div class="transform-base-box">
-              <span class="transform-box-label">Oración Base:</span>
+              <span class="transform-box-label">Base Sentence:</span>
               <p id="exercise-transform-base" class="exercise-transform-base"></p>
             </div>
             <div class="transform-keyword-row">
-              <span class="transform-box-label">Palabra Clave:</span>
+              <span class="transform-box-label">Key Word:</span>
               <span id="exercise-transform-keyword" class="transform-keyword-chip"></span>
             </div>
             <div class="transform-template-box">
-              <span class="transform-box-label">Completa la Oración:</span>
+              <span class="transform-box-label">Complete the Sentence:</span>
               <p id="exercise-transform-template" class="exercise-transform-template"></p>
             </div>
             <form id="exercise-transform-form" class="exercise-input-group">
@@ -329,20 +329,20 @@
                 type="text"
                 id="exercise-text-input"
                 class="exercise-text-input"
-                placeholder="Escribe aquí tu transformación..."
+                placeholder="Type your answer here..."
                 autocomplete="off"
                 spellcheck="false"
               />
               <button type="submit" id="btn-submit-exercise" class="btn btn-primary btn-submit-exercise">
-                Enviar Respuesta
+                Send Answer
               </button>
             </form>
           </div>
 
-          <!-- FORMATO 4: ERROR CORRECTION INPUT (Oración con error sutil y corrección) -->
+          <!-- FORMAT 4: ERROR CORRECTION INPUT -->
           <div id="exercise-correction-container" class="exercise-correction-container hidden">
             <div class="exercise-sentence-box correction-sentence-box">
-              <span class="transform-box-label">Frase con un error:</span>
+              <span class="transform-box-label">Sentence with a mistake:</span>
               <p id="exercise-correction-faulty" class="exercise-faulty-sentence"></p>
             </div>
             <form id="exercise-correction-form" class="exercise-input-group">
@@ -350,36 +350,36 @@
                 type="text"
                 id="exercise-correction-input"
                 class="exercise-text-input"
-                placeholder="Escribe la corrección aquí..."
+                placeholder="Type the correction here..."
                 autocomplete="off"
                 spellcheck="false"
               />
               <button type="submit" id="btn-submit-correction" class="btn btn-primary btn-submit-exercise">
-                Enviar Corrección
+                Send Correction
               </button>
             </form>
           </div>
 
-          <!-- FORMATO 5: SENTENCE UNSCRAMBLE (Bloques interactivos para ordenar) -->
+          <!-- FORMAT 5: SENTENCE UNSCRAMBLE -->
           <div id="exercise-unscramble-container" class="exercise-unscramble-container hidden">
             <div class="unscramble-result-box">
-              <span class="transform-box-label">Tu frase armada:</span>
-              <p id="exercise-unscramble-result" class="unscramble-result-text">Pulsa los bloques en orden...</p>
+              <span class="transform-box-label">Your sentence:</span>
+              <p id="exercise-unscramble-result" class="unscramble-result-text">Click the words in order...</p>
             </div>
             <div id="exercise-unscramble-bank" class="unscramble-bank">
-              <!-- Bloques generados dinámicamente -->
+              <!-- Blocks generated dynamically -->
             </div>
             <div class="unscramble-actions">
               <button type="button" id="btn-clear-unscramble" class="btn btn-secondary btn-clear-unscramble">
-                ↺ Reiniciar
+                ↺ Reset
               </button>
               <button type="button" id="btn-submit-unscramble" class="btn btn-primary btn-submit-exercise" disabled>
-                Comprobar Orden
+                Check Order
               </button>
             </div>
           </div>
 
-          <!-- FORMATO 6: OPEN CLOZE (Oración con hueco para 1 sola palabra) -->
+          <!-- FORMAT 6: OPEN CLOZE -->
           <div id="exercise-cloze-container" class="exercise-cloze-container hidden">
             <div class="exercise-sentence-box">
               <p id="exercise-cloze-sentence" class="exercise-prompt-sentence"></p>
@@ -389,13 +389,13 @@
                 type="text"
                 id="exercise-cloze-input"
                 class="exercise-text-input exercise-cloze-input"
-                placeholder="Escribe la única palabra exacta..."
+                placeholder="Type one word..."
                 autocomplete="off"
                 spellcheck="false"
                 maxlength="30"
               />
               <button type="submit" id="btn-submit-cloze" class="btn btn-primary btn-submit-exercise">
-                Comprobar
+                Check
               </button>
             </form>
           </div>

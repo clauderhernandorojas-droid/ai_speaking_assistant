@@ -39,6 +39,7 @@ const guidedCategoryBadge = document.getElementById('guided-category-badge');
 const guidedContextContainer = document.getElementById('guided-context-container');
 const guidedContextText = document.getElementById('guided-context-text');
 const guidedStudentQuote = document.getElementById('guided-student-quote');
+const guidedPromptBannerText = document.getElementById('guided-prompt-banner-text');
 const guidedSolutionContainer = document.getElementById('guided-solution-container');
 const guidedSolutionText = document.getElementById('guided-solution-text');
 const guidedExplanationText = document.getElementById('guided-explanation-text');
@@ -109,6 +110,14 @@ const studentModelImprovementsList = document.getElementById('student-model-impr
 let currentStudentExercise = null;
 let currentUnscrambleSelected = [];
 let currentGuidedCapsule = null;
+let currentGuidedCategory = 'grammar';
+
+function formatSafeIpa(ipa) {
+  if (typeof ipa !== 'string') return '';
+  const inner = ipa.trim().replace(/^\/+|\/+$/g, '').trim();
+  if (!inner || inner.toLowerCase() === 'undefined' || inner.toLowerCase() === 'null') return '';
+  return `/${inner}/`;
+}
 
 function escapeHtml(str) {
   if (typeof str !== 'string') return '';
@@ -160,7 +169,7 @@ async function loadMicrophones() {
   if (mics.length === 0) {
     const opt = document.createElement('option');
     opt.value = '';
-    opt.textContent = 'Sin micrófonos detectados';
+    opt.textContent = 'No microphones found';
     micSelect.appendChild(opt);
     if (sessionMicSelect) sessionMicSelect.appendChild(opt.cloneNode(true));
     return;
@@ -169,7 +178,7 @@ async function loadMicrophones() {
   mics.forEach((mic, i) => {
     const opt = document.createElement('option');
     opt.value = mic.deviceId;
-    opt.textContent = mic.label || `Micrófono ${i + 1}`;
+    opt.textContent = mic.label || `Microphone ${i + 1}`;
     micSelect.appendChild(opt);
     if (sessionMicSelect) sessionMicSelect.appendChild(opt.cloneNode(true));
   });
@@ -201,17 +210,17 @@ async function startPreviewMonitor(deviceId) {
 
       if (micTestLabel) {
         if (pct > 8) {
-          micTestLabel.textContent = '¡Señal de voz detectada! Micrófono captando audio.';
+          micTestLabel.textContent = 'Voice detected! Microphone is working.';
           micTestLabel.classList.add('active');
         } else {
-          micTestLabel.textContent = 'Prueba de micrófono: di algo para verificar señal...';
+          micTestLabel.textContent = 'Mic test: say something to check sound...';
           micTestLabel.classList.remove('active');
         }
       }
     });
   } catch (err) {
-    console.warn('[Audio] No se pudo iniciar monitor de prueba:', err);
-    if (micTestLabel) micTestLabel.textContent = 'Permiso de micrófono no otorgado';
+    console.warn('[Audio] Could not start preview monitor:', err);
+    if (micTestLabel) micTestLabel.textContent = 'Microphone permission denied';
   }
 }
 
@@ -257,7 +266,7 @@ function resetMuteUI() {
     btnToggleMute.classList.remove('muted');
   }
   if (muteButtonText) {
-    muteButtonText.textContent = 'Silenciar';
+    muteButtonText.textContent = 'Mute';
   }
   if (micStatusCircle) {
     micStatusCircle.classList.remove('muted');
@@ -310,6 +319,24 @@ async function ensureStudentAudioCapture(deviceId = null) {
       },
       onVolumeChange: (level, _rms = 0) => {
         handleVolumeFeedback(level);
+      },
+      onStatusChange: (status) => {
+        if (!status) return;
+        if (supabaseService) {
+          supabaseService.sendMicStatus({
+            ok: !!status.ok,
+            error: status.error || null,
+            deviceLabel: status.deviceLabel || (audioService?.getDeviceLabel ? audioService.getDeviceLabel() : 'Active Microphone'),
+            mimeType: status.mimeType || audioService?.supportedMime || ''
+          });
+        }
+        if (status.ok && status.recovered && isSessionOralActive) {
+          micStatusLabel.textContent = 'Microphone On';
+          micStatusSub.textContent = 'Speak naturally. Your teacher can hear you.';
+        } else if (!status.ok && isSessionOralActive) {
+          micStatusLabel.textContent = 'Microphone Error';
+          micStatusSub.textContent = `Reconnecting microphone (${status.error || 'signal lost'})...`;
+        }
       }
     });
   }
@@ -338,12 +365,12 @@ joinForm.addEventListener('submit', async (e) => {
   const studentName = studentNameInput.value.trim();
 
   if (!sessionCode || !studentName) {
-    joinError.textContent = 'Por favor completa todos los campos.';
+    joinError.textContent = 'Please fill in all fields.';
     return;
   }
 
   btnJoin.disabled = true;
-  btnJoin.querySelector('span').textContent = 'Conectando...';
+  btnJoin.querySelector('span').textContent = 'Connecting...';
 
   try {
     // Validar sesión en Supabase y chequear su estado actual ('active', 'waiting', 'completed')
@@ -401,22 +428,22 @@ joinForm.addEventListener('submit', async (e) => {
     // Enviar telemetría de diagnóstico de micrófono al docente
     supabaseService.sendMicStatus({
       ok: isCompleted ? false : micStartOk,
-      error: isCompleted ? 'Sesión concluida (modo revisión)' : micError,
-      deviceLabel: isCompleted ? 'Inactivo (Revisión)' : (deviceLabel || 'Micrófono Activo'),
+      error: isCompleted ? 'Session ended (review mode)' : micError,
+      deviceLabel: isCompleted ? 'Inactive (Review)' : (deviceLabel || 'Active Microphone'),
       mimeType: selectedMime
     });
 
     // Cambiar a la vista de sesión
-    displayRoomCode.textContent = `SALA: ${sessionCode}`;
+    displayRoomCode.textContent = `ROOM: ${sessionCode}`;
     joinScreen.classList.remove('active');
     sessionScreen.classList.add('active');
 
     // 1. Configurar estado visual de la UI según el estado de la sesión en Supabase:
     if (isCompleted) {
-      sessionStatusBadge.textContent = 'Sesión Finalizada';
+      sessionStatusBadge.textContent = 'Session Ended';
       sessionStatusBadge.className = 'badge badge-ended';
-      micStatusLabel.textContent = 'Modo Revisión';
-      micStatusSub.textContent = 'La sesión oral ha concluido. Puedes revisar las correcciones con tu profesor.';
+      micStatusLabel.textContent = 'Review Mode';
+      micStatusSub.textContent = 'The speaking session is over. You can review feedback with your teacher.';
       visualizerContainer.classList.remove('recording');
       if (btnToggleMute) btnToggleMute.disabled = true;
       if (sessionVuMeterLevel) {
@@ -424,7 +451,7 @@ joinForm.addEventListener('submit', async (e) => {
         sessionVuMeterLevel.classList.add('muted');
       }
       if (sessionVuMeterLabel) {
-        sessionVuMeterLabel.textContent = 'Micrófono inactivo (Sesión finalizada)';
+        sessionVuMeterLabel.textContent = 'Microphone off (Session ended)';
         sessionVuMeterLabel.classList.add('muted');
         sessionVuMeterLabel.classList.remove('active');
       }
@@ -433,51 +460,51 @@ joinForm.addEventListener('submit', async (e) => {
       resetMuteUI();
 
       if (isAlreadyActive) {
-        console.log('[Student] La sesión ya se encuentra ACTIVA en Supabase al unirse. Pasando UI a estado en curso...');
-        sessionStatusBadge.textContent = 'Sesión en Curso';
+        console.log('[Student] Session is already ACTIVE in Supabase on join.');
+        sessionStatusBadge.textContent = 'Session Live';
         sessionStatusBadge.className = 'badge badge-active';
         visualizerContainer.classList.add('recording');
-        micStatusLabel.textContent = micStartOk ? 'Micrófono Activo' : 'Micrófono con Error';
+        micStatusLabel.textContent = micStartOk ? 'Microphone On' : 'Microphone Error';
         micStatusSub.textContent = micStartOk
-          ? 'Sesión iniciada previamente. Habla con naturalidad, tu audio se transmite a tu profesor.'
-          : `Atención: No se pudo activar el micrófono (${micError || 'Sin permisos'}).`;
+          ? 'Session is live. Speak naturally, your teacher can hear you.'
+          : `Warning: Could not turn on microphone (${micError || 'No permission'}).`;
         if (sessionVuMeterLevel) {
           sessionVuMeterLevel.style.width = '0%';
           sessionVuMeterLevel.classList.remove('muted');
         }
         if (sessionVuMeterLabel) {
-          sessionVuMeterLabel.textContent = micStartOk ? 'Señal de micrófono activa' : 'Sin señal de micrófono';
+          sessionVuMeterLabel.textContent = micStartOk ? 'Microphone sound is active' : 'No microphone sound';
           sessionVuMeterLabel.classList.remove('muted', 'active');
         }
       } else {
-        sessionStatusBadge.textContent = 'En Espera del Profesor';
+        sessionStatusBadge.textContent = 'Waiting for Teacher';
         sessionStatusBadge.className = 'badge badge-waiting';
         visualizerContainer.classList.add('recording');
-        micStatusLabel.textContent = micStartOk ? 'Micrófono Activo (En Espera)' : 'Micrófono con Error';
+        micStatusLabel.textContent = micStartOk ? 'Microphone Ready (Waiting)' : 'Microphone Error';
         micStatusSub.textContent = micStartOk
-          ? 'El micrófono está listo. Tu profesor iniciará la sesión en breve.'
-          : `Atención: No se pudo activar el micrófono (${micError || 'Sin permisos'}).`;
+          ? 'Your microphone is ready. Your teacher will start soon.'
+          : `Warning: Could not turn on microphone (${micError || 'No permission'}).`;
         if (sessionVuMeterLevel) {
           sessionVuMeterLevel.style.width = '0%';
           sessionVuMeterLevel.classList.remove('muted');
         }
         if (sessionVuMeterLabel) {
-          sessionVuMeterLabel.textContent = micStartOk ? 'Señal de micrófono activa' : 'Sin señal de micrófono';
+          sessionVuMeterLabel.textContent = micStartOk ? 'Microphone sound is active' : 'No microphone sound';
           sessionVuMeterLabel.classList.remove('muted', 'active');
         }
       }
     }
 
   } catch (error) {
-    console.error('Error al unirse:', error);
-    joinError.textContent = error.message || 'Error al conectar con la sesión';
+    console.error('Error joining session:', error);
+    joinError.textContent = error.message || 'Could not connect to session';
     if (audioService) {
       audioService.stop();
       audioService = null;
     }
   } finally {
     btnJoin.disabled = false;
-    btnJoin.querySelector('span').textContent = 'Unirse a la Sesión';
+    btnJoin.querySelector('span').textContent = 'Join Session';
   }
 });
 
@@ -490,13 +517,13 @@ btnToggleMute.addEventListener('click', async () => {
 
   if (isMuted) {
     btnToggleMute.classList.add('muted');
-    muteButtonText.textContent = 'Reactivar';
+    muteButtonText.textContent = 'Unmute';
     micStatusCircle.classList.add('muted');
     iconMicOn.classList.add('hidden');
     iconMicOff.classList.remove('hidden');
     visualizerContainer.classList.add('muted');
-    micStatusLabel.textContent = 'Micrófono Silenciado';
-    micStatusSub.textContent = 'Tu profesor no puede escucharte mientras esté silenciado.';
+    micStatusLabel.textContent = 'Microphone Muted';
+    micStatusSub.textContent = 'Your teacher cannot hear you while muted.';
     micStatusCircle.style.transform = 'scale(1)';
 
     // Forzar visualmente el medidor VU a 0% e inactivo/gris
@@ -505,26 +532,26 @@ btnToggleMute.addEventListener('click', async () => {
       sessionVuMeterLevel.classList.add('muted');
     }
     if (sessionVuMeterLabel) {
-      sessionVuMeterLabel.textContent = 'Micrófono en Mute (Señal desactivada)';
+      sessionVuMeterLabel.textContent = 'Microphone muted (Sound off)';
       sessionVuMeterLabel.classList.add('muted');
       sessionVuMeterLabel.classList.remove('active');
     }
   } else {
     btnToggleMute.classList.remove('muted');
-    muteButtonText.textContent = 'Silenciar';
+    muteButtonText.textContent = 'Mute';
     micStatusCircle.classList.remove('muted');
     iconMicOn.classList.remove('hidden');
     iconMicOff.classList.add('hidden');
     visualizerContainer.classList.remove('muted');
-    micStatusLabel.textContent = 'Micrófono Activo';
-    micStatusSub.textContent = 'Habla con naturalidad. Tu audio se transmite a tu profesor.';
+    micStatusLabel.textContent = 'Microphone On';
+    micStatusSub.textContent = 'Speak naturally. Your teacher can hear you.';
 
     // Restaurar estado activo del medidor VU
     if (sessionVuMeterLevel) {
       sessionVuMeterLevel.classList.remove('muted');
     }
     if (sessionVuMeterLabel) {
-      sessionVuMeterLabel.textContent = 'Señal de micrófono activa';
+      sessionVuMeterLabel.textContent = 'Microphone sound is active';
       sessionVuMeterLabel.classList.remove('muted');
     }
   }
@@ -532,7 +559,7 @@ btnToggleMute.addEventListener('click', async () => {
 
 // 4. Salir de la sesión
 btnLeaveSession.addEventListener('click', async () => {
-  if (confirm('¿Deseas salir de la sesión?')) {
+  if (confirm('Do you want to leave the session?')) {
     await cleanupSession();
   }
 });
@@ -542,56 +569,56 @@ async function handleTeacherEvent(eventType, payload) {
   if (eventType === 'session_start') {
     isSessionOralActive = true;
 
-    // 1. Reiniciar contador de secuencia y cola de subida (garantiza que el primer bloque sea sequence = 1)
+    // 1. Reiniciar contador de secuencia, generación y cola de subida (limpia estado de sesiones previas en sala reutilizada)
     if (supabaseService) {
       supabaseService.resetSessionSequence();
     }
 
-    // 2. Descartar cualquier buffer previo al inicio sin matar el grabador ni perder el MediaStream
-    if (audioService) {
+    // 2. Verificar y reactivar MediaStream con pistas activas (o crear AudioCaptureService desde cero si venía de session_end)
+    const { micStartOk, micError, deviceLabel, selectedMime } = await ensureStudentAudioCapture(selectedDeviceId);
+
+    // 3. Descartar cualquier buffer/timer previo al inicio sin matar el MediaStream
+    if (micStartOk && audioService) {
       audioService.discardPreSessionBuffers();
     }
 
-    // 3. Verificar y reactivar MediaStream con pistas activas si fueron detenidas
-    const { micStartOk, micError, deviceLabel, selectedMime } = await ensureStudentAudioCapture(selectedDeviceId);
-
     // 4. Actualizar estado visual de la UI
     resetMuteUI();
-    sessionStatusBadge.textContent = 'Sesión en Curso';
+    sessionStatusBadge.textContent = 'Session Live';
     sessionStatusBadge.className = 'badge badge-active';
     visualizerContainer.classList.add('recording');
     visualizerContainer.classList.remove('muted');
 
     if (micStartOk) {
-      micStatusLabel.textContent = 'Micrófono Activo';
-      micStatusSub.textContent = 'Habla con naturalidad. Tu audio se transmite a tu profesor.';
+      micStatusLabel.textContent = 'Microphone On';
+      micStatusSub.textContent = 'Speak naturally. Your teacher can hear you.';
       if (sessionVuMeterLabel) {
-        sessionVuMeterLabel.textContent = 'Señal de micrófono activa';
+        sessionVuMeterLabel.textContent = 'Microphone sound is active';
         sessionVuMeterLabel.classList.remove('muted', 'active');
       }
       if (supabaseService) {
         supabaseService.sendMicStatus({
           ok: true,
-          deviceLabel: deviceLabel || (audioService.getDeviceLabel ? audioService.getDeviceLabel() : 'Micrófono Activo'),
+          deviceLabel: deviceLabel || (audioService.getDeviceLabel ? audioService.getDeviceLabel() : 'Active Microphone'),
           mimeType: selectedMime || audioService.supportedMime || ''
         });
       }
     } else {
-      micStatusLabel.textContent = 'Error de Micrófono';
-      micStatusSub.textContent = `No se pudo activar el micrófono (${micError || 'Sin permisos'}).`;
+      micStatusLabel.textContent = 'Microphone Error';
+      micStatusSub.textContent = `Could not turn on microphone (${micError || 'No permission'}).`;
       if (supabaseService) {
         supabaseService.sendMicStatus({
           ok: false,
-          error: micError || 'Error al reactivar micrófono'
+          error: micError || 'Error restarting microphone'
         });
       }
     }
   } else if (eventType === 'session_end') {
     isSessionOralActive = false;
-    sessionStatusBadge.textContent = 'Sesión Finalizada';
+    sessionStatusBadge.textContent = 'Session Ended';
     sessionStatusBadge.className = 'badge badge-ended';
-    micStatusLabel.textContent = 'Tiempo Terminado';
-    micStatusSub.textContent = 'La sesión oral ha concluido. ¡Buen trabajo!';
+    micStatusLabel.textContent = 'Time Is Up';
+    micStatusSub.textContent = 'The speaking session is over. Great job!';
     if (btnToggleMute) {
       btnToggleMute.disabled = true;
     }
@@ -600,7 +627,7 @@ async function handleTeacherEvent(eventType, payload) {
       sessionVuMeterLevel.classList.add('muted');
     }
     if (sessionVuMeterLabel) {
-      sessionVuMeterLabel.textContent = 'Micrófono inactivo (Sesión concluida)';
+      sessionVuMeterLabel.textContent = 'Microphone off (Session ended)';
       sessionVuMeterLabel.classList.add('muted');
       sessionVuMeterLabel.classList.remove('active');
     }
@@ -644,10 +671,17 @@ function handleGuidedCorrectionEvent(payload) {
       guidedCapsuleContainer.classList.add('hidden');
     }
 
-    // 1. Badge de Categoría
+    // 1. Badge de Categoría y Banner de instrucción
     const cat = (payload.category || 'grammar').toLowerCase();
-    guidedCategoryBadge.textContent = CATEGORY_NAMES[cat] || payload.category || 'Atención';
+    currentGuidedCategory = cat;
+    guidedCategoryBadge.textContent = CATEGORY_NAMES[cat] || payload.category || 'Focus';
     guidedCategoryBadge.className = `guided-badge cat-${cat}`;
+
+    if (guidedPromptBannerText) {
+      guidedPromptBannerText.textContent = cat === 'pronunciation'
+        ? 'Say it aloud so your teacher can help you.'
+        : 'Try to fix or improve this sentence aloud.';
+    }
 
     // 2. Contexto o pregunta docente: solo mostrar si hay texto real del profesor
     const ctx = (payload.teacherContext || '').trim();
@@ -661,8 +695,23 @@ function handleGuidedCorrectionEvent(payload) {
       guidedContextContainer.classList.remove('hidden');
     }
 
-    // 3. Frase del alumno (con formato de error resaltado si viene con HTML)
+    // 3. Frase del alumno (con formato de error resaltado y su IPA si es Pronunciación)
     guidedStudentQuote.innerHTML = payload.studentQuote || '';
+    if (cat === 'pronunciation') {
+      const safeStudentIpa = formatSafeIpa(payload.studentIpa || payload.student_ipa);
+      if (safeStudentIpa && !guidedStudentQuote.textContent.includes(safeStudentIpa)) {
+        const ipaEl = document.createElement('span');
+        ipaEl.className = 'ipa-chip ipa-student';
+        ipaEl.title = 'How you pronounced it';
+        ipaEl.textContent = safeStudentIpa;
+        const highlightEl = guidedStudentQuote.querySelector('.highlight-error');
+        if (highlightEl) {
+          highlightEl.insertAdjacentElement('afterend', ipaEl);
+        } else {
+          guidedStudentQuote.appendChild(ipaEl);
+        }
+      }
+    }
 
     // 4. Ocultar y reiniciar solución
     guidedSolutionContainer.classList.add('hidden');
@@ -675,6 +724,22 @@ function handleGuidedCorrectionEvent(payload) {
     // Revelar la respuesta modelo y explicación
     if (payload.surgicalCorrection) {
       guidedSolutionText.innerHTML = payload.surgicalCorrection;
+    }
+    const activeCat = (payload.category || currentGuidedCategory || 'grammar').toLowerCase();
+    if (activeCat === 'pronunciation') {
+      const safeTargetIpa = formatSafeIpa(payload.targetIpa || payload.target_ipa);
+      if (safeTargetIpa && !guidedSolutionText.textContent.includes(safeTargetIpa)) {
+        const ipaEl = document.createElement('span');
+        ipaEl.className = 'ipa-chip ipa-target';
+        ipaEl.title = 'Correct pronunciation';
+        ipaEl.textContent = safeTargetIpa;
+        const highlightEl = guidedSolutionText.querySelector('.highlight-fix');
+        if (highlightEl) {
+          highlightEl.insertAdjacentElement('afterend', ipaEl);
+        } else {
+          guidedSolutionText.appendChild(ipaEl);
+        }
+      }
     }
     if (payload.explanation) {
       guidedExplanationText.innerHTML = payload.explanation;
@@ -1376,10 +1441,10 @@ function handleVolumeFeedback(level) {
   if (sessionVuMeterLabel) {
     sessionVuMeterLabel.classList.remove('muted');
     if (pct > 8) {
-      sessionVuMeterLabel.textContent = '¡Captando voz! Señal clara';
+      sessionVuMeterLabel.textContent = 'Voice detected! Clear sound';
       sessionVuMeterLabel.classList.add('active');
     } else {
-      sessionVuMeterLabel.textContent = 'Señal de micrófono activa';
+      sessionVuMeterLabel.textContent = 'Microphone sound is active';
       sessionVuMeterLabel.classList.remove('active');
     }
   }
@@ -1427,7 +1492,7 @@ async function cleanupSession() {
   currentStudentExercise = null;
   joinError.textContent = '';
   btnJoin.disabled = false;
-  btnJoin.querySelector('span').textContent = 'Unirse a la Sesión';
+  btnJoin.querySelector('span').textContent = 'Join Session';
 
   sessionScreen.classList.remove('active');
   joinScreen.classList.add('active');

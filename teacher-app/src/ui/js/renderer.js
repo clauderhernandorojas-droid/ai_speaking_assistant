@@ -1068,6 +1068,8 @@ async function executeAnalysisWithConfirmedLevel(confirmedLevel, studentUtteranc
       const expl = card.explanation || card.reason || card.notes || '';
       const crit = card.ieltsCriterion || card.ielts_criterion || card.criterion || card.band || 'IELTS Band Descriptors';
       const contrastiveCapsule = card.contrastiveCapsule || null;
+      const studentIpa = card.studentIpa || card.student_ipa || null;
+      const targetIpa = card.targetIpa || card.target_ipa || null;
 
       addSurgicalCard({
         category,
@@ -1077,7 +1079,9 @@ async function executeAnalysisWithConfirmedLevel(confirmedLevel, studentUtteranc
         surgicalCorrection: sCorr,
         explanation: expl,
         ieltsCriterion: crit,
-        contrastiveCapsule
+        contrastiveCapsule,
+        studentIpa,
+        targetIpa
       });
     });
 
@@ -1707,6 +1711,8 @@ function exportSessionReportHTML() {
           teacherContext: context.replace(/^["']+|["']+$/g, '').trim(),
           studentResponse: studentResp,
           surgicalCorrection: fix,
+          studentIpa: card.dataset.studentIpa || null,
+          targetIpa: card.dataset.targetIpa || null,
           explanation,
           ieltsCriterion: ieltsDesc,
           severity,
@@ -2345,6 +2351,8 @@ function addSurgicalCard(item) {
   const explanation = item.explanation || item.reason || '';
   const ieltsCriterion = item.ieltsCriterion || item.ielts_criterion || 'IELTS Band Descriptors';
   const contrastiveCapsule = item.contrastiveCapsule || null;
+  const studentIpa = item.studentIpa || item.student_ipa || null;
+  const targetIpa = item.targetIpa || item.target_ipa || null;
   const hasContrastiveCapsule = Boolean(
     contrastiveCapsule &&
     contrastiveCapsule.poleA &&
@@ -2363,6 +2371,8 @@ function addSurgicalCard(item) {
   const card = document.createElement('article');
   card.className = 'surgical-card';
   card.dataset.cardId = cardId;
+  if (studentIpa) card.dataset.studentIpa = String(studentIpa);
+  if (targetIpa) card.dataset.targetIpa = String(targetIpa);
   if (hasContrastiveCapsule) {
     card.dataset.contrastiveCapsule = JSON.stringify(contrastiveCapsule);
   }
@@ -2524,7 +2534,8 @@ function addSurgicalCard(item) {
       cardId,
       category,
       teacherContext: hasTeacherContext ? cleanContext : '',
-      studentQuote: studentResponse
+      studentQuote: studentResponse,
+      studentIpa
     });
   });
 
@@ -2532,8 +2543,10 @@ function addSurgicalCard(item) {
     await handleRevealAnswerCard({
       card,
       cardId,
+      category,
       surgicalCorrection,
-      explanation
+      explanation,
+      targetIpa
     });
   });
 
@@ -2691,6 +2704,7 @@ async function handleToggleBroadcastCard({ card, cardId, category, teacherContex
           category,
           teacherContext: safeCtx,
           studentQuote,
+          studentIpa: (card && card.dataset.studentIpa) ? card.dataset.studentIpa : null,
           contrastiveCapsule
         });
       } catch (err) {
@@ -2703,7 +2717,7 @@ async function handleToggleBroadcastCard({ card, cardId, category, teacherContex
 /**
  * Revela la corrección y explicación pedagógica en la pantalla del estudiante
  */
-async function handleRevealAnswerCard({ card, cardId, surgicalCorrection, explanation }) {
+async function handleRevealAnswerCard({ card, cardId, category, surgicalCorrection, explanation, targetIpa }) {
   if (state.activeGuidedCardId !== cardId) return;
 
   state.revealedGuidedCardId = cardId;
@@ -2726,8 +2740,10 @@ async function handleRevealAnswerCard({ card, cardId, surgicalCorrection, explan
         action: 'reveal_answer',
         sessionCode: state.lastEvaluatedSessionCode || state.sessionCode,
         cardId,
+        category,
         surgicalCorrection,
         explanation,
+        targetIpa: targetIpa || (card && card.dataset.targetIpa ? card.dataset.targetIpa : null),
         contrastiveCapsule
       });
     } catch (err) {

@@ -503,7 +503,10 @@ class IELTSEngine {
     if (Array.isArray(pronunciationIssues) && pronunciationIssues.length > 0) {
       acousticPronunciationSection = `\nVERIFIED ACOUSTIC PRONUNCIATION OBSERVATIONS (Detected directly from the student's spoken audio during single-pass transcription):
 ${JSON.stringify(pronunciationIssues, null, 2)}
-INSTRUCTION FOR PRONUNCIATION: You MUST generate dedicated 'pronunciation' feedbackCards for these genuine acoustic errors heard during the session. Highlight the mispronounced word in studentResponse and provide the clean phonetic model / target pronunciation in surgicalCorrection.`;
+INSTRUCTION FOR PRONUNCIATION: You MUST generate dedicated 'pronunciation' feedbackCards for these genuine acoustic errors heard during the session.
+- In "studentResponse": highlight the mispronounced word together with the approximate IPA of how the student actually pronounced it (e.g. and you know, <span class="highlight-error">sausages /ˈsaʊ.sɪdʒ/</span>, potatoes.).
+- In "surgicalCorrection": highlight the word together with its correct target IPA (e.g. and you know, <span class="highlight-fix">sausages /ˈsɒs.ɪ.dʒɪz/</span>, potatoes.).
+- Also include "studentIpa": "/.../" (how the student pronounced it) and "targetIpa": "/.../" (correct IPA) on every pronunciation card.`;
     } else {
       acousticPronunciationSection = `\nVERIFIED ACOUSTIC PRONUNCIATION OBSERVATIONS:
 No acoustic pronunciation errors were flagged during audio transcription.
@@ -518,7 +521,7 @@ MANDATES:
 3. EXHAUSTIVE & PROPORTIONAL AUDIT: Conduct a complete, rigorous audit proportional to the length of the transcript. In extended turns or long sessions (> 200 words), you MUST extract and generate feedback cards for EVERY distinct and clear error in 'grammar' and 'vocabulary' across the entire speech. NEVER stop after just 1 or 2 sample cards. Group only exact identical repetitions of the same mistake into a single card; otherwise, each separate grammatical inaccuracy, wrong tense, subject-verb agreement failure, preposition mistake, unnatural collocation, or calque must have its own dedicated card:
    - 'grammar': Systemic or local errors calibrated to ${normLevel}. Extract EVERY distinct grammatical error found throughout the entire student speech. Severity: 'basic_error'.
    - 'vocabulary': Unnatural collocations, calques, L1 interference, or imprecise lexical choices calibrated to ${normLevel}. Extract all distinct vocabulary improvement opportunities across the speech. Severity: 'refinement'.
-   - 'pronunciation': Phonological issues (-ed endings, silent letters, vowel reduction/schwa, word stress) grounded in the acoustic observations provided below or tags in the transcript. Highlight the mispronounced word in studentResponse and provide the clean phonetic model / target pronunciation in surgicalCorrection. If no acoustic observations exist and no obvious phonetic mistakes appear, do NOT fabricate pronunciation errors. Severity: 'basic_error'.
+   - 'pronunciation': Phonological issues (-ed endings, silent letters, vowel reduction/schwa, word stress) grounded in the acoustic observations provided below or tags in the transcript. In studentResponse, highlight the mispronounced word AND include the approximate IPA of how the student actually pronounced it (e.g. <span class="highlight-error">sausages /ˈsaʊ.sɪdʒ/</span>). In surgicalCorrection, highlight the word AND its correct target IPA (e.g. <span class="highlight-fix">sausages /ˈsɒs.ɪ.dʒɪz/</span>). Also set "studentIpa" and "targetIpa" with the respective IPA strings in slashes. If no acoustic observations exist and no obvious phonetic mistakes appear, do NOT fabricate pronunciation errors. Severity: 'basic_error'.
    - 'upgrade_c1': Step-by-step i+1 upgrade calibrated strictly to target level "${targetUpgradeLevel}". NEVER jump to C1/C2 vocabulary or complex idioms if the student is A1, A2, or B1:
      * If student is A1/A2 -> upgrade strictly to B1 (e.g. 'decided to quit' instead of 'felt compelled to tender my resignation').
      * If student is B1 -> upgrade strictly to B2 (clear connectors, practical professional collocations, natural variety).
@@ -540,8 +543,10 @@ JSON OUTPUT FORMAT (Valid raw JSON, no markdown):
       "category": "grammar" | "vocabulary" | "pronunciation" | "upgrade_c1" | "fluency",
       "severity": "basic_error" | "upgrade" | "refinement",
       "teacherContext": "${cleanTeacherContext}",
-      "studentResponse": "Sentence with <span class=\\"highlight-error\\">error</span>",
-      "surgicalCorrection": "Sentence with <span class=\\"highlight-fix\\">correction</span>",
+      "studentResponse": "Sentence with <span class=\\"highlight-error\\">error</span> (for pronunciation, include student IPA: <span class=\\"highlight-error\\">word /student_ipa/</span>)",
+      "surgicalCorrection": "Sentence with <span class=\\"highlight-fix\\">correction</span> (for pronunciation, include target IPA: <span class=\\"highlight-fix\\">word /target_ipa/</span>)",
+      "studentIpa": "/approximate_student_ipa/ or null (pronunciation only)",
+      "targetIpa": "/correct_target_ipa/ or null (pronunciation only)",
       "explanation": "Clear surgical explanation in simple English (max 20 words)",
       "ieltsCriterion": "Grammatical Range and Accuracy" | "Lexical Resource" | "Pronunciation" | "Fluency and Coherence",
       "contrastiveCapsule": {
@@ -631,12 +636,24 @@ JSON OUTPUT FORMAT (Valid raw JSON, no markdown):
         cleanSurgicalCorrection = cleanSurgicalCorrection.replace(/\s*\[pronunciation:[^\]]*\]/gi, '');
       }
 
+      const normalizeIpa = (val) => {
+        if (typeof val !== 'string') return null;
+        const inner = val.trim().replace(/^\/+|\/+$/g, '').trim();
+        if (!inner || inner.toLowerCase() === 'undefined' || inner.toLowerCase() === 'null') return null;
+        return `/${inner}/`;
+      };
+
+      const studentIpa = cat === 'pronunciation' ? normalizeIpa(card.studentIpa || card.student_ipa) : null;
+      const targetIpa = cat === 'pronunciation' ? normalizeIpa(card.targetIpa || card.target_ipa) : null;
+
       return {
         ...card,
         category: cat,
         teacherContext: ctx,
         studentResponse: cleanStudentResponse,
         surgicalCorrection: cleanSurgicalCorrection,
+        studentIpa,
+        targetIpa,
         contrastiveCapsule
       };
     });

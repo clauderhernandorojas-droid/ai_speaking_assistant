@@ -17,6 +17,7 @@ export class StudentSupabaseService {
     this.sessionCode = null;
     this.studentName = null;
     this.sequenceId = 0;
+    this.sessionGeneration = 0;
     this.uploadQueue = [];
     this.isProcessingUploadQueue = false;
     this.lastMicStatus = null;
@@ -24,7 +25,7 @@ export class StudentSupabaseService {
 
   init() {
     if (!window.supabase) {
-      throw new Error('Supabase SDK no está cargado. Revisa la etiqueta script en index.html');
+      throw new Error('Supabase SDK is not loaded. Check the script tag in index.html');
     }
     this.client = window.supabase.createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey, {
       realtime: {
@@ -48,7 +49,7 @@ export class StudentSupabaseService {
       .maybeSingle();
 
     if (error || !data) {
-      throw new Error('Sesión no encontrada o código inválido');
+      throw new Error('Session not found or invalid code');
     }
     return data;
   }
@@ -113,13 +114,20 @@ export class StudentSupabaseService {
   }
 
   /**
-   * Reinicia el contador de secuencia y vacía cualquier subida pendiente antes del inicio oficial.
-   * Garantiza que el primer bloque de la sesión activa se transmita con sequence = 1.
+   * Reinicia el contador de secuencia, incrementa la generación de sesión y vacía cualquier subida pendiente.
+   * Garantiza que el primer bloque de la sesión activa se transmita con sequence = 1 y nunca quede bloqueada la cola.
    */
   resetSessionSequence() {
+    this.sessionGeneration += 1;
     this.sequenceId = 0;
-    this.uploadQueue = [];
-    console.log('[StudentSupabaseService] Secuencia y cola de subida reiniciadas (primer bloque será sequence = 1).');
+    const staleItems = this.uploadQueue.splice(0, this.uploadQueue.length);
+    staleItems.forEach(item => {
+      try {
+        item.resolve({ success: false, discarded: true, sequence: item.seq });
+      } catch (_) {}
+    });
+    this.isProcessingUploadQueue = false;
+    console.log(`[StudentSupabaseService] Secuencia y cola reiniciadas (gen=${this.sessionGeneration}, primer bloque será sequence = 1).`);
   }
 
   /**
@@ -129,10 +137,12 @@ export class StudentSupabaseService {
   uploadAudioSegment(blob, mimeType = 'audio/webm', base64Fallback = null) {
     this.sequenceId += 1;
     const currentSeq = this.sequenceId;
+    const generation = this.sessionGeneration;
 
     return new Promise((resolve) => {
       this.uploadQueue.push({
         seq: currentSeq,
+        generation,
         blob,
         mimeType,
         base64Fallback,
@@ -143,91 +153,168 @@ export class StudentSupabaseService {
   }
 
   /**
-   * Procesa la cola de subida estrictamente en orden secuencial (FIFO).
+   * Procesa la cola de subida estrictamente en orden secuencial (FIFO) con protección contra bloqueos.
    */
   async processUploadQueue() {
     if (this.isProcessingUploadQueue) return;
     this.isProcessingUploadQueue = true;
 
-    while (this.uploadQueue.length > 0) {
-      const item = this.uploadQueue.shift();
-      try {
-        const result = await this._performUpload(item.seq, item.blob, item.mimeType, item.base64Fallback);
-        item.resolve(result);
-      } catch (err) {
-        console.error(`[Upload] Error crítico procesando bloque #${item.seq}:`, err);
-        item.resolve({ success: false, error: err.message, sequence: item.seq });
+    try {
+      while (this.uploadQueue.length > 0) {
+        const item = this.uploadQueue.shift();
+        if (item.generation !== this.sessionGeneration) {
+          item.resolve({ success: false, discarded: true, sequence: item.seq });
+          continue;
+        }
+        try {
+          const result = await this._performUpload(item.seq, item.blob, item.mimeType, item.base64Fallback, item.generation);
+          item.resolve(result);
+        } catch (err) {
+          console.error(`[Upload] Error crítico procesando bloque #${item.seq}:`, err);
+          item.resolve({ success: false, error: err.message, sequence: item.seq });
+        }
       }
+    } finally {
+      this.isProcessingUploadQueue = false;
     }
-
-    this.isProcessingUploadQueue = false;
   }
 
   /**
-   * Ejecución real de subida a Supabase Storage con fallback a Base64 por WebSocket si falla.
+   * Helper de timeout para evitar que una subida colgada congele la cola para siempre.
    */
-  async _performUpload(currentSeq, blob, mimeType = 'audio/webm', base64Fallback = null) {
+  _withTimeout(promise, ms, label = 'operation') {
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms))
+    ]);
+  }
+
+  /**
+   * Emite un evento Realtime con hasta 3 reintentos y backoff exponencial.
+   */
+  async broadcastEventWithRetry(event, payload, maxAttempts = 3) {
+    const delays = [500, 1500, 3000];
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (!this.channel) {
+        console.warn(`[Broadcast] Canal no disponible para ${event} (intento ${attempt}/${maxAttempts})`);
+        return false;
+      }
+      try {
+        const status = await this._withTimeout(
+          this.channel.send({
+            type: 'broadcast',
+            event,
+            payload
+          }),
+          5000,
+          `broadcast:${event}`
+        );
+        if (status === 'ok' || status === undefined) {
+          return true;
+        }
+        throw new Error(`Realtime send status: ${status}`);
+      } catch (err) {
+        console.warn(`[Broadcast] Falló ${event} (intento ${attempt}/${maxAttempts}):`, err.message);
+        if (attempt < maxAttempts) {
+          await new Promise(r => setTimeout(r, delays[attempt - 1] || 1500));
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Ejecución real de subida a Supabase Storage con 3 reintentos con backoff exponencial,
+   * timeout por intento y fallback a Base64 por WebSocket si Storage falla definitivamente.
+   */
+  async _performUpload(currentSeq, blob, mimeType = 'audio/webm', base64Fallback = null, generation = this.sessionGeneration) {
     if (!this.client) this.init();
     const cleanSessionCode = (this.sessionCode || 'UNKNOWN').toUpperCase();
     const filePath = `${cleanSessionCode}/${Date.now()}_seg_${currentSeq}.webm`;
 
     console.log(`[Upload] Subiendo bloque #${currentSeq} (${blob.size} bytes) a Storage: session-audio/${filePath}...`);
 
-    try {
-      const { data, error } = await this.client.storage
-        .from('session-audio')
-        .upload(filePath, blob, {
-          contentType: mimeType || 'audio/webm',
-          upsert: true
-        });
+    const maxAttempts = 3;
+    const backoffMs = [1000, 2500, 4000];
+    let lastUploadErr = null;
 
-      if (error) {
-        throw error;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (generation !== this.sessionGeneration) {
+        return { success: false, discarded: true, sequence: currentSeq };
       }
 
-      const uploadedPath = data?.path || filePath;
-      console.log(`[Upload] Éxito: Bloque #${currentSeq} subido a Storage (${uploadedPath})`);
+      try {
+        const { data, error } = await this._withTimeout(
+          this.client.storage
+            .from('session-audio')
+            .upload(filePath, blob, {
+              contentType: mimeType || 'audio/webm',
+              upsert: true
+            }),
+          15000,
+          `storage.upload #${currentSeq}`
+        );
 
-      // Emitir notificación ligera por Realtime
-      this.broadcastEvent('audio_segment_uploaded', {
-        sessionCode: cleanSessionCode,
-        storagePath: uploadedPath,
-        segmentIndex: currentSeq,
-        sequence: currentSeq,
-        mimeType: mimeType || 'audio/webm',
-        size: blob.size,
-        timestamp: Date.now()
-      });
-
-      return { success: true, storagePath: uploadedPath, sequence: currentSeq };
-    } catch (uploadErr) {
-      console.warn(`[Upload] Error subiendo bloque #${currentSeq} a Storage (${uploadErr.message}). Evaluando fallback Base64...`);
-
-      // Fallback automático por WebSocket broadcast si el blob es < 120 KB
-      if (blob.size < 120 * 1024) {
-        try {
-          let b64 = base64Fallback;
-          if (!b64) {
-            b64 = await this.blobToBase64(blob);
-          }
-          console.log(`[Upload] Transmitiendo bloque #${currentSeq} (${blob.size} bytes) por fallback WebSocket Base64...`);
-          this.broadcastEvent('student:audio_chunk', {
-            sessionCode: cleanSessionCode,
-            sequence: currentSeq,
-            mimeType: mimeType || 'audio/webm',
-            data: b64,
-            timestamp: Date.now()
-          });
-          return { success: true, fallback: true, sequence: currentSeq };
-        } catch (b64Err) {
-          console.error(`[Upload] Error en fallback Base64 bloque #${currentSeq}:`, b64Err.message);
+        if (error) {
+          throw error;
         }
-      } else {
-        console.error(`[Upload] Bloque #${currentSeq} (${blob.size} bytes) excede 120 KB para fallback WebSocket.`);
-      }
 
-      return { success: false, error: uploadErr.message, sequence: currentSeq };
+        if (generation !== this.sessionGeneration) {
+          return { success: false, discarded: true, sequence: currentSeq };
+        }
+
+        const uploadedPath = data?.path || filePath;
+        console.log(`[Upload] Éxito: Bloque #${currentSeq} subido a Storage en intento ${attempt} (${uploadedPath})`);
+
+        // Emitir notificación ligera por Realtime con reintentos
+        await this.broadcastEventWithRetry('audio_segment_uploaded', {
+          sessionCode: cleanSessionCode,
+          storagePath: uploadedPath,
+          segmentIndex: currentSeq,
+          sequence: currentSeq,
+          mimeType: mimeType || 'audio/webm',
+          size: blob.size,
+          timestamp: Date.now()
+        }, 3);
+
+        return { success: true, storagePath: uploadedPath, sequence: currentSeq };
+      } catch (uploadErr) {
+        lastUploadErr = uploadErr;
+        console.warn(`[Upload] Error subiendo bloque #${currentSeq} (intento ${attempt}/${maxAttempts}): ${uploadErr.message}`);
+        if (attempt < maxAttempts) {
+          await new Promise(r => setTimeout(r, backoffMs[attempt - 1] || 2000));
+        }
+      }
     }
+
+    console.warn(`[Upload] Storage falló tras ${maxAttempts} intentos para bloque #${currentSeq}. Evaluando fallback Base64...`);
+
+    // Fallback automático por WebSocket broadcast si el blob es < 120 KB
+    if (generation === this.sessionGeneration && blob.size < 120 * 1024) {
+      try {
+        let b64 = base64Fallback;
+        if (!b64) {
+          b64 = await this.blobToBase64(blob);
+        }
+        console.log(`[Upload] Transmitiendo bloque #${currentSeq} (${blob.size} bytes) por fallback WebSocket Base64...`);
+        const sent = await this.broadcastEventWithRetry('student:audio_chunk', {
+          sessionCode: cleanSessionCode,
+          sequence: currentSeq,
+          mimeType: mimeType || 'audio/webm',
+          data: b64,
+          timestamp: Date.now()
+        }, 3);
+        if (sent) {
+          return { success: true, fallback: true, sequence: currentSeq };
+        }
+      } catch (b64Err) {
+        console.error(`[Upload] Error en fallback Base64 bloque #${currentSeq}:`, b64Err.message);
+      }
+    } else if (blob.size >= 120 * 1024) {
+      console.error(`[Upload] Bloque #${currentSeq} (${blob.size} bytes) excede 120 KB para fallback WebSocket.`);
+    }
+
+    return { success: false, error: lastUploadErr?.message || 'Upload failed', sequence: currentSeq };
   }
 
   /**
@@ -280,7 +367,7 @@ export class StudentSupabaseService {
     if (!this.channel) return;
     this.broadcastEvent('student:mic_status', {
       sessionCode: (this.sessionCode || '').toUpperCase().trim(),
-      studentName: this.studentName || 'Estudiante',
+      studentName: this.studentName || 'Student',
       ...statusPayload,
       timestamp: Date.now()
     });

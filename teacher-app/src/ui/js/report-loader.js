@@ -326,6 +326,8 @@
       teacherContext: card.teacherContext || card.teacher_context || '',
       studentResponse: card.studentResponse || card.studentOriginal || card.student_response || '',
       surgicalCorrection: card.surgicalCorrection || card.correction || card.surgical_correction || '',
+      studentIpa: card.studentIpa || card.student_ipa || null,
+      targetIpa: card.targetIpa || card.target_ipa || null,
       explanation: card.explanation || card.reason || '',
       ieltsCriterion: card.ieltsCriterion || card.ielts_criterion || 'IELTS Band Descriptors',
       severity: card.severity || (normCategory(card.category) === 'upgrade_c1' ? 'upgrade' : 'basic_error'),
