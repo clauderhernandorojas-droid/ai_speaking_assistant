@@ -520,19 +520,29 @@ MANDATES:
 2. DIALOGUE ROLES: If transcript contains 'DOCENTE:' (teacher) and 'ESTUDIANTE:' (student), evaluate and correct EXCLUSIVELY what 'ESTUDIANTE:' said. Use 'DOCENTE:' turns strictly as conversational context. 'teacherContext' in each card must be the literal preceding teacher question or "" if none. Never invent prompts.
 3. EXHAUSTIVE & PROPORTIONAL AUDIT: Conduct a complete, rigorous audit proportional to the length of the transcript. In extended turns or long sessions (> 200 words), you MUST extract and generate feedback cards for EVERY distinct and clear error in 'grammar' and 'vocabulary' across the entire speech. NEVER stop after just 1 or 2 sample cards. Group only exact identical repetitions of the same mistake into a single card; otherwise, each separate grammatical inaccuracy, wrong tense, subject-verb agreement failure, preposition mistake, unnatural collocation, or calque must have its own dedicated card:
    - 'grammar': Systemic or local errors calibrated to ${normLevel}. Extract EVERY distinct grammatical error found throughout the entire student speech. Severity: 'basic_error'.
+     * GRAMMAR PURITY RULE: 'surgicalCorrection' MUST fix ONLY the grammatical error while keeping the student's original vocabulary 100% intact (e.g., if the student said "proposed them a big map", correct it to "proposed a big map to them" — NEVER replace "big" with "comprehensive" or upgrade other words). Vocabulary upgrades belong exclusively in 'vocabulary' or 'upgrade_c1'.
    - 'vocabulary': Unnatural collocations, calques, L1 interference, or imprecise lexical choices calibrated to ${normLevel}. Extract all distinct vocabulary improvement opportunities across the speech. Severity: 'refinement'.
    - 'pronunciation': Phonological issues (-ed endings, silent letters, vowel reduction/schwa, word stress) grounded in the acoustic observations provided below or tags in the transcript. In studentResponse, highlight the mispronounced word AND include the approximate IPA of how the student actually pronounced it (e.g. <span class="highlight-error">sausages /ˈsaʊ.sɪdʒ/</span>). In surgicalCorrection, highlight the word AND its correct target IPA (e.g. <span class="highlight-fix">sausages /ˈsɒs.ɪ.dʒɪz/</span>). Also set "studentIpa" and "targetIpa" with the respective IPA strings in slashes. If no acoustic observations exist and no obvious phonetic mistakes appear, do NOT fabricate pronunciation errors. Severity: 'basic_error'.
-   - 'upgrade_c1': Step-by-step i+1 upgrade calibrated strictly to target level "${targetUpgradeLevel}". NEVER jump to C1/C2 vocabulary or complex idioms if the student is A1, A2, or B1:
-     * If student is A1/A2 -> upgrade strictly to B1 (e.g. 'decided to quit' instead of 'felt compelled to tender my resignation').
-     * If student is B1 -> upgrade strictly to B2 (clear connectors, practical professional collocations, natural variety).
-     * Only if student is B2/C1 -> upgrade to C1. Severity: 'upgrade'.
+   - 'upgrade_c1': Generate BETWEEN 3 AND 4 distinct 'upgrade_c1' cards whenever the transcript length and content allow (do NOT stop at just 1 card). Draw from BOTH grammatically correct sentences AND key ideas from the student's turns that can be re-expressed in more natural, idiomatic spoken English (do not limit yourself only to 100% error-free sentences).
+     * NATURAL SPOKEN REGISTER (NO ROBOTIC/ACADEMIC PROSE): Upgrades MUST sound like an articulate, educated native speaker in a real professional meeting or interview — NEVER like a stiff academic essay or legal contract.
+     * STRICTLY BANNED WORDS: NEVER use artificial, overly formal, or essay-style words in spoken upgrades, such as: "utilize", "comprehensive", "commence", "facilitate", "plethora", "endeavor", "aforementioned".
+     * PRIORITIZE: Natural everyday collocations, idiomatic phrasal verbs, spoken emphasis structures ("What struck me was...", "It came down to...", "The thing is..."), and crisp, natural lexical precision.
+     * LEVEL CALIBRATION (i+1 to "${targetUpgradeLevel}"): Keep upgrades accessible and realistic for the student's next step:
+       - If student is A1/A2 -> upgrade to natural spoken B1 (e.g. "decided to quit" instead of stiff/complex phrasing).
+       - If student is B1 -> upgrade to natural spoken B2 (clear spoken connectors, practical collocations, natural phrasal verbs).
+       - If student is B2/C1 -> upgrade to Natural Spoken C1 (idiomatic phrasal verbs, spoken clefts, authentic high-register collocations). Severity: 'upgrade'.
    - 'fluency': Fillers, repetitive connectors, natural discourse markers calibrated to ${normLevel}. Severity: 'refinement'.
-4. CONTRASTIVE CAPSULE (Required for 'grammar', 'vocabulary', and 'upgrade_c1'; null for 'pronunciation' and 'fluency'):
+4. BIDIRECTIONAL COMPLETE CONTEXT (NO TRUNCATION BEFORE OR AFTER THE ERROR):
+   - In EVERY card (especially 'grammar', 'vocabulary', and 'upgrade_c1'), 'studentResponse' and 'surgicalCorrection' MUST contain the COMPLETE sentence (or full unit of meaning) with ZERO ellipsis ("...") cutting off essential context:
+     * PRECEDING CONTEXT (before the error): NEVER cut off the subject or main verb that establishes tense, agreement, or clause structure (e.g., NEVER truncate "We created a map" in "...which allow us to find whatever we wanted" — include the full sentence "We created a map which allow us to find whatever we wanted").
+     * FOLLOWING CONTEXT (after the error): NEVER cut off trailing time markers ("yesterday", "since 2020", "for three years", "last week"), conditional/result clauses ("...if I had known"), or prepositions/complements that follow the verb or adjective and trigger the rule (e.g., "I go to the office yesterday." and "She is living here since 2020." MUST be shown complete up to the final period).
+     * You may only omit unrelated fillers from separate independent sentences — NEVER parts of the same sentence that provide the syntactic or temporal clue needed for the student to self-correct.
+5. CONTRASTIVE CAPSULE (Required for 'grammar', 'vocabulary', and 'upgrade_c1'; null for 'pronunciation' and 'fluency'):
    - "poleA": { "label": "Student's/Opposing form", "rule": "Simple A2/B1 rule when Form A is right", "example": "Natural sentence where Form A is correct" }
-   - "poleB": { "label": "Target form", "rule": "Simple A2/B1 rule when to use Form B", "example": "Natural sentence where Form B is correct" } (Calibrated to ${normLevel} for grammar/vocab; strictly calibrated to ${targetUpgradeLevel} for upgrade_c1).
-5. MODEL SPEECH (i+1):
+   - "poleB": { "label": "Target form", "rule": "Simple A2/B1 rule when to use Form B", "example": "Natural sentence where Form B is correct" } (Calibrated to ${normLevel} for grammar/vocab; strictly calibrated to natural spoken ${targetUpgradeLevel} for upgrade_c1).
+6. MODEL SPEECH (i+1):
    - "naturalCorrected": Full student discourse rewritten naturally at confirmed ${normLevel} fixing errors and acoustic fillers.
-   - "targetUpgrade": Same speech elevated exactly one step to target level ${targetUpgradeLevel} (${iPlusOneLevel}).
+   - "targetUpgrade": Same speech elevated exactly one step to natural spoken ${targetUpgradeLevel} (${iPlusOneLevel}), avoiding stiff academic words ("utilize", "comprehensive", "commence", "facilitate", "plethora", "endeavor", "aforementioned").
    - "keyImprovements": Exactly 3 short bullet points in simple English explaining practical upgrades.
 ${acousticPronunciationSection}
 
