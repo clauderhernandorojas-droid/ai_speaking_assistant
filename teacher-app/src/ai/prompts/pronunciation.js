@@ -33,6 +33,9 @@ Evaluate the student's output for critical pronunciation and phonological patter
    - Conflation of /b/ and /v/, /ʃ/ and /tʃ/.
    - Voicing of dental fricatives (/θ/ vs /s/, /ð/ vs /d/).
 
+QUANTITY & COVERAGE QUOTA:
+Include ALL clear phonetic deviations detected in the audio (up to 6–8 distinct cards in full sessions; do NOT limit yourself to only 2 or 3 words). Keep each explanation ultra-concise (1 short sentence, max 12–15 words) and always include both "studentIpa" and "targetIpa".
+
 OUTPUT FORMAT:
 Return a JSON array of objects with the exact following schema:
 [

@@ -51,63 +51,129 @@ class GeminiService {
     return process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   }
 
+  _createAbortError(message = 'Análisis cancelado por el usuario.') {
+    const err = new Error(message);
+    err.name = 'AbortError';
+    err.isAborted = true;
+    return err;
+  }
+
+  _isAbortError(err, abortSignal = null) {
+    return Boolean(abortSignal?.aborted || err?.isAborted || err?.name === 'AbortError');
+  }
+
+  _sleep(ms, abortSignal = null) {
+    if (abortSignal?.aborted) {
+      return Promise.reject(this._createAbortError());
+    }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (abortSignal) abortSignal.removeEventListener('abort', onAbort);
+        resolve();
+      }, ms);
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(this._createAbortError());
+      };
+      if (abortSignal) {
+        abortSignal.addEventListener('abort', onAbort, { once: true });
+      }
+    });
+  }
+
   /**
    * Petición HTTP nativa a Gemini con soporte IPv4 garantizado para Windows,
-   * reintentos automáticos para Error 503 (High Demand) y fallback entre modelos.
+   * reintentos automáticos para Error 503 (High Demand), cancelación inmediata y fallback entre modelos.
    */
-  async requestGemini(endpoint, payload, timeoutMs = 15000, preferredModels = null) {
+  async requestGemini(endpoint, payload, timeoutMs = 15000, preferredModels = null, options = {}) {
     const apiKey = this.getApiKey();
     if (!apiKey) {
       throw new Error('No se encontró GEMINI_API_KEY ni GOOGLE_API_KEY en variables de entorno.');
     }
 
+    const abortSignal = options?.abortSignal || null;
+    const modelTimeouts = options?.modelTimeouts || null;
+    const max503Retries = typeof options?.max503Retries === 'number' ? options.max503Retries : 2;
+
+    if (abortSignal?.aborted) {
+      throw this._createAbortError();
+    }
+
     let lastError = null;
-    const modelsToTry = Array.isArray(preferredModels) && preferredModels.length > 0
+    const rawModels = Array.isArray(preferredModels) && preferredModels.length > 0
       ? preferredModels
       : this.fallbackModels;
+    // Deduplicar modelos para evitar llamadas duplicadas si GEMINI_MODEL coincide con un fallback
+    const modelsToTry = [...new Set(rawModels.filter(Boolean))];
 
     // Iterar por la lista de modelos
-    for (const model of modelsToTry) {
-      const max503Retries = 2; // Máximo 2 reintentos por picos de demanda 503
+    for (let modelIndex = 0; modelIndex < modelsToTry.length; modelIndex++) {
+      const model = modelsToTry[modelIndex];
+      const hasNextModel = modelIndex < modelsToTry.length - 1;
+      if (abortSignal?.aborted) {
+        throw this._createAbortError();
+      }
+
+      const effectiveTimeoutMs = typeof modelTimeouts === 'function'
+        ? modelTimeouts(model, modelIndex)
+        : (Array.isArray(modelTimeouts) && modelTimeouts[modelIndex] ? modelTimeouts[modelIndex] : timeoutMs);
+
       let attempt = 0;
 
       while (attempt <= max503Retries) {
+        if (abortSignal?.aborted) {
+          throw this._createAbortError();
+        }
+
         try {
           // Adaptar payload dinámicamente según el modelo:
-          // gemini-3.8-flash soporta thinkingConfig: { thinkingLevel: 'LOW' } para evitar sobrecosto de tokens de razonamiento.
-          // gemini-3.5-* no soporta thinkingLevel y arrojaría HTTP 400 INVALID_ARGUMENT si se envía.
+          // Si ya se especificó thinkingBudget (ej. { thinkingBudget: 0 }), respetarlo en 3.8 y 3.5.
+          // Si no se especificó thinkingConfig, usar thinkingLevel: 'LOW' solo en 3.8 y omitirlo en 3.5-*.
           let adaptedPayload = payload;
           if (payload && typeof payload === 'object') {
             adaptedPayload = JSON.parse(JSON.stringify(payload));
             if (!adaptedPayload.generationConfig) {
               adaptedPayload.generationConfig = {};
             }
-            if (model.includes('3.8')) {
+            const existingThinking = adaptedPayload.generationConfig.thinkingConfig;
+            const hasExplicitBudget = existingThinking && typeof existingThinking.thinkingBudget === 'number';
+            if (hasExplicitBudget) {
+              // Conservar thinkingBudget explícito (verificado compatible en gemini-3.8-flash y gemini-3.5-flash)
+              adaptedPayload.generationConfig.thinkingConfig = { thinkingBudget: existingThinking.thinkingBudget };
+            } else if (model.includes('3.8')) {
               adaptedPayload.generationConfig.thinkingConfig = { thinkingLevel: 'LOW' };
             } else {
               delete adaptedPayload.generationConfig.thinkingConfig;
             }
           }
 
-          const result = await this.executeHttpRequest(model, endpoint, adaptedPayload, apiKey, timeoutMs);
+          const result = await this.executeHttpRequest(model, endpoint, adaptedPayload, apiKey, effectiveTimeoutMs, abortSignal);
           return result;
         } catch (err) {
           lastError = err;
 
-          // Manejo de Error 503 (Picos de alta demanda): esperar 1.5s y reintentar hasta 2 veces
+          // Cancelación inmediata: no reintentar ni pasar a fallback
+          if (this._isAbortError(err, abortSignal)) {
+            throw this._createAbortError();
+          }
+
+          // Manejo de Error 503 (Picos de alta demanda)
           if (err.message && (err.message.includes('503') || err.message.includes('high demand') || err.message.includes('spikes in demand'))) {
             attempt++;
             if (attempt <= max503Retries) {
               console.warn(`[GEMINI] Pico de demanda (503) en '${model}'. Reintentando (${attempt}/${max503Retries}) en 1.5 segundos...`);
-              await new Promise(resolve => setTimeout(resolve, 1500));
+              await this._sleep(1500, abortSignal);
               continue;
+            } else if (hasNextModel) {
+              console.warn(`[GEMINI] Pico de demanda (503) en '${model}'. Cambiando al siguiente modelo de fallback ('${modelsToTry[modelIndex + 1]}')...`);
+              break;
             } else {
-              console.warn(`[GEMINI] Agotados los 2 reintentos por 503 en '${model}'. Cambiando automáticamente al siguiente modelo de fallback...`);
-              break; // Pasar al siguiente modelo de fallbackModels
+              console.warn(`[GEMINI] Pico de demanda (503) en el último modelo '${model}'. Cadena de fallback agotada.`);
+              break;
             }
           }
 
-          // Si el modelo da Timeout, 404, 400 (ej. incompatibilidad INVALID_ARGUMENT) o 429 (cuota agotada), cambiar automáticamente al siguiente modelo
+          // Si el modelo da Timeout, 404, 400 (ej. incompatibilidad INVALID_ARGUMENT) o 429 (cuota agotada), cambiar al siguiente modelo si existe
           if (err.message && (
             err.message.includes('Timeout') ||
             err.message.includes('404') ||
@@ -117,11 +183,15 @@ class GeminiService {
             err.message.includes('429') ||
             err.message.includes('quota')
           )) {
-            console.warn(`[GEMINI] Modelo '${model}' devolvió error o no disponible (${err.message.slice(0, 100)}...). Probando siguiente modelo de fallback...`);
+            if (hasNextModel) {
+              console.warn(`[GEMINI] Modelo '${model}' falló (${err.message.slice(0, 100)}). Probando fallback '${modelsToTry[modelIndex + 1]}'...`);
+            } else {
+              console.warn(`[GEMINI] Último modelo '${model}' falló (${err.message.slice(0, 100)}). No quedan más modelos de fallback.`);
+            }
             break;
           }
 
-          // Errores de cliente (ej. 400), lanzar de inmediato
+          // Otros errores de red/cliente: lanzar de inmediato
           throw err;
         }
       }
@@ -130,8 +200,43 @@ class GeminiService {
     throw lastError;
   }
 
-  executeHttpRequest(model, endpoint, payload, apiKey, timeoutMs = 15000) {
+  executeHttpRequest(model, endpoint, payload, apiKey, timeoutMs = 15000, abortSignal = null) {
     return new Promise((resolve, reject) => {
+      if (abortSignal?.aborted) {
+        return reject(this._createAbortError());
+      }
+
+      let settled = false;
+      let hardTimeoutTimer = null;
+      let req = null;
+
+      const cleanup = () => {
+        if (hardTimeoutTimer) {
+          clearTimeout(hardTimeoutTimer);
+          hardTimeoutTimer = null;
+        }
+        if (abortSignal && onAbort) {
+          abortSignal.removeEventListener('abort', onAbort);
+        }
+        if (req) {
+          try {
+            req.setTimeout(0);
+          } catch (_) {}
+        }
+      };
+      const finishResolve = (data) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(data);
+      };
+      const finishReject = (err) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(err);
+      };
+
       const postData = JSON.stringify(payload);
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:${endpoint}?key=${apiKey}`;
 
@@ -144,18 +249,21 @@ class GeminiService {
         }
       };
 
-      const req = https.request(url, options, (res) => {
+      req = https.request(url, options, (res) => {
         let responseBody = '';
         res.on('data', chunk => responseBody += chunk);
         res.on('end', () => {
+          if (abortSignal?.aborted) {
+            return finishReject(this._createAbortError());
+          }
           // Si el estado HTTP es de error, imprimir el cuerpo crudo devuelto por Google
           if (res.statusCode < 200 || res.statusCode >= 300) {
             console.error(`[GEMINI HTTP ${res.statusCode} ERROR BODY]:\n`, responseBody);
             try {
               const errJson = JSON.parse(responseBody);
-              return reject(new Error(`[Gemini API Error ${res.statusCode}]: ${errJson.error?.message || responseBody}`));
+              return finishReject(new Error(`[Gemini API Error ${res.statusCode}]: ${errJson.error?.message || responseBody}`));
             } catch (_) {
-              return reject(new Error(`[Gemini HTTP ${res.statusCode}]: ${responseBody}`));
+              return finishReject(new Error(`[Gemini HTTP ${res.statusCode}]: ${responseBody}`));
             }
           }
 
@@ -163,7 +271,7 @@ class GeminiService {
             const data = JSON.parse(responseBody);
             if (data.error) {
               console.error('[GEMINI API RAW ERROR RESPONSE]:', JSON.stringify(data, null, 2));
-              return reject(new Error(`[Gemini API Error ${data.error.code}]: ${data.error.message}`));
+              return finishReject(new Error(`[Gemini API Error ${data.error.code}]: ${data.error.message}`));
             }
 
             // Monitoreo de consumo y tokens por clase
@@ -172,21 +280,45 @@ class GeminiService {
               console.log(`[GEMINI USAGE] Modelo: ${model} | Prompt: ${u.promptTokenCount || 0} tok | Candidatos: ${u.candidatesTokenCount || 0} tok | Total: ${u.totalTokenCount || 0} tok`);
             }
 
-            resolve(data);
+            finishResolve(data);
           } catch (e) {
-            reject(new Error(`Error al parsear respuesta JSON de Gemini: ${e.message} - Body: ${responseBody.slice(0, 300)}`));
+            finishReject(new Error(`Error al parsear respuesta JSON de Gemini: ${e.message} - Body: ${responseBody.slice(0, 300)}`));
           }
         });
       });
 
-      // Timeout configurable (por defecto 15s, ampliado a 35s en evaluación pedagógica)
-      req.setTimeout(timeoutMs, () => {
-        req.destroy(new Error(`Timeout de ${Math.round(timeoutMs / 1000)} segundos alcanzado al consultar Gemini (${model}).`));
-      });
+      const onAbort = () => {
+        const abortErr = this._createAbortError();
+        console.log(`[GEMINI] Cancelando petición HTTP activa hacia '${model}'...`);
+        try {
+          req.destroy(abortErr);
+        } catch (_) {}
+        finishReject(abortErr);
+      };
+
+      if (abortSignal) {
+        abortSignal.addEventListener('abort', onAbort, { once: true });
+      }
+
+      // Timeout total de pared (wall-clock) acotado con limpieza garantizada
+      hardTimeoutTimer = setTimeout(() => {
+        const timeoutErr = new Error(`Timeout de ${Math.round(timeoutMs / 1000)} segundos alcanzado al consultar Gemini (${model}).`);
+        timeoutErr.isTimeout = true;
+        try {
+          req.destroy(timeoutErr);
+        } catch (_) {}
+        finishReject(timeoutErr);
+      }, timeoutMs);
 
       req.on('error', (err) => {
-        console.error('[GEMINI ERROR DETALLADO]:', err);
-        reject(err);
+        if (this._isAbortError(err, abortSignal)) {
+          return finishReject(this._createAbortError());
+        }
+        if (err?.isTimeout) {
+          return finishReject(err);
+        }
+        console.error(`[GEMINI ERROR RED (${model})]:`, err.message || err);
+        finishReject(err);
       });
 
       req.write(postData);
@@ -453,13 +585,23 @@ RULES:
 
   /**
    * Evalúa las intervenciones con Gemini contra los Band Descriptors de IELTS
-   * con tolerancia ampliada de 35s y 1 reintento automático para evitar caídas en fallback por latencia.
+   * con timeouts holgados (90s principal, 45s fallback), thinkingBudget: 0
+   * y cancelación inmediata vía abortSignal.
    */
-  async evaluateTranscript({ teacherContext, studentUtterance, studentLevel, systemPrompt, highPrecision = false }) {
+  async evaluateTranscript({ teacherContext, studentUtterance, studentLevel, systemPrompt, highPrecision = false, abortSignal = null }) {
+    if (abortSignal?.aborted) {
+      throw this._createAbortError();
+    }
+
     const apiKey = this.getApiKey();
     console.log('[GEMINI] Clave encontrada:', !!apiKey, 'Longitud:', apiKey ? apiKey.length : 0);
 
     const normLevel = (studentLevel || 'B1').toUpperCase().trim();
+    const rawUtterance = String(studentUtterance || '');
+    const hasLabeledDialogue = /\bDOCENTE:\s*/i.test(rawUtterance) && /\bESTUDIANTE:\s*/i.test(rawUtterance);
+    const teacherContextLine = (!hasLabeledDialogue && teacherContext)
+      ? `TEACHER'S CONTEXT / QUESTION: "${teacherContext}"\n`
+      : '';
 
     const payload = {
       contents: [
@@ -468,10 +610,9 @@ RULES:
             {
               text: `${systemPrompt}
 
-TEACHER'S CONTEXT / QUESTION: "${teacherContext || ''}"
-TRANSCRIPTION (MAY INCLUDE 'DOCENTE:' AND 'ESTUDIANTE:' TURNS):
+${teacherContextLine}TRANSCRIPTION (MAY INCLUDE 'DOCENTE:' AND 'ESTUDIANTE:' TURNS):
 """
-${studentUtterance}
+${rawUtterance}
 """
 CONFIRMED STUDENT CEFR LEVEL: "${normLevel}"
 
@@ -483,39 +624,35 @@ Analyze according to all instructions and output ONLY valid JSON without markdow
       generationConfig: {
         temperature: 0.1,
         maxOutputTokens: 8192,
-        responseMimeType: 'application/json'
+        responseMimeType: 'application/json',
+        thinkingConfig: { thinkingBudget: 0 }
       }
     };
 
-    // Usar gemini-3.8-flash como modelo principal, manteniendo gemini-3.5-flash y gemini-3.5-flash-lite en la lista de respaldo
-    const evaluationModels = highPrecision
-      ? [this.primaryModel || 'gemini-3.8-flash', 'gemini-3.5-flash']
-      : [this.primaryModel || 'gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite'];
+    // Usar gemini-3.8-flash como modelo principal (90s), y fallback acotado (45s) deduplicado
+    // con cancelación real disponible en cualquier momento desde el botón Detener
+    const evaluationModels = [...new Set(
+      highPrecision
+        ? [this.primaryModel || 'gemini-3.8-flash', 'gemini-3.5-flash']
+        : [this.primaryModel || 'gemini-3.8-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite']
+    )];
 
-    const maxAttempts = 2; // 1 intento inicial + 1 reintento automático (tolerancia 35s)
-    let lastErr = null;
+    console.log(`[GEMINI evaluateTranscript] Iniciando (${highPrecision ? 'Alta Precisión' : 'Económico'} - modelos: ${evaluationModels.join(' -> ')} - timeout: 90s principal / 45s fallback - thinkingBudget: 0)...`);
+    const result = await this.requestGemini('generateContent', payload, 90000, evaluationModels, {
+      abortSignal,
+      modelTimeouts: (_model, idx) => (idx === 0 ? 90000 : 45000),
+      max503Retries: 0
+    });
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        console.log(`[GEMINI evaluateTranscript] Intento ${attempt}/${maxAttempts} (${highPrecision ? 'Alta Precisión' : 'Económico'} - timeout: 35s)...`);
-        const result = await this.requestGemini('generateContent', payload, 35000, evaluationModels);
-        let text = result?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-        // Limpiar posibles bloques markdown ```json ... ```
-        text = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
-        const parsed = JSON.parse(text);
-        return parsed;
-      } catch (err) {
-        lastErr = err;
-        console.warn(`[GEMINI evaluateTranscript] Falló el intento ${attempt}/${maxAttempts}: ${err.message || err}`);
-        if (attempt < maxAttempts) {
-          console.log('[GEMINI evaluateTranscript] Esperando 1.5s antes del reintento automático...');
-          await new Promise(r => setTimeout(r, 1500));
-        }
-      }
+    if (abortSignal?.aborted) {
+      throw this._createAbortError();
     }
 
-    console.error('[GEMINI evaluateTranscript] Agotados los 2 intentos con 35s de tolerancia. Lanzando error para fallback offline.');
-    throw lastErr;
+    let text = result?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+    // Limpiar posibles bloques markdown ```json ... ```
+    text = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
+    const parsed = JSON.parse(text);
+    return parsed;
   }
 
   /**

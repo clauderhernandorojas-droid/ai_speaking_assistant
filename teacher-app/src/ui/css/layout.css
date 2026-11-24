@@ -591,12 +591,41 @@ body {
 }
 
 .btn-reanalyze.is-analyzing {
+  min-width: 142px;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
   border-color: #c084fc;
   color: #c084fc;
+  background: rgba(192, 132, 252, 0.12);
+  cursor: pointer;
 }
 
 .btn-reanalyze.is-analyzing .reanalyze-icon {
   animation: spinReanalyze 1s linear infinite;
+}
+
+.btn-reanalyze.is-analyzing.is-stop-phase {
+  border-color: #f85149;
+  color: #ff7b72;
+  background: rgba(248, 81, 73, 0.16);
+}
+
+.btn-reanalyze.is-analyzing.is-stop-phase .reanalyze-icon {
+  animation: none;
+  color: #ff7b72;
+  font-size: 0.78rem;
+}
+
+.btn-reanalyze.is-analyzing:hover {
+  border-color: #f85149;
+  color: #ffffff;
+  background: rgba(248, 81, 73, 0.28);
+  box-shadow: 0 2px 8px rgba(248, 81, 73, 0.25);
+}
+
+.btn-reanalyze.is-analyzing.is-cancelling {
+  opacity: 0.75;
+  cursor: wait;
 }
 
 @keyframes spinReanalyze {

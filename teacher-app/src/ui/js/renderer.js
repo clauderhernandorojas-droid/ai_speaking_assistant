@@ -100,6 +100,14 @@ let pendingAnalysisUtterance = '';
 let pendingTeacherContext = '';
 let tempSelectedConfirmLevel = 'B1';
 let pendingIsReanalyze = false;
+let activeAnalysisId = null;
+let isAnalyzing = false;
+let isCancellingAnalysis = false;
+let analyzeButtonToggleTimer = null;
+let analyzeElapsedTimer = null;
+let analyzeStartTime = 0;
+let analyzeStatusBaseText = '';
+let analyzeButtonShowStop = false;
 
 // Elementos de captura de micrófono del docente
 const btnToggleTeacherMic = document.getElementById('btn-toggle-teacher-mic');
@@ -925,6 +933,20 @@ async function applyLoadedSessionReport(data) {
   console.log(`[UI] Reporte cargado exitosamente: "${studentName}" (${targetLevel}), ${data.transcriptEntries?.length || 0} turnos, ${data.feedbackCards?.length || 0} tarjetas.`);
 }
 
+function selectFirstPopulatedFeedbackTab() {
+  const categories = ['grammar', 'vocabulary', 'pronunciation', 'upgrade_c1', 'fluency'];
+  const currentTab = state.activeTab || 'grammar';
+  if (categories.includes(currentTab) && (state.feedbackCounts[currentTab] || 0) > 0) {
+    return;
+  }
+  const firstPopulatedCat = categories.find(c => (state.feedbackCounts[c] || 0) > 0);
+  if (!firstPopulatedCat) return;
+  const targetTabBtn = document.querySelector(`.tab-btn[data-tab="${firstPopulatedCat}"]`);
+  if (targetTabBtn) {
+    targetTabBtn.click();
+  }
+}
+
 // ==============================================================================
 // GESTIÓN DEL MODAL DE CONFIRMACIÓN DE NIVEL Y EJECUCIÓN DEL ANÁLISIS
 // ==============================================================================
@@ -967,9 +989,98 @@ function closeConfirmLevelModal() {
   }
 }
 
+function clearAnalyzeButtonTimer() {
+  if (analyzeButtonToggleTimer) {
+    clearInterval(analyzeButtonToggleTimer);
+    analyzeButtonToggleTimer = null;
+  }
+  if (analyzeElapsedTimer) {
+    clearInterval(analyzeElapsedTimer);
+    analyzeElapsedTimer = null;
+  }
+}
+
+function getAnalyzeElapsedSeconds() {
+  if (!analyzeStartTime) return 0;
+  return Math.max(0, Math.floor((Date.now() - analyzeStartTime) / 1000));
+}
+
+function renderAnalyzingButtonLabel() {
+  const sec = getAnalyzeElapsedSeconds();
+  if (isCancellingAnalysis) {
+    if (reanalyzeSpinner) reanalyzeSpinner.textContent = '■';
+    if (reanalyzeBtnLabel) reanalyzeBtnLabel.textContent = `Deteniendo... ${sec}s`;
+    if (transcriptStatus) transcriptStatus.textContent = `Deteniendo análisis... (${sec}s)`;
+    return;
+  }
+
+  if (analyzeButtonShowStop) {
+    if (btnReanalyze) btnReanalyze.classList.add('is-stop-phase');
+    if (reanalyzeSpinner) reanalyzeSpinner.textContent = '■';
+    if (reanalyzeBtnLabel) reanalyzeBtnLabel.textContent = `Detener · ${sec}s`;
+  } else {
+    if (btnReanalyze) btnReanalyze.classList.remove('is-stop-phase');
+    if (reanalyzeSpinner) reanalyzeSpinner.textContent = '↻';
+    if (reanalyzeBtnLabel) reanalyzeBtnLabel.textContent = `Analizando... ${sec}s`;
+  }
+
+  if (transcriptStatus && analyzeStatusBaseText) {
+    transcriptStatus.textContent = `${analyzeStatusBaseText} (${sec}s)`;
+  }
+}
+
+function startAnalyzingButtonState(statusBaseText = '') {
+  clearAnalyzeButtonTimer();
+  isAnalyzing = true;
+  isCancellingAnalysis = false;
+  analyzeButtonShowStop = false;
+  analyzeStartTime = Date.now();
+  analyzeStatusBaseText = statusBaseText;
+
+  if (btnReanalyze) {
+    btnReanalyze.disabled = false;
+    btnReanalyze.classList.add('is-analyzing');
+    btnReanalyze.classList.remove('is-stop-phase', 'is-cancelling');
+    btnReanalyze.title = 'Haz clic para detener el análisis en curso';
+  }
+  renderAnalyzingButtonLabel();
+
+  analyzeButtonToggleTimer = setInterval(() => {
+    if (!isAnalyzing || isCancellingAnalysis) return;
+    analyzeButtonShowStop = !analyzeButtonShowStop;
+    renderAnalyzingButtonLabel();
+  }, 1800);
+
+  analyzeElapsedTimer = setInterval(() => {
+    if (!isAnalyzing) return;
+    renderAnalyzingButtonLabel();
+  }, 1000);
+}
+
+function stopAnalyzingButtonState() {
+  clearAnalyzeButtonTimer();
+  isAnalyzing = false;
+  isCancellingAnalysis = false;
+  analyzeButtonShowStop = false;
+  analyzeStartTime = 0;
+  analyzeStatusBaseText = '';
+  activeAnalysisId = null;
+
+  if (btnReanalyze) {
+    btnReanalyze.disabled = false;
+    btnReanalyze.classList.remove('is-analyzing', 'is-stop-phase', 'is-cancelling');
+    btnReanalyze.title = 'Re-analizar la transcripción actual con Gemini';
+  }
+  if (reanalyzeSpinner) reanalyzeSpinner.textContent = '↻';
+  if (reanalyzeBtnLabel) reanalyzeBtnLabel.textContent = 'Re-analizar';
+}
+
 async function executeAnalysisWithConfirmedLevel(confirmedLevel, studentUtterance, teacherContext) {
   if (!studentUtterance) {
     alert('No hay texto del estudiante disponible para evaluar.');
+    return;
+  }
+  if (isAnalyzing) {
     return;
   }
 
@@ -1003,24 +1114,32 @@ async function executeAnalysisWithConfirmedLevel(confirmedLevel, studentUtteranc
     }
   }
 
-  // 2. Estado visual de análisis
-  if (btnReanalyze) {
-    btnReanalyze.disabled = true;
-    btnReanalyze.classList.add('is-analyzing');
-  }
-  if (reanalyzeBtnLabel) reanalyzeBtnLabel.textContent = 'Analizando...';
+  // 2. Estado visual de análisis con alternancia automática Analizando... / Detener y cronómetro en vivo
+  const existingCardsCount = Object.values(state.feedbackCounts || {}).reduce((sum, n) => sum + (Number(n) || 0), 0);
+  const preserveExistingOnCancel = !!pendingIsReanalyze && existingCardsCount > 0;
+  activeAnalysisId = `analysis_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
   const isHighPrecision = !!pendingIsReanalyze;
-  if (transcriptStatus) transcriptStatus.textContent = `Analizando con Gemini (${isHighPrecision ? 'Alta Precisión' : 'Económico'} / Nivel ${confirmedLevel} / Tolerancia 35s)...`;
+  const statusBase = `Analizando con Gemini (${isHighPrecision ? 'Alta Precisión' : 'Económico'} / Nivel ${confirmedLevel})`;
+  startAnalyzingButtonState(statusBase);
 
   try {
-    console.log(`[Renderer] Ejecutando evaluación con Gemini para nivel ${confirmedLevel} (highPrecision: ${isHighPrecision}):`, studentUtterance.slice(0, 100));
+    console.log(`[Renderer] Ejecutando evaluación con Gemini para nivel ${confirmedLevel} (highPrecision: ${isHighPrecision}, analysisId: ${activeAnalysisId}):`, studentUtterance.slice(0, 100));
     const evalResult = await window.electronAPI.evaluateUtterance({
       teacherContext: teacherContext || '',
       studentUtterance,
       studentLevel: confirmedLevel,
       highPrecision: isHighPrecision,
-      pronunciationIssues: state.currentPronunciationIssues || []
+      pronunciationIssues: state.currentPronunciationIssues || [],
+      analysisId: activeAnalysisId,
+      preserveExistingOnCancel
     });
+
+    // Si era un re-análisis cancelado y ya había tarjetas previas, conservarlas intactas
+    if (evalResult && evalResult.cancelled && evalResult.preserveExisting) {
+      console.log('[Renderer] Re-análisis cancelado por el usuario. Se conservan las tarjetas existentes.');
+      if (transcriptStatus) transcriptStatus.textContent = 'Re-análisis detenido (se conservaron las tarjetas actuales)';
+      return;
+    }
 
     let newCards = [];
     let newModelSpeech = null;
@@ -1085,23 +1204,51 @@ async function executeAnalysisWithConfirmedLevel(confirmedLevel, studentUtteranc
       });
     });
 
-    // 5. Renderizar discurso modelo reformulado
+    // 5. Renderizar discurso modelo reformulado y asegurar pestaña visible con tarjetas
     state.currentModelSpeech = newModelSpeech;
     renderModelSpeechTab(newModelSpeech);
+    selectFirstPopulatedFeedbackTab();
 
     state.hasEvaluatedSession = true;
     state.isDemoData = false;
     if (btnExportReport) btnExportReport.disabled = false;
-    if (transcriptStatus) transcriptStatus.textContent = `Evaluación completada (${newCards.length} tarjetas)`;
+    if (transcriptStatus) {
+      if (evalResult && evalResult.cancelled && evalResult.usedFallback) {
+        transcriptStatus.textContent = `Análisis detenido — respaldo local (${newCards.length} tarjetas)`;
+      } else if (evalResult && evalResult.usedFallback) {
+        transcriptStatus.textContent = `Evaluación por respaldo local (${newCards.length} tarjetas)`;
+      } else {
+        transcriptStatus.textContent = `Evaluación completada (${newCards.length} tarjetas)`;
+      }
+    }
 
-    // Guardar sesión y tarjetas en SQLite local
+    // Guardar sesión, transcripciones y tarjetas en SQLite local
     if (window.electronAPI && typeof window.electronAPI.createSession === 'function' && newCards.length > 0) {
+      const studentTurnsText = Array.from(document.querySelectorAll('#transcript-feed .transcript-turn:not(.turn-teacher)'))
+        .map(t => (t.querySelector('.turn-content')?.textContent || t.textContent || '').trim())
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+      const cleanStudentTranscript = studentTurnsText || (state.sessionTranscript || '').trim() || studentUtterance;
+      const rawLabeledTranscript = studentUtterance;
+
       window.electronAPI.createSession({
         studentId: state.currentStudent?.id || 1,
         sessionCode: state.roomCode || state.sessionCode || 'EFL-ROOM',
         durationMinutes: state.durationMinutes || 10
       }).then(async (sessionRecord) => {
         if (sessionRecord && sessionRecord.id) {
+          if (typeof window.electronAPI.updateSession === 'function') {
+            try {
+              await window.electronAPI.updateSession(sessionRecord.id, {
+                rawTranscript: rawLabeledTranscript,
+                cleanTranscript: cleanStudentTranscript,
+                status: 'completed'
+              });
+            } catch (updErr) {
+              console.warn('[DB] Error guardando transcripciones en SQLite:', updErr);
+            }
+          }
           for (const item of newCards) {
             try {
               await window.electronAPI.addFeedbackItem({
@@ -1116,7 +1263,7 @@ async function executeAnalysisWithConfirmedLevel(confirmedLevel, studentUtteranc
               console.warn('[DB] Error guardando tarjeta individual:', e);
             }
           }
-          console.log(`[DB] Sesión #${sessionRecord.id} y ${newCards.length} tarjetas guardadas en SQLite.`);
+          console.log(`[DB] Sesión #${sessionRecord.id}, transcripciones y ${newCards.length} tarjetas guardadas en SQLite.`);
         }
       }).catch(err => console.warn('[DB] Error creando sesión en SQLite:', err));
     }
@@ -1125,20 +1272,33 @@ async function executeAnalysisWithConfirmedLevel(confirmedLevel, studentUtteranc
     if (transcriptStatus) transcriptStatus.textContent = 'Error al evaluar';
     alert(`Error al analizar con Gemini: ${err.message || err}`);
   } finally {
-    if (btnReanalyze) {
-      btnReanalyze.disabled = false;
-      btnReanalyze.classList.remove('is-analyzing');
-    }
-    if (reanalyzeBtnLabel) reanalyzeBtnLabel.textContent = 'Re-analizar';
+    stopAnalyzingButtonState();
     btnToggleSession.disabled = false;
     btnToggleSession.className = 'btn btn-start';
     sessionBtnText.textContent = 'Iniciar Sesión';
   }
 }
 
-// Botón para re-analizar la transcripción visible actual con Gemini
+// Botón para re-analizar la transcripción visible actual con Gemini (o detener análisis en curso)
 if (btnReanalyze) {
   btnReanalyze.addEventListener('click', async () => {
+    // Si hay un análisis en curso, pulsar el botón lo cancela de inmediato
+    if (isAnalyzing) {
+      if (isCancellingAnalysis) return;
+      isCancellingAnalysis = true;
+      clearAnalyzeButtonTimer();
+      btnReanalyze.classList.add('is-stop-phase', 'is-cancelling');
+      renderAnalyzingButtonLabel();
+      try {
+        if (window.electronAPI && typeof window.electronAPI.cancelEvaluation === 'function') {
+          await window.electronAPI.cancelEvaluation(activeAnalysisId);
+        }
+      } catch (cancelErr) {
+        console.warn('[Renderer] Error enviando cancelación de análisis:', cancelErr);
+      }
+      return;
+    }
+
     if (btnReanalyze.disabled || state.isSessionActive) return;
 
     // 1. Extraer transcripción visible actual con roles diferenciados de DOCENTE y ESTUDIANTE
@@ -1529,34 +1689,51 @@ function handleSessionCompleted(summary) {
     });
   });
 
-  // 4. Renderizar discurso modelo reformulado si está presente
+  // 4. Renderizar discurso modelo reformulado si está presente y asegurar pestaña con contenido
   if (summary.modelSpeech) {
     state.currentModelSpeech = summary.modelSpeech;
     renderModelSpeechTab(summary.modelSpeech);
   }
+  selectFirstPopulatedFeedbackTab();
 
-  // 5. Guardar sesión y tarjetas en SQLite local (en segundo plano y sin bloquear la UI)
+  // 5. Guardar sesión, transcripciones y tarjetas en SQLite local (en segundo plano y sin bloquear la UI)
   if (window.electronAPI && typeof window.electronAPI.createSession === 'function') {
+    const rawLabeledTranscript = (fullLabeledTranscript || '').trim() || studentUtterance;
+    const cleanStudentTranscript = (studentUtterance || summary.verbatimStudentSpeech || '').trim();
+
     window.electronAPI.createSession({
       studentId: state.currentStudent?.id || 1,
-      sessionCode: state.sessionCode,
+      sessionCode: state.roomCode || state.sessionCode || 'EFL-ROOM',
       durationMinutes: state.durationMinutes
     }).then(async (sessionRecord) => {
-      if (sessionRecord && sessionRecord.id && cards.length > 0) {
-        for (const item of cards) {
+      if (sessionRecord && sessionRecord.id) {
+        if (typeof window.electronAPI.updateSession === 'function' && (rawLabeledTranscript || cleanStudentTranscript)) {
           try {
-            await window.electronAPI.addFeedbackItem({
-              sessionId: sessionRecord.id,
-              category: item.category || 'grammar',
-              severity: item.severity || 'basic_error',
-              teacherContext: item.teacherContext || item.teacher_context || '',
-              studentResponse: item.studentResponse || item.student_response || '',
-              surgicalCorrection: item.surgicalCorrection || item.surgical_correction || '',
-              explanation: item.explanation || item.reason || '',
-              ieltsCriterion: item.ieltsCriterion || item.ielts_criterion || ''
+            await window.electronAPI.updateSession(sessionRecord.id, {
+              rawTranscript: rawLabeledTranscript,
+              cleanTranscript: cleanStudentTranscript,
+              status: 'completed'
             });
-          } catch (itemErr) {
-            console.warn('[DB] Error guardando tarjeta individual en SQLite:', itemErr.message);
+          } catch (updErr) {
+            console.warn('[DB] Error guardando transcripciones en SQLite:', updErr.message);
+          }
+        }
+        if (cards.length > 0) {
+          for (const item of cards) {
+            try {
+              await window.electronAPI.addFeedbackItem({
+                sessionId: sessionRecord.id,
+                category: item.category || 'grammar',
+                severity: item.severity || 'basic_error',
+                teacherContext: item.teacherContext || item.teacher_context || '',
+                studentResponse: item.studentResponse || item.student_response || '',
+                surgicalCorrection: item.surgicalCorrection || item.surgical_correction || '',
+                explanation: item.explanation || item.reason || '',
+                ieltsCriterion: item.ieltsCriterion || item.ielts_criterion || ''
+              });
+            } catch (itemErr) {
+              console.warn('[DB] Error guardando tarjeta individual en SQLite:', itemErr.message);
+            }
           }
         }
       }

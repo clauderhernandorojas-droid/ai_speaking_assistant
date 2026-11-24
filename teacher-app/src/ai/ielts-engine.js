@@ -20,6 +20,36 @@ class IELTSEngine {
       upgrade_c1: upgradePrompt,
       fluency: fluencyPrompt
     };
+    this.activeAnalyses = new Map();
+  }
+
+  /**
+   * Cancela de inmediato una evaluación en curso (o todas las activas si no se especifica ID).
+   */
+  cancelEvaluation(analysisId = null) {
+    if (analysisId) {
+      const controller = this.activeAnalyses.get(analysisId);
+      if (controller) {
+        console.log(`[IELTS Engine] Solicitada cancelación inmediata para análisis '${analysisId}'.`);
+        try {
+          controller.abort();
+        } catch (_) {}
+        this.activeAnalyses.delete(analysisId);
+        return { cancelled: true, analysisId };
+      }
+      return { cancelled: false, analysisId };
+    }
+
+    let count = 0;
+    for (const [id, controller] of this.activeAnalyses.entries()) {
+      console.log(`[IELTS Engine] Cancelando análisis activo '${id}'.`);
+      try {
+        controller.abort();
+      } catch (_) {}
+      count++;
+    }
+    this.activeAnalyses.clear();
+    return { cancelled: count > 0, count };
   }
 
   /**
@@ -47,51 +77,112 @@ class IELTSEngine {
    * @param {Array<Object>} options.pronunciationIssues Observaciones acústicas de pronunciación detectadas en la pasada de audio
    * @returns {Promise<Array<Object>>} Lista de tarjetas quirúrgicas estandarizadas
    */
-  async evaluateUtterance({ teacherContext, studentUtterance, studentLevel = 'B1', categories = null, highPrecision = false, pronunciationIssues = [] }) {
+  async evaluateUtterance({
+    teacherContext,
+    studentUtterance,
+    studentLevel = 'B1',
+    categories = null,
+    highPrecision = false,
+    pronunciationIssues = [],
+    analysisId = null,
+    abortSignal = null,
+    preserveExistingOnCancel = false
+  }) {
     const activeCategories = categories || ['grammar', 'vocabulary', 'pronunciation', 'upgrade_c1', 'fluency'];
     const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
     console.log('[GEMINI] Clave encontrada:', !!apiKey, 'Longitud:', apiKey ? apiKey.length : 0);
     const startTime = Date.now();
 
-    // Si existe una clave de API configurada en variables de entorno, invocar Gemini
-    if (apiKey) {
+    const runId = analysisId || `eval_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const controller = new AbortController();
+    this.activeAnalyses.set(runId, controller);
+
+    const onExternalAbort = () => {
       try {
-        console.log(`[IELTS Engine] Evaluando intervención con Gemini (${highPrecision ? 'Alta Precisión' : 'Estándar'} - modelo principal gemini-3.8-flash)...`);
-        const aiResults = await this.callLLMEvaluation({
-          teacherContext,
-          studentUtterance,
-          studentLevel,
-          categories: activeCategories,
-          highPrecision,
-          pronunciationIssues
-        });
-        if (aiResults && (Array.isArray(aiResults.feedbackCards) || Array.isArray(aiResults))) {
-          const cards = Array.isArray(aiResults) ? aiResults : (aiResults.feedbackCards || []);
-          console.log('[IELTS Engine] Evaluación completada en:', Date.now() - startTime, 'ms');
-          console.log(`[IELTS Engine] Gemini retornó ${cards.length} tarjetas de evaluación pedagógica.`);
-          return {
-            feedbackCards: cards,
-            modelSpeech: aiResults.modelSpeech || this.generateFallbackModelSpeech(studentUtterance, studentLevel)
-          };
-        }
-      } catch (err) {
-        console.error('[GEMINI ERROR DETALLADO]:', err.message || err);
-        if (err.message && (err.message.includes('429') || err.message.includes('quota') || err.message.includes('RESOURCE_EXHAUSTED'))) {
-          console.warn('\n[AVISO DE CUOTA GEMINI 429] Has alcanzado el límite diario gratuito de 20 peticiones de Google AI Studio.');
-          console.warn('-> Activando evaluación pedagógica de respaldo local para no interrumpir la sesión del docente.\n');
-        } else {
-          console.warn('[IELTS Engine] Falló la llamada a la API de IA externa. Ejecutando motor de reglas de respaldo.');
-        }
+        controller.abort();
+      } catch (_) {}
+    };
+    if (abortSignal) {
+      if (abortSignal.aborted) {
+        controller.abort();
+      } else {
+        abortSignal.addEventListener('abort', onExternalAbort, { once: true });
       }
     }
 
-    // Motor de reglas heurísticas y pedagógicas de respaldo (Garantiza funcionamiento offline/MVP)
-    const fallbackCards = this.runHeuristicAnalysis(teacherContext, studentUtterance, studentLevel, activeCategories);
-    console.log('[IELTS Engine] Evaluación completada en:', Date.now() - startTime, 'ms (Modo Respaldo Local)');
-    return {
-      feedbackCards: fallbackCards,
-      modelSpeech: this.generateFallbackModelSpeech(studentUtterance, studentLevel)
-    };
+    try {
+      // Si existe una clave de API configurada en variables de entorno, invocar Gemini
+      if (apiKey) {
+        try {
+          console.log(`[IELTS Engine] Evaluando intervención con Gemini (${highPrecision ? 'Alta Precisión' : 'Estándar'} - runId: ${runId})...`);
+          const aiResults = await this.callLLMEvaluation({
+            teacherContext,
+            studentUtterance,
+            studentLevel,
+            categories: activeCategories,
+            highPrecision,
+            pronunciationIssues,
+            abortSignal: controller.signal
+          });
+          if (aiResults && (Array.isArray(aiResults.feedbackCards) || Array.isArray(aiResults))) {
+            const cards = Array.isArray(aiResults) ? aiResults : (aiResults.feedbackCards || []);
+            console.log('[IELTS Engine] Evaluación completada en:', Date.now() - startTime, 'ms');
+            console.log(`[IELTS Engine] Gemini retornó ${cards.length} tarjetas de evaluación pedagógica.`);
+            return {
+              cancelled: false,
+              usedFallback: false,
+              feedbackCards: cards,
+              modelSpeech: aiResults.modelSpeech || this.generateFallbackModelSpeech(studentUtterance, studentLevel)
+            };
+          }
+        } catch (err) {
+          const wasCancelled = Boolean(controller.signal.aborted || err?.isAborted || err?.name === 'AbortError');
+          if (wasCancelled) {
+            console.log(`[IELTS Engine] Evaluación '${runId}' cancelada en ${Date.now() - startTime} ms (preserveExistingOnCancel: ${preserveExistingOnCancel}).`);
+            if (preserveExistingOnCancel) {
+              return {
+                cancelled: true,
+                preserveExisting: true,
+                usedFallback: false,
+                feedbackCards: [],
+                modelSpeech: null
+              };
+            }
+            const fallbackCards = this.runHeuristicAnalysis(teacherContext, studentUtterance, studentLevel, activeCategories);
+            return {
+              cancelled: true,
+              preserveExisting: false,
+              usedFallback: true,
+              feedbackCards: fallbackCards,
+              modelSpeech: this.generateFallbackModelSpeech(studentUtterance, studentLevel)
+            };
+          }
+
+          console.error('[GEMINI ERROR DETALLADO]:', err.message || err);
+          if (err.message && (err.message.includes('429') || err.message.includes('quota') || err.message.includes('RESOURCE_EXHAUSTED'))) {
+            console.warn('\n[AVISO DE CUOTA GEMINI 429] Has alcanzado el límite diario gratuito de 20 peticiones de Google AI Studio.');
+            console.warn('-> Activando evaluación pedagógica de respaldo local para no interrumpir la sesión del docente.\n');
+          } else {
+            console.warn('[IELTS Engine] Falló la llamada a la API de IA externa. Ejecutando motor de reglas de respaldo.');
+          }
+        }
+      }
+
+      // Motor de reglas heurísticas y pedagógicas de respaldo (Garantiza funcionamiento offline/MVP)
+      const fallbackCards = this.runHeuristicAnalysis(teacherContext, studentUtterance, studentLevel, activeCategories);
+      console.log('[IELTS Engine] Evaluación completada en:', Date.now() - startTime, 'ms (Modo Respaldo Local)');
+      return {
+        cancelled: false,
+        usedFallback: true,
+        feedbackCards: fallbackCards,
+        modelSpeech: this.generateFallbackModelSpeech(studentUtterance, studentLevel)
+      };
+    } finally {
+      this.activeAnalyses.delete(runId);
+      if (abortSignal) {
+        abortSignal.removeEventListener('abort', onExternalAbort);
+      }
+    }
   }
 
   /**
@@ -480,7 +571,7 @@ class IELTSEngine {
   /**
    * Conector para evaluación pedagógica concisa y rápida con Gemini
    */
-  async callLLMEvaluation({ teacherContext, studentUtterance, studentLevel, categories, highPrecision = false, pronunciationIssues = [] }) {
+  async callLLMEvaluation({ teacherContext, studentUtterance, studentLevel, categories, highPrecision = false, pronunciationIssues = [], abortSignal = null }) {
     const cleanTeacherContext = (teacherContext || '').trim();
     const normLevel = (studentLevel || 'B1').toUpperCase().trim();
     let targetUpgradeLevel = 'B2';
@@ -503,7 +594,7 @@ class IELTSEngine {
     if (Array.isArray(pronunciationIssues) && pronunciationIssues.length > 0) {
       acousticPronunciationSection = `\nVERIFIED ACOUSTIC PRONUNCIATION OBSERVATIONS (Detected directly from the student's spoken audio during single-pass transcription):
 ${JSON.stringify(pronunciationIssues, null, 2)}
-INSTRUCTION FOR PRONUNCIATION: You MUST generate dedicated 'pronunciation' feedbackCards for these genuine acoustic errors heard during the session.
+INSTRUCTION FOR PRONUNCIATION: You MUST convert ALL of these genuine acoustic errors into dedicated 'pronunciation' feedbackCards (up to 6–8 distinct cards; do NOT trim them down to just 3 or 4).
 - In "studentResponse": highlight the mispronounced word together with the approximate IPA of how the student actually pronounced it (e.g. and you know, <span class="highlight-error">sausages /ˈsaʊ.sɪdʒ/</span>, potatoes.).
 - In "surgicalCorrection": highlight the word together with its correct target IPA (e.g. and you know, <span class="highlight-fix">sausages /ˈsɒs.ɪ.dʒɪz/</span>, potatoes.).
 - Also include "studentIpa": "/.../" (how the student pronounced it) and "targetIpa": "/.../" (correct IPA) on every pronunciation card.`;
@@ -518,12 +609,13 @@ INSTRUCTION FOR PRONUNCIATION: Do NOT invent or fabricate pronunciation errors i
 MANDATES:
 1. 100% ENGLISH & GRADED LANGUAGE: All output must be in English. Write explanations and rules in simple, accessible A2/B1 teacher language without linguistic jargon.
 2. DIALOGUE ROLES: If transcript contains 'DOCENTE:' (teacher) and 'ESTUDIANTE:' (student), evaluate and correct EXCLUSIVELY what 'ESTUDIANTE:' said. Use 'DOCENTE:' turns strictly as conversational context. 'teacherContext' in each card must be the literal preceding teacher question or "" if none. Never invent prompts.
-3. EXHAUSTIVE & PROPORTIONAL AUDIT: Conduct a complete, rigorous audit proportional to the length of the transcript. In extended turns or long sessions (> 200 words), you MUST extract and generate feedback cards for EVERY distinct and clear error in 'grammar' and 'vocabulary' across the entire speech. NEVER stop after just 1 or 2 sample cards. Group only exact identical repetitions of the same mistake into a single card; otherwise, each separate grammatical inaccuracy, wrong tense, subject-verb agreement failure, preposition mistake, unnatural collocation, or calque must have its own dedicated card:
-   - 'grammar': Systemic or local errors calibrated to ${normLevel}. Extract EVERY distinct grammatical error found throughout the entire student speech. Severity: 'basic_error'.
+3. HIGH-IMPACT BALANCED AUDIT (UP TO 25–28 TOTAL CARDS IN FULL SESSIONS): Conduct a thorough, high-impact audit across the entire speech whenever transcript content allows, targeting up to 25–28 total cards in full sessions while keeping all explanations ultra-concise (<= 12–15 words) so the JSON generates fast:
+   - 'grammar': Up to 8–10 distinct high-impact grammatical error cards calibrated to ${normLevel}. Group exact repetitions into a single card. Severity: 'basic_error'.
      * GRAMMAR PURITY RULE: 'surgicalCorrection' MUST fix ONLY the grammatical error while keeping the student's original vocabulary 100% intact (e.g., if the student said "proposed them a big map", correct it to "proposed a big map to them" — NEVER replace "big" with "comprehensive" or upgrade other words). Vocabulary upgrades belong exclusively in 'vocabulary' or 'upgrade_c1'.
-   - 'vocabulary': Unnatural collocations, calques, L1 interference, or imprecise lexical choices calibrated to ${normLevel}. Extract all distinct vocabulary improvement opportunities across the speech. Severity: 'refinement'.
-   - 'pronunciation': Phonological issues (-ed endings, silent letters, vowel reduction/schwa, word stress) grounded in the acoustic observations provided below or tags in the transcript. In studentResponse, highlight the mispronounced word AND include the approximate IPA of how the student actually pronounced it (e.g. <span class="highlight-error">sausages /ˈsaʊ.sɪdʒ/</span>). In surgicalCorrection, highlight the word AND its correct target IPA (e.g. <span class="highlight-fix">sausages /ˈsɒs.ɪ.dʒɪz/</span>). Also set "studentIpa" and "targetIpa" with the respective IPA strings in slashes. If no acoustic observations exist and no obvious phonetic mistakes appear, do NOT fabricate pronunciation errors. Severity: 'basic_error'.
-   - 'upgrade_c1': Generate BETWEEN 3 AND 4 distinct 'upgrade_c1' cards whenever the transcript length and content allow (do NOT stop at just 1 card). Draw from BOTH grammatically correct sentences AND key ideas from the student's turns that can be re-expressed in more natural, idiomatic spoken English (do not limit yourself only to 100% error-free sentences).
+   - 'vocabulary': Up to 5–6 distinct cards for unnatural collocations, literal Spanish translations/calques, L1 interference, or imprecise lexical choices calibrated to ${normLevel}. Severity: 'refinement'.
+   - 'pronunciation': Up to 6–8 cards covering ALL genuine acoustic pronunciation observations provided below (do NOT trim them down to 3 or 4) or clear phonological markers in the transcript. In studentResponse, highlight the mispronounced word AND include the approximate IPA of how the student actually pronounced it (e.g. <span class="highlight-error">sausages /ˈsaʊ.sɪdʒ/</span>). In surgicalCorrection, highlight the word AND its correct target IPA (e.g. <span class="highlight-fix">sausages /ˈsɒs.ɪ.dʒɪz/</span>). Also set "studentIpa" and "targetIpa" with the respective IPA strings in slashes. If no acoustic observations exist and no obvious phonetic mistakes appear, do NOT fabricate pronunciation errors. Severity: 'basic_error'.
+   - 'upgrade_c1': Generate 5–6 distinct 'upgrade_c1' cards in full sessions whenever transcript content allows (do NOT stop at just 1–3 cards). Draw from BOTH grammatically correct sentences AND key ideas from the student's turns that can be re-expressed in more natural, idiomatic spoken English (do not limit yourself only to 100% error-free sentences).
+     * 100% ERROR-FREE FULL SENTENCE RULE: Unlike 'grammar' (which fixes only one grammar point without touching vocabulary), in 'upgrade_c1' the ENTIRE 'surgicalCorrection' sentence MUST be 100% grammatically accurate and polished from start to finish — if the original sentence had secondary mistakes outside the main upgraded phrase (e.g., "a serie of training" in another clause), fix them too ("a series of training") so the student NEVER sees a C1 model with residual errors.
      * NATURAL SPOKEN REGISTER (NO ROBOTIC/ACADEMIC PROSE): Upgrades MUST sound like an articulate, educated native speaker in a real professional meeting or interview — NEVER like a stiff academic essay or legal contract.
      * STRICTLY BANNED WORDS: NEVER use artificial, overly formal, or essay-style words in spoken upgrades, such as: "utilize", "comprehensive", "commence", "facilitate", "plethora", "endeavor", "aforementioned".
      * PRIORITIZE: Natural everyday collocations, idiomatic phrasal verbs, spoken emphasis structures ("What struck me was...", "It came down to...", "The thing is..."), and crisp, natural lexical precision.
@@ -531,19 +623,20 @@ MANDATES:
        - If student is A1/A2 -> upgrade to natural spoken B1 (e.g. "decided to quit" instead of stiff/complex phrasing).
        - If student is B1 -> upgrade to natural spoken B2 (clear spoken connectors, practical collocations, natural phrasal verbs).
        - If student is B2/C1 -> upgrade to Natural Spoken C1 (idiomatic phrasal verbs, spoken clefts, authentic high-register collocations). Severity: 'upgrade'.
-   - 'fluency': Fillers, repetitive connectors, natural discourse markers calibrated to ${normLevel}. Severity: 'refinement'.
+   - 'fluency': Fillers, repetitive connectors, natural discourse markers calibrated to ${normLevel} (1–2 cards max). Severity: 'refinement'.
 4. BIDIRECTIONAL COMPLETE CONTEXT (NO TRUNCATION BEFORE OR AFTER THE ERROR):
    - In EVERY card (especially 'grammar', 'vocabulary', and 'upgrade_c1'), 'studentResponse' and 'surgicalCorrection' MUST contain the COMPLETE sentence (or full unit of meaning) with ZERO ellipsis ("...") cutting off essential context:
      * PRECEDING CONTEXT (before the error): NEVER cut off the subject or main verb that establishes tense, agreement, or clause structure (e.g., NEVER truncate "We created a map" in "...which allow us to find whatever we wanted" — include the full sentence "We created a map which allow us to find whatever we wanted").
      * FOLLOWING CONTEXT (after the error): NEVER cut off trailing time markers ("yesterday", "since 2020", "for three years", "last week"), conditional/result clauses ("...if I had known"), or prepositions/complements that follow the verb or adjective and trigger the rule (e.g., "I go to the office yesterday." and "She is living here since 2020." MUST be shown complete up to the final period).
      * You may only omit unrelated fillers from separate independent sentences — NEVER parts of the same sentence that provide the syntactic or temporal clue needed for the student to self-correct.
-5. CONTRASTIVE CAPSULE (Required for 'grammar', 'vocabulary', and 'upgrade_c1'; null for 'pronunciation' and 'fluency'):
-   - "poleA": { "label": "Student's/Opposing form", "rule": "Simple A2/B1 rule when Form A is right", "example": "Natural sentence where Form A is correct" }
-   - "poleB": { "label": "Target form", "rule": "Simple A2/B1 rule when to use Form B", "example": "Natural sentence where Form B is correct" } (Calibrated to ${normLevel} for grammar/vocab; strictly calibrated to natural spoken ${targetUpgradeLevel} for upgrade_c1).
+5. CONTRASTIVE CAPSULE (Required for 'grammar', 'vocabulary', and 'upgrade_c1'; null for 'pronunciation' and 'fluency') — ULTRA-CONCISE:
+   - Keep EVERY "rule" to ONE short sentence (max 12–15 words) and EVERY "example" to ONE brief natural sentence.
+   - "poleA": { "label": "Short Form A label", "rule": "1 brief sentence (<=15 words) when Form A is right", "example": "Short natural sentence" }
+   - "poleB": { "label": "Short Form B label", "rule": "1 brief sentence (<=15 words) when to use Form B", "example": "Short natural sentence" } (Calibrated to ${normLevel} for grammar/vocab; strictly calibrated to natural spoken ${targetUpgradeLevel} for upgrade_c1).
 6. MODEL SPEECH (i+1):
-   - "naturalCorrected": Full student discourse rewritten naturally at confirmed ${normLevel} fixing errors and acoustic fillers.
-   - "targetUpgrade": Same speech elevated exactly one step to natural spoken ${targetUpgradeLevel} (${iPlusOneLevel}), avoiding stiff academic words ("utilize", "comprehensive", "commence", "facilitate", "plethora", "endeavor", "aforementioned").
-   - "keyImprovements": Exactly 3 short bullet points in simple English explaining practical upgrades.
+   - "naturalCorrected": Concise, natural rewrite of the student's main message at confirmed ${normLevel} fixing errors and acoustic fillers.
+   - "targetUpgrade": Same message elevated one step to natural spoken ${targetUpgradeLevel} (${iPlusOneLevel}), avoiding stiff academic words ("utilize", "comprehensive", "commence", "facilitate", "plethora", "endeavor", "aforementioned").
+   - "keyImprovements": Exactly 3 short bullet points (<=12 words each) in simple English.
 ${acousticPronunciationSection}
 
 JSON OUTPUT FORMAT (Valid raw JSON, no markdown):
@@ -552,16 +645,16 @@ JSON OUTPUT FORMAT (Valid raw JSON, no markdown):
     {
       "category": "grammar" | "vocabulary" | "pronunciation" | "upgrade_c1" | "fluency",
       "severity": "basic_error" | "upgrade" | "refinement",
-      "teacherContext": "${cleanTeacherContext}",
-      "studentResponse": "Sentence with <span class=\\"highlight-error\\">error</span> (for pronunciation, include student IPA: <span class=\\"highlight-error\\">word /student_ipa/</span>)",
-      "surgicalCorrection": "Sentence with <span class=\\"highlight-fix\\">correction</span> (for pronunciation, include target IPA: <span class=\\"highlight-fix\\">word /target_ipa/</span>)",
+      "teacherContext": "<Literal preceding teacher question or empty string>",
+      "studentResponse": "Complete sentence with <span class=\\"highlight-error\\">error</span> (for pronunciation, include student IPA: <span class=\\"highlight-error\\">word /student_ipa/</span>)",
+      "surgicalCorrection": "Complete sentence with <span class=\\"highlight-fix\\">correction</span> (for pronunciation, include target IPA: <span class=\\"highlight-fix\\">word /target_ipa/</span>)",
       "studentIpa": "/approximate_student_ipa/ or null (pronunciation only)",
       "targetIpa": "/correct_target_ipa/ or null (pronunciation only)",
-      "explanation": "Clear surgical explanation in simple English (max 20 words)",
+      "explanation": "1 brief sentence in simple English (max 12–15 words)",
       "ieltsCriterion": "Grammatical Range and Accuracy" | "Lexical Resource" | "Pronunciation" | "Fluency and Coherence",
       "contrastiveCapsule": {
-        "poleA": { "label": "...", "rule": "...", "example": "..." },
-        "poleB": { "label": "...", "rule": "...", "example": "..." }
+        "poleA": { "label": "...", "rule": "<=15 words", "example": "..." },
+        "poleB": { "label": "...", "rule": "<=15 words", "example": "..." }
       } | null
     }
   ],
@@ -577,7 +670,8 @@ JSON OUTPUT FORMAT (Valid raw JSON, no markdown):
       studentUtterance,
       studentLevel: normLevel,
       systemPrompt,
-      highPrecision
+      highPrecision,
+      abortSignal
     });
 
     let rawCards = [];

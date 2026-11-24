@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Motor de Inteligencia Artificial (Limpieza y Rúbricas IELTS)
   cleanSpeech: (rawText) => ipcRenderer.invoke('ai:cleanSpeech', rawText),
   evaluateUtterance: (options) => ipcRenderer.invoke('ai:evaluateUtterance', options),
+  cancelEvaluation: (analysisId) => ipcRenderer.invoke('ai:cancelEvaluation', analysisId),
   transcribeAudio: (payload) => ipcRenderer.invoke('ai:transcribeAudio', payload),
   generateMicroExercise: (params) => ipcRenderer.invoke('ai:generateMicroExercise', params),
 

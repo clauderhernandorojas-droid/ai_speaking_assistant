@@ -197,6 +197,10 @@ ipcMain.handle('ai:evaluateUtterance', async (event, options) => {
   return ieltsEngine.evaluateUtterance(options);
 });
 
+ipcMain.handle('ai:cancelEvaluation', async (_event, analysisId) => {
+  return ieltsEngine.cancelEvaluation(analysisId || null);
+});
+
 ipcMain.handle('ai:transcribeAudio', async (event, { base64Data, mimeType, previousContext }) => {
   try {
     if (!base64Data) return { transcript: '', pronunciationIssues: [] };
