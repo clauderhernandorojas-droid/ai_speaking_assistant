@@ -32,13 +32,79 @@ export class AudioCaptureService {
 
     // Métricas y control del ciclo de bloques
     this.blockTimer = null;
+    this.muteGraceTimer = null;
+    this.isSystemMuted = false;
     this.isRelaying = false;
     this.supportedMime = '';
   }
 
   /**
+   * Adjunta listeners de salud física (onended, onmute con margen de gracia de 2.5s, onunmute)
+   * a las pistas de audio del MediaStream (tanto nuevo como reutilizado desde el lobby).
+   */
+  attachTrackListeners(stream) {
+    if (!stream) return;
+    if (this.muteGraceTimer) {
+      clearTimeout(this.muteGraceTimer);
+      this.muteGraceTimer = null;
+    }
+    this.isSystemMuted = false;
+
+    stream.getAudioTracks().forEach(track => {
+      track.enabled = !this.isMuted;
+      track.onended = () => {
+        if (this.muteGraceTimer) {
+          clearTimeout(this.muteGraceTimer);
+          this.muteGraceTimer = null;
+        }
+        console.warn('[AudioCaptureService] Audio track ended unexpectedly:', track.label);
+        this.onStatusChange({
+          ok: false,
+          error: 'Microphone disconnected',
+          deviceLabel: track.label || 'Input Microphone',
+          mimeType: this.supportedMime || ''
+        });
+      };
+      track.onmute = () => {
+        console.warn('[AudioCaptureService] Audio track muted by OS/browser (waiting 2.5s grace period):', track.label);
+        if (this.muteGraceTimer) clearTimeout(this.muteGraceTimer);
+        this.muteGraceTimer = setTimeout(() => {
+          this.muteGraceTimer = null;
+          if (this.isActive && !this.isMuted && track.readyState === 'live' && track.muted) {
+            this.isSystemMuted = true;
+            console.warn('[AudioCaptureService] Audio track remained muted after grace period:', track.label);
+            this.onStatusChange({
+              ok: false,
+              error: 'Microphone muted by system',
+              deviceLabel: track.label || 'Input Microphone',
+              mimeType: this.supportedMime || ''
+            });
+          }
+        }, 2500);
+      };
+      track.onunmute = () => {
+        if (this.muteGraceTimer) {
+          clearTimeout(this.muteGraceTimer);
+          this.muteGraceTimer = null;
+        }
+        console.log('[AudioCaptureService] Audio track unmuted by OS/browser:', track.label);
+        if (this.isSystemMuted && this.isActive && !this.isMuted) {
+          this.isSystemMuted = false;
+          this.onStatusChange({
+            ok: true,
+            recovered: true,
+            deviceLabel: track.label || this.getDeviceLabel() || 'Active Microphone',
+            mimeType: this.supportedMime || ''
+          });
+        }
+      };
+    });
+  }
+
+  /**
    * Obtiene un MediaStream de audio con fallback automático al micrófono por defecto
-   * si el deviceId exacto (ej. webcam USB en Windows) falla o cambia de ID.
+   * (tras una pausa de 300ms para permitir que Windows libere el driver)
+   * si el deviceId exacto (ej. webcam USB o headset Bluetooth) falla o cambia de ID.
    */
   async acquireMediaStream(deviceId = null) {
     const targetId = deviceId || this.deviceId;
@@ -56,7 +122,8 @@ export class AudioCaptureService {
           video: false
         });
       } catch (exactErr) {
-        console.warn('[AudioCaptureService] Exact deviceId failed, falling back to default mic:', exactErr.message);
+        console.warn('[AudioCaptureService] Exact deviceId failed, waiting 300ms before fallback to default mic:', exactErr.message);
+        await new Promise(resolve => setTimeout(resolve, 300));
         stream = await navigator.mediaDevices.getUserMedia({
           audio: baseAudio,
           video: false
@@ -69,31 +136,15 @@ export class AudioCaptureService {
       });
     }
 
-    // Vigilar eventos del track físico (desconexión o mute del SO / driver webcam)
-    stream.getAudioTracks().forEach(track => {
-      track.enabled = !this.isMuted;
-      track.onended = () => {
-        console.warn('[AudioCaptureService] Audio track ended unexpectedly:', track.label);
-        this.onStatusChange({
-          ok: false,
-          error: 'Microphone disconnected',
-          deviceLabel: track.label || 'Input Microphone',
-          mimeType: this.supportedMime || ''
-        });
-      };
-      track.onmute = () => {
-        console.warn('[AudioCaptureService] Audio track muted by OS/browser:', track.label);
-      };
-    });
-
+    this.attachTrackListeners(stream);
     return stream;
   }
 
   /**
-   * Solicita acceso al micrófono del navegador (o al deviceId especificado) con AGC y cancelación de ruido.
-   * Reinicia explícitamente el estado de Mute a false y activa todos los tracks de audio.
+   * Solicita acceso al micrófono del navegador (o reutiliza un MediaStream vivo del lobby)
+   * con AGC y cancelación de ruido. Reinicia explícitamente el estado de Mute a false.
    */
-  async start(deviceId = null) {
+  async start(deviceId = null, existingStream = null) {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       throw new Error('Your browser does not support microphone capture.');
     }
@@ -105,7 +156,19 @@ export class AudioCaptureService {
     // Reset limpio obligatorio del estado de Mute y pistas de audio al entrar/iniciar
     this.isMuted = false;
     this.isRelaying = false;
-    this.mediaStream = await this.acquireMediaStream(this.deviceId);
+
+    const canReuse = existingStream &&
+      typeof existingStream.getAudioTracks === 'function' &&
+      existingStream.getAudioTracks().some(t => t.readyState === 'live');
+
+    if (canReuse) {
+      console.log('[AudioCaptureService] Reusing live lobby MediaStream without reopening hardware.');
+      this.mediaStream = existingStream;
+      this.attachTrackListeners(this.mediaStream);
+    } else {
+      this.mediaStream = await this.acquireMediaStream(this.deviceId);
+    }
+
     if (this.mediaStream) {
       this.mediaStream.getAudioTracks().forEach(track => {
         track.enabled = true;
@@ -387,18 +450,18 @@ export class AudioCaptureService {
    * Si el stream terminó o se cerró, solicita un nuevo getUserMedia y reinicia la captura.
    * Si las pistas están vivas pero silenciadas o deshabilitadas, las re-habilita inmediatamente.
    */
-  async ensureActive(deviceId = null) {
+  async ensureActive(deviceId = null, existingStream = null) {
     if (deviceId) {
       this.deviceId = deviceId;
     }
 
     const hasLive = this.hasLiveTrack();
     if (!this.isActive || !hasLive) {
-      console.log('[AudioCaptureService] ensureActive: Stream inactivo o sin pistas vivas. Reiniciando captura con getUserMedia...');
+      console.log('[AudioCaptureService] ensureActive: Stream inactivo o sin pistas vivas. Iniciando captura...');
       try {
         await this.stop();
       } catch (_) {}
-      await this.start(this.deviceId);
+      await this.start(this.deviceId, existingStream);
       return true;
     }
 
@@ -530,9 +593,18 @@ export class AudioCaptureService {
 
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    let detached = false;
     if (!AudioContextClass) {
       return {
-        stop: () => stream.getTracks().forEach(t => t.stop())
+        detachStream: () => {
+          detached = true;
+          return stream.getAudioTracks().some(t => t.readyState === 'live') ? stream : null;
+        },
+        stop: () => {
+          if (!detached) {
+            stream.getTracks().forEach(t => t.stop());
+          }
+        }
       };
     }
 
@@ -546,6 +618,7 @@ export class AudioCaptureService {
     let frameId = null;
 
     const check = () => {
+      if (detached) return;
       analyser.getByteFrequencyData(dataArray);
       let sum = 0;
       for (let i = 0; i < dataArray.length; i++) {
@@ -561,10 +634,31 @@ export class AudioCaptureService {
     check();
 
     return {
+      detachStream: () => {
+        detached = true;
+        if (frameId) {
+          cancelAnimationFrame(frameId);
+          frameId = null;
+        }
+        try {
+          source.disconnect();
+        } catch (_) {}
+        if (ctx.state !== 'closed') {
+          ctx.close().catch(() => {});
+        }
+        return stream.getAudioTracks().some(t => t.readyState === 'live') ? stream : null;
+      },
       stop: () => {
-        if (frameId) cancelAnimationFrame(frameId);
-        stream.getTracks().forEach(t => t.stop());
-        if (ctx.state !== 'closed') ctx.close();
+        if (frameId) {
+          cancelAnimationFrame(frameId);
+          frameId = null;
+        }
+        if (!detached) {
+          stream.getTracks().forEach(t => t.stop());
+        }
+        if (ctx.state !== 'closed') {
+          ctx.close().catch(() => {});
+        }
       }
     };
   }
@@ -907,6 +1001,12 @@ export class AudioCaptureService {
       clearTimeout(this.blockTimer);
       this.blockTimer = null;
     }
+
+    if (this.muteGraceTimer) {
+      clearTimeout(this.muteGraceTimer);
+      this.muteGraceTimer = null;
+    }
+    this.isSystemMuted = false;
 
     if (this.vadIntervalId) {
       clearInterval(this.vadIntervalId);

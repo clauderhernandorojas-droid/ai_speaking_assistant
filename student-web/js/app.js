@@ -296,7 +296,7 @@ let isSessionOralActive = false;
  * Si el stream fue cerrado tras el test del lobby o detenido por un modo revisión previo,
  * solicita inmediatamente getUserMedia de nuevo y reinicia la captura limpia.
  */
-async function ensureStudentAudioCapture(deviceId = null) {
+async function ensureStudentAudioCapture(deviceId = null, existingStream = null) {
   const targetDeviceId = deviceId || selectedDeviceId;
   let micStartOk = false;
   let micError = null;
@@ -330,10 +330,22 @@ async function ensureStudentAudioCapture(deviceId = null) {
             mimeType: status.mimeType || audioService?.supportedMime || ''
           });
         }
-        if (status.ok && status.recovered && isSessionOralActive) {
-          micStatusLabel.textContent = 'Microphone On';
-          micStatusSub.textContent = 'Speak naturally. Your teacher can hear you.';
-        } else if (!status.ok && isSessionOralActive) {
+        const isReviewMode = sessionStatusBadge && sessionStatusBadge.classList.contains('badge-ended');
+        if (isReviewMode) return;
+
+        if (status.ok && status.recovered) {
+          if (isSessionOralActive) {
+            micStatusLabel.textContent = 'Microphone On';
+            micStatusSub.textContent = 'Speak naturally. Your teacher can hear you.';
+          } else {
+            micStatusLabel.textContent = 'Microphone Ready (Waiting)';
+            micStatusSub.textContent = 'Your microphone is ready. Your teacher will start soon.';
+          }
+          if (sessionVuMeterLabel) {
+            sessionVuMeterLabel.textContent = 'Microphone sound is active';
+            sessionVuMeterLabel.classList.remove('muted', 'active');
+          }
+        } else if (!status.ok) {
           micStatusLabel.textContent = 'Microphone Error';
           micStatusSub.textContent = `Reconnecting microphone (${status.error || 'signal lost'})...`;
         }
@@ -342,7 +354,7 @@ async function ensureStudentAudioCapture(deviceId = null) {
   }
 
   try {
-    await audioService.ensureActive(targetDeviceId);
+    await audioService.ensureActive(targetDeviceId, existingStream);
     micStartOk = true;
     deviceLabel = audioService.getDeviceLabel ? audioService.getDeviceLabel() : '';
     selectedMime = audioService.supportedMime || '';
@@ -396,14 +408,19 @@ joinForm.addEventListener('submit', async (e) => {
 
     isSessionOralActive = isAlreadyActive;
 
-    // Detener monitor de prueba previo antes de iniciar la captura oficial
-    if (activePreviewMonitor) {
-      activePreviewMonitor.stop();
-      activePreviewMonitor = null;
-    }
-
     if (micSelect && micSelect.value) {
       selectedDeviceId = micSelect.value;
+    }
+
+    // Reutilizar el MediaStream vivo del lobby (sin cerrar pistas ni reabrir el driver de hardware)
+    let reusedLobbyStream = null;
+    if (activePreviewMonitor) {
+      if (!isCompleted && typeof activePreviewMonitor.detachStream === 'function') {
+        reusedLobbyStream = activePreviewMonitor.detachStream();
+      } else {
+        activePreviewMonitor.stop();
+      }
+      activePreviewMonitor = null;
     }
 
     let micStartOk = false;
@@ -411,9 +428,9 @@ joinForm.addEventListener('submit', async (e) => {
     let deviceLabel = '';
     let selectedMime = '';
 
-    // Si la sesión no está en modo revisión, inicializar o asegurar captura de audio con tracks vivos
+    // Si la sesión no está en modo revisión, inicializar o asegurar captura de audio reutilizando el stream vivo
     if (!isCompleted) {
-      const micRes = await ensureStudentAudioCapture(selectedDeviceId);
+      const micRes = await ensureStudentAudioCapture(selectedDeviceId, reusedLobbyStream);
       micStartOk = micRes.micStartOk;
       micError = micRes.micError;
       deviceLabel = micRes.deviceLabel;
