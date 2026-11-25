@@ -23,9 +23,10 @@ Regardless of the student's claimed level (${studentLevel}), you MUST catch and 
 7. Missing or misused articles ('a/an/the') and prepositions of time/place ('in Monday', 'at the car').
 8. Faulty Conditional Structures (mixing 1st, 2nd, and 3rd conditionals).
 
-STRICT GRAMMAR PURITY RULE (DO NOT CHANGE THE STUDENT'S VOCABULARY):
-- 'surgicalCorrection' MUST fix ONLY the grammatical error while keeping the student's original vocabulary 100% intact.
-- Example: if the student said "proposed them a big map", correct it to "proposed a big map to them" — NEVER replace "big" with "comprehensive" or upgrade other words.
+STRICT GRAMMAR PURITY & ERROR-FREE MODEL RULE (PRESERVE VOCABULARY, ZERO RESIDUAL GRAMMAR ERRORS):
+- In 'studentResponse', highlight ONLY the primary grammatical error (<span class="highlight-error">...</span>) so the card keeps a clear focus.
+- In 'surgicalCorrection', highlight the primary correction (<span class="highlight-fix">...</span>) AND silently fix (without extra HTML tags) any other grammatical error in the rest of that same sentence, while keeping the student's original vocabulary 100% intact.
+- Example: if the student said "proposed them a big map", correct it to "proposed a big map to them" — NEVER replace "big" with "comprehensive" or upgrade other words. The corrected green sentence must never contain residual grammar errors.
 - Vocabulary upgrades belong exclusively in 'vocabulary' or 'upgrade_c1'.
 
 STRICT BIDIRECTIONAL CONTEXT RULE (NO TRUNCATION BEFORE OR AFTER THE ERROR):
@@ -41,8 +42,8 @@ Return a JSON array of objects with the exact following schema:
     "category": "grammar",
     "severity": "basic_error",
     "teacherContext": "<The question or turn from the teacher that preceded this response>",
-    "studentResponse": "<Complete sentence with the error wrapped in <span class=\\"highlight-error\\">error_word</span>>",
-    "surgicalCorrection": "<Complete corrected sentence preserving original vocabulary, with ONLY the grammatical fix wrapped in <span class=\\"highlight-fix\\">corrected_word</span>>",
+    "studentResponse": "<Complete sentence highlighting ONLY the primary error in <span class=\\"highlight-error\\">error_word</span>>",
+    "surgicalCorrection": "<100% grammatically accurate complete sentence preserving original vocabulary: highlight the primary fix in <span class=\\"highlight-fix\\">corrected_word</span> and silently fix any secondary grammar errors without extra HTML tags>",
     "explanation": "<Precise rule explanation in simple English, concise and pedagogical>",
     "ieltsCriterion": "GRA: Band <estimated band> (<Specific IELTS descriptor violation>)"
   }

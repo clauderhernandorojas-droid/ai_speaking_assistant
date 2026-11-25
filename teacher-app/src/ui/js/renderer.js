@@ -1303,7 +1303,6 @@ if (btnReanalyze) {
 
     // 1. Extraer transcripción visible actual con roles diferenciados de DOCENTE y ESTUDIANTE
     const turns = document.querySelectorAll('#transcript-feed .transcript-turn');
-    let teacherContext = '';
     let studentUtterance = '';
     let fullLabeledTranscript = '';
 
@@ -1314,7 +1313,6 @@ if (btnReanalyze) {
       if (!text) return;
 
       if (isTeacher) {
-        teacherContext = (teacherContext + ' ' + text).trim();
         fullLabeledTranscript += `DOCENTE: "${text}"\n`;
       } else {
         studentUtterance = (studentUtterance + ' ' + text).trim();
@@ -1337,7 +1335,7 @@ if (btnReanalyze) {
     const payloadUtterance = fullLabeledTranscript.trim() || studentUtterance;
 
     // Abrir modal de confirmación de nivel antes de llamar a Gemini (Modo Alta Precisión activado)
-    openConfirmLevelModal({ studentUtterance: payloadUtterance, teacherContext, isReanalyze: true });
+    openConfirmLevelModal({ studentUtterance: payloadUtterance, teacherContext: '', isReanalyze: true });
   });
 }
 
@@ -1598,7 +1596,6 @@ function handleSessionCompleted(summary) {
   const allTurns = transcriptFeed.querySelectorAll('.transcript-turn');
   let fullLabeledTranscript = '';
   let studentUtterance = '';
-  let teacherContext = '';
 
   if (allTurns.length > 0) {
     allTurns.forEach(turn => {
@@ -1608,7 +1605,6 @@ function handleSessionCompleted(summary) {
       if (!text) return;
 
       if (isTeacher) {
-        teacherContext = (teacherContext + ' ' + text).trim();
         fullLabeledTranscript += `DOCENTE: "${text}"\n`;
       } else {
         studentUtterance = (studentUtterance + ' ' + text).trim();
@@ -1630,7 +1626,7 @@ function handleSessionCompleted(summary) {
       transcriptStatus.textContent = 'Transcripción lista. Confirma el nivel para analizar.';
       console.log('[Renderer] Transcripción acumulada lista. Abriendo modal de confirmación de nivel...');
       const payloadUtterance = fullLabeledTranscript.trim() || studentUtterance;
-      openConfirmLevelModal({ studentUtterance: payloadUtterance, teacherContext, isReanalyze: false });
+      openConfirmLevelModal({ studentUtterance: payloadUtterance, teacherContext: '', isReanalyze: false });
     } else {
       transcriptStatus.textContent = 'Finalizada (Sin voz detectable)';
     }

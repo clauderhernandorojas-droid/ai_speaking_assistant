@@ -34,7 +34,7 @@ PRIORITIZE THESE NATURAL SPOKEN C1 FEATURES:
 4. Complete Sentence Context:
    - Always include the complete sentence or unit of meaning in both studentResponse and surgicalCorrection without truncating with "..." before or after the upgraded phrase.
 5. 100% Error-Free Full Sentence:
-   - Unlike 'grammar' cards (which surgically fix only one grammar point without altering vocabulary), in 'upgrade_c1' the ENTIRE 'surgicalCorrection' sentence MUST be 100% grammatically correct and polished across all clauses. If the student's original sentence had any secondary mistakes outside the main upgraded phrase (e.g., "a serie of training" in a second clause), fix them too ("a series of training") so the student never sees a C1 model containing residual errors.
+   - In 'upgrade_c1', the ENTIRE 'surgicalCorrection' sentence MUST be 100% grammatically correct and polished across all clauses. If the student's original sentence had any secondary mistakes outside the main upgraded phrase (e.g., "a serie of training" in a second clause), fix them too ("a series of training") so the student never sees a C1 model containing residual errors.
 
 QUANTITY QUOTA:
 Generate 5–6 distinct, high-impact Natural Spoken C1 'upgrade_c1' cards per full session whenever the length and content of the transcript allow (never stop at just 1–3 cards if the student expressed multiple ideas).

@@ -608,14 +608,14 @@ INSTRUCTION FOR PRONUNCIATION: Do NOT invent or fabricate pronunciation errors i
 
 MANDATES:
 1. 100% ENGLISH & GRADED LANGUAGE: All output must be in English. Write explanations and rules in simple, accessible A2/B1 teacher language without linguistic jargon.
-2. DIALOGUE ROLES: If transcript contains 'DOCENTE:' (teacher) and 'ESTUDIANTE:' (student), evaluate and correct EXCLUSIVELY what 'ESTUDIANTE:' said. Use 'DOCENTE:' turns strictly as conversational context. 'teacherContext' in each card must be the literal preceding teacher question or "" if none. Never invent prompts.
+2. DIALOGUE ROLES: If transcript contains 'DOCENTE:' (teacher) and 'ESTUDIANTE:' (student), evaluate and correct EXCLUSIVELY what 'ESTUDIANTE:' said. Use 'DOCENTE:' turns strictly as conversational context. Populate 'teacherContext' ONLY with the specific preceding teacher prompt/question that triggered that student segment, or "" if none applies; never concatenate the entire session's teacher turns. Never invent prompts.
 3. HIGH-IMPACT BALANCED AUDIT (UP TO 25–28 TOTAL CARDS IN FULL SESSIONS): Conduct a thorough, high-impact audit across the entire speech whenever transcript content allows, targeting up to 25–28 total cards in full sessions while keeping all explanations ultra-concise (<= 12–15 words) so the JSON generates fast:
    - 'grammar': Up to 8–10 distinct high-impact grammatical error cards calibrated to ${normLevel}. Group exact repetitions into a single card. Severity: 'basic_error'.
-     * GRAMMAR PURITY RULE: 'surgicalCorrection' MUST fix ONLY the grammatical error while keeping the student's original vocabulary 100% intact (e.g., if the student said "proposed them a big map", correct it to "proposed a big map to them" — NEVER replace "big" with "comprehensive" or upgrade other words). Vocabulary upgrades belong exclusively in 'vocabulary' or 'upgrade_c1'.
+     * GRAMMAR PURITY & ERROR-FREE MODEL RULE: In 'studentResponse', highlight ONLY the primary grammatical error (<span class="highlight-error">...</span>) for a clear teaching focus. In 'surgicalCorrection', highlight the primary fix (<span class="highlight-fix">...</span>) AND silently fix (without extra HTML tags) any other grammatical errors in the rest of that same sentence while preserving the student's original vocabulary (e.g., if the student said "proposed them a big map", correct it to "proposed a big map to them" — NEVER replace "big" with "comprehensive"). The green model sentence must NEVER contain residual grammar errors. Vocabulary upgrades belong exclusively in 'vocabulary' or 'upgrade_c1'.
    - 'vocabulary': Up to 5–6 distinct cards for unnatural collocations, literal Spanish translations/calques, L1 interference, or imprecise lexical choices calibrated to ${normLevel}. Severity: 'refinement'.
    - 'pronunciation': Up to 6–8 cards covering ALL genuine acoustic pronunciation observations provided below (do NOT trim them down to 3 or 4) or clear phonological markers in the transcript. In studentResponse, highlight the mispronounced word AND include the approximate IPA of how the student actually pronounced it (e.g. <span class="highlight-error">sausages /ˈsaʊ.sɪdʒ/</span>). In surgicalCorrection, highlight the word AND its correct target IPA (e.g. <span class="highlight-fix">sausages /ˈsɒs.ɪ.dʒɪz/</span>). Also set "studentIpa" and "targetIpa" with the respective IPA strings in slashes. If no acoustic observations exist and no obvious phonetic mistakes appear, do NOT fabricate pronunciation errors. Severity: 'basic_error'.
    - 'upgrade_c1': Generate 5–6 distinct 'upgrade_c1' cards in full sessions whenever transcript content allows (do NOT stop at just 1–3 cards). Draw from BOTH grammatically correct sentences AND key ideas from the student's turns that can be re-expressed in more natural, idiomatic spoken English (do not limit yourself only to 100% error-free sentences).
-     * 100% ERROR-FREE FULL SENTENCE RULE: Unlike 'grammar' (which fixes only one grammar point without touching vocabulary), in 'upgrade_c1' the ENTIRE 'surgicalCorrection' sentence MUST be 100% grammatically accurate and polished from start to finish — if the original sentence had secondary mistakes outside the main upgraded phrase (e.g., "a serie of training" in another clause), fix them too ("a series of training") so the student NEVER sees a C1 model with residual errors.
+     * 100% ERROR-FREE FULL SENTENCE RULE: In 'upgrade_c1', the ENTIRE 'surgicalCorrection' sentence MUST be 100% grammatically accurate and polished from start to finish — if the original sentence had secondary mistakes outside the main upgraded phrase (e.g., "a serie of training" in another clause), fix them too ("a series of training") so the student NEVER sees a C1 model with residual errors.
      * NATURAL SPOKEN REGISTER (NO ROBOTIC/ACADEMIC PROSE): Upgrades MUST sound like an articulate, educated native speaker in a real professional meeting or interview — NEVER like a stiff academic essay or legal contract.
      * STRICTLY BANNED WORDS: NEVER use artificial, overly formal, or essay-style words in spoken upgrades, such as: "utilize", "comprehensive", "commence", "facilitate", "plethora", "endeavor", "aforementioned".
      * PRIORITIZE: Natural everyday collocations, idiomatic phrasal verbs, spoken emphasis structures ("What struck me was...", "It came down to...", "The thing is..."), and crisp, natural lexical precision.
@@ -646,8 +646,8 @@ JSON OUTPUT FORMAT (Valid raw JSON, no markdown):
       "category": "grammar" | "vocabulary" | "pronunciation" | "upgrade_c1" | "fluency",
       "severity": "basic_error" | "upgrade" | "refinement",
       "teacherContext": "<Literal preceding teacher question or empty string>",
-      "studentResponse": "Complete sentence with <span class=\\"highlight-error\\">error</span> (for pronunciation, include student IPA: <span class=\\"highlight-error\\">word /student_ipa/</span>)",
-      "surgicalCorrection": "Complete sentence with <span class=\\"highlight-fix\\">correction</span> (for pronunciation, include target IPA: <span class=\\"highlight-fix\\">word /target_ipa/</span>)",
+      "studentResponse": "Complete sentence highlighting ONLY the primary error in <span class=\\"highlight-error\\">error</span> (for pronunciation, include student IPA: <span class=\\"highlight-error\\">word /student_ipa/</span>)",
+      "surgicalCorrection": "100% grammatically accurate complete sentence: highlight the primary fix in <span class=\\"highlight-fix\\">correction</span> and silently fix any secondary grammar errors without extra HTML tags (for pronunciation, include target IPA: <span class=\\"highlight-fix\\">word /target_ipa/</span>)",
       "studentIpa": "/approximate_student_ipa/ or null (pronunciation only)",
       "targetIpa": "/correct_target_ipa/ or null (pronunciation only)",
       "explanation": "1 brief sentence in simple English (max 12–15 words)",
@@ -692,7 +692,7 @@ JSON OUTPUT FORMAT (Valid raw JSON, no markdown):
     const normalizedCards = (rawCards || []).map(card => {
       let cat = (card.category || '').toLowerCase().trim();
       if (cat === 'upgrade' || cat === 'upgradec1' || cat === 'c1') cat = 'upgrade_c1';
-      let ctx = (card.teacherContext || cleanTeacherContext || '').trim();
+      let ctx = (card.teacherContext || '').trim();
       if (ctx.toLowerCase().includes('tell me about your experience') || ctx === 'Speaking turn' || ctx === 'Pregunta o contexto oral') {
         ctx = '';
       }
