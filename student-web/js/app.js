@@ -712,8 +712,13 @@ function handleGuidedCorrectionEvent(payload) {
       guidedContextContainer.classList.remove('hidden');
     }
 
-    // 3. Frase del alumno (con formato de error resaltado y su IPA si es Pronunciación)
-    guidedStudentQuote.innerHTML = payload.studentQuote || '';
+    // 3. Frase del alumno en texto plano (sin resaltar el error para fomentar la autocorrección autónoma)
+    const rawQuote = payload.studentQuote || '';
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = rawQuote;
+    const cleanQuote = (tempDiv.textContent || tempDiv.innerText || '').trim();
+    guidedStudentQuote.textContent = cleanQuote;
+
     if (cat === 'pronunciation') {
       const safeStudentIpa = formatSafeIpa(payload.studentIpa || payload.student_ipa);
       if (safeStudentIpa && !guidedStudentQuote.textContent.includes(safeStudentIpa)) {
@@ -721,12 +726,7 @@ function handleGuidedCorrectionEvent(payload) {
         ipaEl.className = 'ipa-chip ipa-student';
         ipaEl.title = 'How you pronounced it';
         ipaEl.textContent = safeStudentIpa;
-        const highlightEl = guidedStudentQuote.querySelector('.highlight-error');
-        if (highlightEl) {
-          highlightEl.insertAdjacentElement('afterend', ipaEl);
-        } else {
-          guidedStudentQuote.appendChild(ipaEl);
-        }
+        guidedStudentQuote.appendChild(ipaEl);
       }
     }
 

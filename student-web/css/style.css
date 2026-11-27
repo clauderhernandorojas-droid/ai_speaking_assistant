@@ -674,8 +674,8 @@ select {
 
 .guided-student-quote {
   font-size: 1.05rem;
-  color: #fca5a5;
-  background: rgba(239, 68, 68, 0.1);
+  color: #f1f5f9;
+  background: rgba(239, 68, 68, 0.08);
   border-left: 3px solid var(--danger);
   padding: 10px 14px;
   border-radius: 8px;
@@ -684,12 +684,12 @@ select {
 }
 
 .guided-student-quote .highlight-error {
-  background: rgba(239, 68, 68, 0.3);
-  color: #ffffff;
-  padding: 1px 4px;
-  border-radius: 3px;
-  text-decoration: underline wavy var(--danger);
-  font-weight: 600;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
+  text-decoration: none;
+  font-weight: inherit;
 }
 
 .guided-prompt-banner {
